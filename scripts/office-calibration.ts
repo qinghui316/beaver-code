@@ -593,7 +593,7 @@ function sha256(value: string): string {
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (command === "migrate") {
-    if (!args[0]) throw new Error("Usage: office-calibration migrate <v3-source.json> [v4-target.json] [props-atlas@1x.json] [shadow-proof.json] [props-atlas@2x.json]");
+    if (!args[0]) throw new Error("Usage: office-calibration migrate <v3-source.json> [v5-target.json] [props-atlas@1x.json] [shadow-proof.json] [props-atlas@2x.json]");
     console.log(JSON.stringify(await migrateOfficeCalibrationFile(
       args[0],
       args[1] ?? DEFAULT_DOCUMENT,
@@ -617,7 +617,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "diff") {
-    if (!args[0] || !args[1]) throw new Error("Usage: office-calibration diff <left-v4.json> <right-v4.json>");
+    if (!args[0] || !args[1]) throw new Error("Usage: office-calibration diff <left-v5.json> <right-v5.json>");
     const changes = await diffOfficeCalibrationFiles(args[0], args[1]);
     console.log(changes.length === 0 ? "No calibration differences." : changes.join("\n"));
     return;

@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { OfficeActionId, OfficeHandoffActionInstanceId } from "./officeVisualContract.js";
 
 export const OFFICE_CALIBRATION_SCHEMA_VERSION = 5 as const;
+// SHA-256 of the final production V4 document from which the accepted handoff calibration was edited.
+export const OFFICE_CALIBRATION_V4_HANDOFF_SOURCE_SHA256 = "0235ad822a2d4dad48b9ffe26b8291b78189c11a9894df4840ab11574bb0d3f7" as const;
 export const OFFICE_CALIBRATION_LAYERS = ["shadow", "desk", "screen", "actor-seated", "chair", "actor-mobile", "effect"] as const;
 export const OFFICE_CALIBRATION_ACTION_IDS = [
   "working", "standby", "coffee-drink", "peek", "off-chair", "walk-horizontal", "walk-vertical",
@@ -212,6 +214,9 @@ export function promoteOfficeCalibrationV4(
   const legacy = legacyOfficeCalibrationV4Schema.parse(value);
   assertOrderedKeys(legacy.layers, ["shadow", "desk", "screen", "actor", "chair", "effect"], "legacy V4 layers");
   const mirrorPatch = mirrorPatchValue == null ? null : officeHandoffMirrorOverridesV1Schema.parse(mirrorPatchValue);
+  if (mirrorPatch && mirrorPatch.sourceConfigSha256 !== OFFICE_CALIBRATION_V4_HANDOFF_SOURCE_SHA256) {
+    throw new Error("Office handoff mirror overrides do not match the accepted production V4 source.");
+  }
   const mainTargets = Object.keys(legacy.handoffs.main ?? {});
   if (mirrorPatch) assertExactKeys(Object.keys(mirrorPatch.targets), mainTargets, "mirror patch targets");
 

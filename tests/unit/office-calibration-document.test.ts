@@ -11,6 +11,7 @@ import {
   validateOfficeCalibrationFile,
 } from "../../scripts/office-calibration.js";
 import {
+  OFFICE_CALIBRATION_V4_HANDOFF_SOURCE_SHA256,
   OFFICE_HANDOFF_ACTION_INSTANCE_IDS,
   parseOfficeCalibrationDocument,
   parseOfficeCalibrationJson,
@@ -136,6 +137,10 @@ describe("Office calibration document", () => {
     mismatched.targets.planning.actions["interaction:salute"].actionId = "working";
     expect(() => promoteOfficeCalibrationV4(v4, mismatched)).toThrow(/must use salute/i);
 
+    const foreignSource = structuredClone(patch);
+    foreignSource.sourceConfigSha256 = "f".repeat(64);
+    expect(() => promoteOfficeCalibrationV4(v4, foreignSource)).toThrow(/production V4 source/i);
+
     const driftedReturn = structuredClone(v4);
     driftedReturn.handoffs.main.planning.return[0].points[0].x += 1;
     expect(() => promoteOfficeCalibrationV4(driftedReturn, patch)).toThrow(/exact reverse path/i);
@@ -160,6 +165,13 @@ describe("Office calibration document", () => {
     const result = await promoteOfficeHandoffCalibrationFiles(v4Path, patchPath, targetPath);
     expect(result.sourceV4Sha256).toBe(v4Hash);
     expect(parseOfficeCalibrationJson(await readFile(targetPath, "utf8"))).toEqual(published);
+
+    const foreignSource = mirrorPatchFromV5(published, v4Hash);
+    foreignSource.sourceConfigSha256 = "f".repeat(64);
+    await writeFile(patchPath, JSON.stringify(foreignSource), "utf8");
+    const beforeForeignSource = await readFile(targetPath, "utf8");
+    await expect(promoteOfficeHandoffCalibrationFiles(v4Path, patchPath, targetPath)).rejects.toThrow(/production V4 source/i);
+    expect(await readFile(targetPath, "utf8")).toBe(beforeForeignSource);
 
     const mismatched = mirrorPatchFromV5(published, "f".repeat(64));
     await writeFile(patchPath, JSON.stringify(mismatched), "utf8");
@@ -268,7 +280,7 @@ function mirrorPatchFromV5(document: Readonly<OfficeCalibrationDocument>, v4Sha2
   return {
     schemaVersion: 1 as const,
     sourceStationId: "main" as const,
-    sourceConfigSha256: "0".repeat(64),
+    sourceConfigSha256: OFFICE_CALIBRATION_V4_HANDOFF_SOURCE_SHA256,
     v4Sha256,
     exportedAt: "2026-09-14T00:00:00.000Z",
     targets: Object.fromEntries(Object.entries(document.handoffs.main).map(([targetId, handoff]) => [targetId, {
