@@ -14,7 +14,7 @@ import { type OfficeActor, type OfficeActorStatus, type OfficeSceneModel } from 
 import { destroyOfficeStaticWorld, OfficeStaticSceneRenderer, type OfficeStaticWorld, type OfficeStationVisual as StationVisual } from "./OfficeStaticSceneRenderer.js";
 import { OfficeLoadingScreen } from "./OfficeLoadingScreen.js";
 import { removeOfficeTickerIfCurrent } from "./officeRendererLifecycle.js";
-import { applyOfficeActionVisual, applyOfficeParticipantAction, applyOfficeParticipantRouteStage, destroyOfficeParticipants, followOfficeParticipantRoute, reconcileOfficeParticipants, type OfficeActorVisual } from "./OfficeParticipantRenderer.js";
+import { applyOfficeActionVisual, applyOfficeParticipantAction, applyOfficeParticipantDepth, applyOfficeParticipantRouteStage, destroyOfficeParticipants, followOfficeParticipantRoute, reconcileOfficeParticipants, type OfficeActorVisual } from "./OfficeParticipantRenderer.js";
 import { OFFICE_SCREEN_ANIMATION_SPEED } from "./officeVisualContract.js";
 import { loadOfficePixiModule } from "./officePixiRuntime.js";
 import { createOfficeRendererFailure, reportOfficeRendererFailure, type OfficeRendererFailure } from "./officeRendererDiagnostic.js";
@@ -173,6 +173,7 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, amb
     const assets = assetsRef.current;
     const world = worldRef.current;
     if (!pixi || !assets || !world) return;
+    if (command.kind === "setActorDepth") return applyOfficeParticipantDepth(world, actorsRef.current, command);
     if (command.kind === "playAction") return applyOfficeParticipantAction(assets, actorsRef.current, resolver, command, signal, reducedMotionRef.current);
     if (command.kind === "playRouteStage") return applyOfficeParticipantRouteStage(assets, actorsRef.current, resolver, command, signal, reducedMotionRef.current);
     if (command.kind === "followRoute") return followOfficeParticipantRoute(actorsRef.current.get(command.actorId)?.group, command.points, command.durationMs, signal, reducedMotionRef.current);

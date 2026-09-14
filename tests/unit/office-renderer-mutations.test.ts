@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   setOfficeStationScreen,
 } from "../../src/web/src/office/PixiOfficeRenderer.js";
-import { applyOfficeActionVisual, applyOfficeParticipantRouteStage, OFFICE_RESIDENT_CROSSFADE_MS, officeActionOverlayGeometry, reconcileOfficeParticipants, shouldCrossFadeResidentReplacement } from "../../src/web/src/office/OfficeParticipantRenderer.js";
+import { applyOfficeActionVisual, applyOfficeParticipantDepth, applyOfficeParticipantRouteStage, OFFICE_RESIDENT_CROSSFADE_MS, officeActionOverlayGeometry, reconcileOfficeParticipants, shouldCrossFadeResidentReplacement } from "../../src/web/src/office/OfficeParticipantRenderer.js";
 import type { OfficeSceneModel } from "../../src/web/src/office/officeScene.js";
 import { OFFICE_SCREEN_ANIMATION_SPEED } from "../../src/web/src/office/officeVisualContract.js";
 
@@ -26,7 +26,7 @@ describe("Office renderer async mutations", () => {
     const reconcile = reconcileOfficeParticipants(
       {} as never,
       { acquireAction: vi.fn(() => deferred.promise) } as never,
-      { personLayer: { addChild } } as never,
+      { seatedActorLayer: { addChild }, mobileActorLayer: { addChild: vi.fn() } } as never,
       new Map(),
       sceneWithActor(),
       {} as never,
@@ -43,6 +43,27 @@ describe("Office renderer async mutations", () => {
 
     expect(lateRelease).toHaveBeenCalledOnce();
     expect(addChild).not.toHaveBeenCalled();
+  });
+
+  it("reparents one existing actor group between seated and mobile layers without rebuilding it", () => {
+    const seated = actorLayer();
+    const mobile = actorLayer();
+    const group = { parent: seated };
+    const visual = { depthMode: "seated", group };
+    const actors = new Map([["agent-1", visual]]);
+    const world = { seatedActorLayer: seated, mobileActorLayer: mobile };
+
+    applyOfficeParticipantDepth(world as never, actors as never, { kind: "setActorDepth", actorId: "agent-1", mode: "mobile" });
+    expect(mobile.addChild).toHaveBeenCalledWith(group);
+    expect(visual.depthMode).toBe("mobile");
+    expect(group.parent).toBe(mobile);
+
+    applyOfficeParticipantDepth(world as never, actors as never, { kind: "setActorDepth", actorId: "agent-1", mode: "mobile" });
+    expect(mobile.addChild).toHaveBeenCalledOnce();
+
+    applyOfficeParticipantDepth(world as never, actors as never, { kind: "setActorDepth", actorId: "agent-1", mode: "seated" });
+    expect(seated.addChild).toHaveBeenCalledWith(group);
+    expect(visual.depthMode).toBe("seated");
   });
 
   it("does not relight a station when a cancelled ambient screen asset arrives late", async () => {
@@ -401,5 +422,14 @@ function positionedGroup(x: number, y: number) {
     get x() { return position.x; },
     get y() { return position.y; },
     position,
+  };
+}
+
+function actorLayer() {
+  return {
+    addChild: vi.fn(function addChild(this: unknown, child: { parent: unknown }) {
+      child.parent = this;
+      return child;
+    }),
   };
 }

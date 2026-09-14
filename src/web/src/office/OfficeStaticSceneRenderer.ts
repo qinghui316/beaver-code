@@ -19,7 +19,8 @@ export type OfficeStationVisual = {
 
 export type OfficeStaticWorld = {
   root: Container;
-  personLayer: Container;
+  seatedActorLayer: Container;
+  mobileActorLayer: Container;
   effectLayer: Container;
   stations: Map<string, OfficeStationVisual>;
   propsHandle: OfficeAtlasHandle<ParsedOfficeAtlas>;
@@ -36,7 +37,7 @@ export class OfficeStaticSceneRenderer {
   ) {}
 
   async build(scene: OfficeSceneModel, reducedMotion: boolean): Promise<OfficeStaticWorld> {
-    const owner = "world:office-calibration-v4";
+    const owner = "world:office-calibration-v5";
     const [propsHandle, coffeeEffectHandle] = await Promise.all([
       this.assets.acquireProps(owner),
       this.assets.acquireEffect("coffee-cup", `${owner}:coffee`),
@@ -76,7 +77,8 @@ export class OfficeStaticSceneRenderer {
       layers.effect!.addChild(coffeeEffect);
       return {
         root,
-        personLayer: layers.actor!,
+        seatedActorLayer: layers["actor-seated"]!,
+        mobileActorLayer: layers["actor-mobile"]!,
         effectLayer: layers.effect!,
         stations,
         propsHandle,

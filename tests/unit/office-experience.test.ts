@@ -185,10 +185,11 @@ describe("Office experience boundary", () => {
     const actor = participantBehaviorActor(participant);
     const command = compiler.behavior(actor, policy.resolve(actor));
     expect(command).toMatchObject({ kind: "parallel" });
-    expect(command.kind === "parallel" ? command.commands.slice(0, 2) : []).toMatchObject([
-      { kind: "playAction", actionId: "working" },
-      { kind: "setScreen", stationId: participant.stationId, profile: "orchestration" },
-    ]);
+    expect(command.kind === "parallel" ? command.commands : []).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "setActorDepth", actorId: participant.participantId, mode: "seated" }),
+      expect.objectContaining({ kind: "playAction", actionId: "working" }),
+      expect.objectContaining({ kind: "setScreen", stationId: participant.stationId, profile: "orchestration" }),
+    ]));
   });
 
   it("loops one computer-use base action and separates work from game screens", () => {
@@ -219,6 +220,7 @@ describe("Office experience boundary", () => {
 
     const completedActor = participantBehaviorActor({ ...base, state: "completed" });
     expect(compiler.behavior(completedActor, policy.resolve(completedActor, true))).toMatchObject({ kind: "sequence", commands: [
+      { kind: "setActorDepth", actorId: "child-1", mode: "seated" },
       { kind: "setScreen", profile: "entertainment-1" },
       { kind: "setEffect", effect: "none" },
       { kind: "playAction", actionId: "salute", loop: false },
@@ -251,14 +253,18 @@ describe("Office experience boundary", () => {
     const compiler = new OfficeActivityCompiler(resolver);
     const station = resolver.stations().find((candidate) => candidate.stationId === "coder")!;
 
-    expect(compiler.ambient("actor-1", station, { kind: "look-around" })).toMatchObject({
-      kind: "playAction",
-      actorId: "actor-1",
-      actionId: "standby",
-      loop: false,
-    });
-    expect(compiler.ambient("actor-1", station, { kind: "desk", activity: "peek" })).toMatchObject({ kind: "playAction", actionId: "peek", loop: false });
-    expect(compiler.ambient("actor-1", station, { kind: "desk", activity: "drink-at-desk" })).toMatchObject({ kind: "playAction", actionId: "coffee-drink", loop: false });
+    expect(compiler.ambient("actor-1", station, { kind: "look-around" })).toMatchObject({ kind: "sequence", commands: [
+      { kind: "setActorDepth", actorId: "actor-1", mode: "seated" },
+      { kind: "playAction", actorId: "actor-1", actionId: "standby", loop: false },
+    ] });
+    expect(compiler.ambient("actor-1", station, { kind: "desk", activity: "peek" })).toMatchObject({ kind: "sequence", commands: [
+      { kind: "setActorDepth", actorId: "actor-1", mode: "seated" },
+      { kind: "playAction", actionId: "peek", loop: false },
+    ] });
+    expect(compiler.ambient("actor-1", station, { kind: "desk", activity: "drink-at-desk" })).toMatchObject({ kind: "sequence", commands: [
+      { kind: "setActorDepth", actorId: "actor-1", mode: "seated" },
+      { kind: "playAction", actionId: "coffee-drink", loop: false },
+    ] });
     for (const facilityId of ["coffee", "treadmill", "toilet"] as const) {
       const command = compiler.ambient("actor-1", station, { kind: "facility", facilityId });
       expect(command).toMatchObject({ kind: "sequence" });
@@ -274,7 +280,7 @@ describe("Office experience boundary", () => {
 
   it("uses station-owned anchors, actor offsets, handoffs, and facility routes", () => {
     const stations = resolver.stations();
-    expect(calibration.schemaVersion).toBe(4);
+    expect(calibration.schemaVersion).toBe(5);
     expect(calibration.actionVisualAlignments.working.offset).toEqual({ x: -7.881743332435346, y: -1.9704132831742616 });
     for (const station of stations) {
       expect(station.anchors.seat).toEqual(resolver.station(station.stationId).actorAnchor);

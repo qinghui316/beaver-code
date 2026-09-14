@@ -1,6 +1,6 @@
 {
   "name": "agent-harness-orchestrator",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local-first Spec-Anchored managed-run harness for AI coding.",
   "type": "module",
   "main": "dist/desktop/main.js",

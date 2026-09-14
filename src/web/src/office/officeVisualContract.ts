@@ -1,5 +1,6 @@
 export type OfficePoint = { x: number; y: number };
-export type OfficeLayerId = "shadow" | "desk" | "screen" | "actor" | "chair" | "effect";
+export type OfficeLayerId = "shadow" | "desk" | "screen" | "actor-seated" | "chair" | "actor-mobile" | "effect";
+export type OfficeActorDepthMode = "seated" | "mobile";
 
 export const OFFICE_ACTION_IDS = [
   "working",
@@ -43,6 +44,18 @@ export type OfficeMovingRouteStageId = "leaving-out" | "walk-out" | "walk-return
 export type OfficeHandoffMovingStageId =
   | "source-leaving-out" | "walk-source-corridor" | "walk-target-row" | "walk-target-approach"
   | "walk-target-depart" | "walk-source-row" | "walk-source-approach" | "source-leaving-return";
+export type OfficeHandoffOutboundStageId =
+  | "source-leaving-out" | "walk-source-corridor" | "walk-target-row" | "walk-target-approach";
+export type OfficeHandoffReturnStageId =
+  | "walk-target-depart" | "walk-source-row" | "walk-source-approach" | "source-leaving-return";
+export type OfficeHandoffActionInstanceId =
+  | "depart:off-chair"
+  | `outbound:${OfficeHandoffOutboundStageId}`
+  | "interaction:standing-talk"
+  | "interaction:seated-talk"
+  | "interaction:salute"
+  | `return:${OfficeHandoffReturnStageId}`
+  | "finish:off-chair";
 
 export function officeActionPlaybackRate(actionId: string): number {
   return actionId === "walk-vertical" ? 0.5 : 1;
@@ -51,6 +64,7 @@ export function officeActionPlaybackRate(actionId: string): number {
 export const OFFICE_SCREEN_ANIMATION_SPEED = 0.35;
 
 export type OfficeRuntimeVisualCommand =
+  | { kind: "setActorDepth"; actorId: string; mode: OfficeActorDepthMode }
   | { kind: "playAction"; actorId: string; actionId: OfficeActionId; loop?: boolean; reverse?: boolean; flipX?: boolean; phase?: number; durationMs?: number }
   | { kind: "playRouteStage"; actorId: string; routeId: string; actionId: OfficeActionId; points: OfficePoint[]; durationMs: number; loop?: boolean; reverse?: boolean; flipX?: boolean }
   | { kind: "followRoute"; actorId: string; routeId: string; points: OfficePoint[]; durationMs: number; flipX?: boolean }

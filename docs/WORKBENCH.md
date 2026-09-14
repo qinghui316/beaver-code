@@ -712,6 +712,11 @@ Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loo
 - Agent activity visualization is an Agent-only Office projection over real
   provider lineage and Agent surfaces; it is not workflow truth. Exact Agent
   navigation remains bound to the canonical Agent surface.
+- Office handoffs use calibration V5: one shared spatial route determines both
+  directions, while each departure, route, interaction, return, and seating
+  action keeps its own mirror value. Mobile actors render above chairs; seated
+  actors render behind chairs. The production activity compiler, rather than
+  the renderer, owns those posture transitions.
 - Parallel worktree slices are useful only when the main Agent can explain low conflict. High-conflict slices wait, run sequentially, or enter a fix loop.
 
 ## 6. Objects The GUI May Surface

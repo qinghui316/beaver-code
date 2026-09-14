@@ -9,7 +9,7 @@ import { officeRouteFrameAt } from "./officeRouteInterpolation.js";
 import { OfficeRuntimeAssets, type ParsedOfficeAtlas } from "./officeRuntimeAssets.js";
 import type { OfficeActor, OfficeActorStatus, OfficeSceneModel } from "./officeScene.js";
 import type { OfficeStaticWorld } from "./OfficeStaticSceneRenderer.js";
-import { officeActionPlaybackRate, type OfficeActionId, type OfficePoint, type OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
+import { officeActionPlaybackRate, type OfficeActionId, type OfficeActorDepthMode, type OfficePoint, type OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 type PixiModule = typeof import("pixi.js");
 
@@ -18,6 +18,7 @@ export const OFFICE_RESIDENT_CROSSFADE_MS = 160;
 export type OfficeActorVisual = {
   actor: OfficeActor;
   actionId: OfficeActionId;
+  depthMode: OfficeActorDepthMode;
   group: Container;
   sprite: AnimatedSprite;
   label: Text | null;
@@ -93,6 +94,7 @@ export async function reconcileOfficeParticipants(
       prepared.push({
         actor,
         actionId,
+        depthMode: "seated",
         group,
         sprite,
         label,
@@ -123,7 +125,7 @@ export async function reconcileOfficeParticipants(
       drawStatusIndicator(existing.statusIndicator, actor.status);
     }
     for (const visual of current) {
-      world.personLayer.addChild(visual.group);
+      world.seatedActorLayer.addChild(visual.group);
       visuals.set(visual.actor.actorId, visual);
     }
     if (residentReplacement) {
@@ -134,6 +136,19 @@ export async function reconcileOfficeParticipants(
       for (const visual of outgoingResidents) destroyVisual(visual);
     }
   }, destroyPrepared);
+}
+
+export function applyOfficeParticipantDepth(
+  world: OfficeStaticWorld,
+  visuals: Map<string, OfficeActorVisual>,
+  command: Extract<OfficeRuntimeVisualCommand, { kind: "setActorDepth" }>,
+): void {
+  const visual = visuals.get(command.actorId);
+  if (!visual) return;
+  const target = command.mode === "seated" ? world.seatedActorLayer : world.mobileActorLayer;
+  if (visual.depthMode === command.mode && visual.group.parent === target) return;
+  target.addChild(visual.group);
+  visual.depthMode = command.mode;
 }
 
 export function shouldCrossFadeResidentReplacement(events: OfficeSceneModel["events"], reducedMotion: boolean): boolean {

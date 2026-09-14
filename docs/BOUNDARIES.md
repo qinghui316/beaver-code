@@ -981,6 +981,14 @@ Decisions:
 
 - Agent animation derives from canonical Agent Surface/provider state, runtime
   events, and evidence.
+- Office calibration V5 is the only production choreography configuration.
+  Handoff space is stored once and reverse travel is derived; action mirror
+  choices are keyed by stable action-instance identity. V4 plus mirror-patch
+  files are migration inputs only.
+- `OfficeActivityCompiler` owns actor depth semantics and emits explicit
+  `seated`/`mobile` commands. Rendering may reparent an existing actor visual,
+  but may not infer posture from action names, global Y sorting, or business
+  state.
 - The visual state can show reading, coding, validating, auditing, waiting, blocked, retrying, or completed.
 - Clicking the visual state should lead to evidence and raw logs.
 - The animation must not be the only place where state exists.

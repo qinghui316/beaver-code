@@ -4,7 +4,7 @@ import { OfficeAssetLoader } from "../../src/web/src/office/officeAssetLoader.js
 import { AmbientScheduler, type OfficeClock, type RandomSource } from "../../src/web/src/office/ambientScheduler.js";
 import { ChoreographyEngine } from "../../src/web/src/office/choreographyEngine.js";
 import { OfficeDirector } from "../../src/web/src/office/officeDirector.js";
-import { leisureScreen, OfficeBehaviorPolicy } from "../../src/web/src/office/officeBehaviorPolicy.js";
+import { leisureScreen, OfficeBehaviorPolicy, participantBehaviorActor } from "../../src/web/src/office/officeBehaviorPolicy.js";
 import { OfficeActivityCompiler } from "../../src/web/src/office/officeActivityCompiler.js";
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
 import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
@@ -13,6 +13,7 @@ import type { OfficeAmbientIntent, OfficeExperienceSnapshot, OfficeParticipant, 
 import { applyScarfMask } from "../../src/web/src/office/officeRuntimeAssets.js";
 import { removeOfficeTickerIfCurrent } from "../../src/web/src/office/officeRendererLifecycle.js";
 import { officeRouteFrameAt } from "../../src/web/src/office/officeRouteInterpolation.js";
+import type { OfficeRuntimeVisualCommand } from "../../src/web/src/office/officeVisualContract.js";
 
 const resolver = new OfficeCalibrationResolver(parseOfficeCalibrationJson(readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8")));
 const LOOK_TEST_TIMING = {
@@ -64,6 +65,62 @@ function leisureProfile(
 
 describe("Office runtime owners", () => {
   afterEach(() => vi.useRealTimers());
+
+  it("compiles handoff posture depth and every independent mirror from the V5 route", () => {
+    const compiler = new OfficeActivityCompiler(resolver);
+    const mainStation = resolver.stations().find((station) => station.stationId === "main")!;
+    const route = mainStation.handoffRoutes.planning!;
+    const commands = flattenCommands(compiler.dispatch("main", "child", "main", route));
+
+    expect(commands.filter((command) => command.kind === "setActorDepth")).toEqual([
+      { kind: "setActorDepth", actorId: "main", mode: "mobile" },
+      { kind: "setActorDepth", actorId: "main", mode: "mobile" },
+      { kind: "setActorDepth", actorId: "child", mode: "seated" },
+      { kind: "setActorDepth", actorId: "child", mode: "seated" },
+      { kind: "setActorDepth", actorId: "main", mode: "seated" },
+    ]);
+    expect(commands).toContainEqual(expect.objectContaining({
+      kind: "playAction",
+      actorId: "main",
+      actionId: "off-chair",
+      reverse: true,
+      flipX: route.actionMirrors["finish:off-chair"],
+    }));
+    expect(commands).toContainEqual(expect.objectContaining({
+      kind: "playRouteStage",
+      actorId: "main",
+      routeId: "handoff:standing-talk",
+      flipX: route.actionMirrors["interaction:standing-talk"],
+    }));
+    expect(commands).toContainEqual(expect.objectContaining({
+      kind: "playRouteStage",
+      actorId: "child",
+      routeId: "handoff:seated-talk",
+      flipX: route.actionMirrors["interaction:seated-talk"],
+    }));
+    expect(commands).toContainEqual(expect.objectContaining({
+      kind: "playRouteStage",
+      actorId: "child",
+      routeId: "handoff:salute",
+      flipX: route.actionMirrors["interaction:salute"],
+    }));
+  });
+
+  it("keeps station behavior seated and brackets facility travel with mobile then seated depth", () => {
+    const compiler = new OfficeActivityCompiler(resolver);
+    const station = resolver.stations().find((candidate) => candidate.stationId === "main")!;
+    const main = participant("main", "main", "main", "idle");
+    const behavior = flattenCommands(compiler.behaviorAtStation(
+      participantBehaviorActor(main),
+      { kind: "seated", seated: { screen: "work", effect: "none" } },
+      station,
+    ));
+    expect(behavior).toContainEqual({ kind: "setActorDepth", actorId: "main", mode: "seated" });
+
+    const facility = flattenCommands(compiler.ambient("main", station, { kind: "facility", facilityId: "coffee" }));
+    expect(facility[0]).toEqual({ kind: "setActorDepth", actorId: "main", mode: "mobile" });
+    expect(facility.at(-1)).toEqual({ kind: "setActorDepth", actorId: "main", mode: "seated" });
+  });
 
   it("deduplicates concurrent asset loads", async () => {
     const importer = vi.fn(async (key: string) => ({ key }));
@@ -1357,4 +1414,11 @@ function ambientIntentId(intent: OfficeAmbientIntent): string {
   if (intent.kind === "desk") return intent.activity;
   if (intent.kind === "facility") return intent.facilityId;
   return intent.kind;
+}
+
+function flattenCommands(
+  command: OfficeRuntimeVisualCommand,
+): Array<Exclude<OfficeRuntimeVisualCommand, { kind: "sequence" | "parallel" }>> {
+  if (command.kind !== "sequence" && command.kind !== "parallel") return [command];
+  return command.commands.flatMap(flattenCommands);
 }

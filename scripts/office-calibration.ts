@@ -5,9 +5,9 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  OFFICE_CALIBRATION_SCHEMA_VERSION,
-  parseOfficeCalibrationDocument,
   parseOfficeCalibrationJson,
+  parseOfficeHandoffMirrorOverridesV1,
+  promoteOfficeCalibrationV4,
   type OfficeCalibrationDocument,
   type OfficeCalibrationPoint,
 } from "../src/web/src/office/officeCalibrationDocument.js";
@@ -108,7 +108,7 @@ export function migrateOfficeCalibrationV3(legacy: unknown, atlas: unknown, shad
   const coffeeCup = asRecord(facilities.coffeeCup, "Legacy coffee cup facility");
 
   const document = {
-    schemaVersion: OFFICE_CALIBRATION_SCHEMA_VERSION,
+    schemaVersion: 4,
     world: cloneJson(asRecord(source.world, "Legacy world")),
     layers: cloneJson(arrayValue(source.layerOrder, "Legacy layer order")),
     actionVisualAlignments: Object.fromEntries(Object.keys(actionScales).map((actionId) => [actionId, {
@@ -156,7 +156,35 @@ export function migrateOfficeCalibrationV3(legacy: unknown, atlas: unknown, shad
     routes: resolveLegacyFacilityRoutes(source as unknown as OfficeSceneGeometryCalibration),
     handoffs: resolveLegacyHandoffs(source as unknown as OfficeSceneGeometryCalibration),
   };
-  return parseOfficeCalibrationDocument(document);
+  return promoteOfficeCalibrationV4(document);
+}
+
+export async function promoteOfficeHandoffCalibrationFiles(
+  sourceV4Path: string,
+  mirrorPatchPath: string,
+  targetV5Path: string,
+): Promise<{ targetPath: string; backupPath: string | null; sourceV4Sha256: string; mirrorPatchSha256: string; sha256: string }> {
+  const [v4Source, mirrorPatchSource] = await Promise.all([
+    readFile(sourceV4Path, "utf8"),
+    readFile(mirrorPatchPath, "utf8"),
+  ]);
+  const v4 = parseJsonRecord(v4Source, "Office calibration V4");
+  const patch = parseOfficeHandoffMirrorOverridesV1(parseJsonRecord(mirrorPatchSource, "Office handoff mirror overrides"));
+  const sourceV4Sha256 = sha256(v4Source);
+  if (patch.v4Sha256 !== sourceV4Sha256) {
+    throw new Error("Office handoff mirror overrides do not match the supplied V4 bytes.");
+  }
+  const document = promoteOfficeCalibrationV4(v4, patch);
+  const serialized = `${JSON.stringify(document, null, 2)}\n`;
+  const absoluteTarget = resolve(targetV5Path);
+  const backupPath = await atomicReplaceWithBackup(absoluteTarget, serialized);
+  return {
+    targetPath: absoluteTarget,
+    backupPath,
+    sourceV4Sha256,
+    mirrorPatchSha256: sha256(mirrorPatchSource),
+    sha256: sha256(serialized),
+  };
 }
 
 function deriveCanonicalShadowPositions(
@@ -579,13 +607,22 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(await validateOfficeCalibrationFile(args[0] ?? DEFAULT_DOCUMENT), null, 2));
     return;
   }
+  if (command === "promote-handoff") {
+    const outputFlag = args.indexOf("--out");
+    const target = outputFlag >= 0 ? args[outputFlag + 1] : undefined;
+    if (!args[0] || !args[1] || !target || outputFlag !== 2 || args.length !== 4) {
+      throw new Error("Usage: office-calibration promote-handoff <v4.json> <mirror-overrides-v1.json> --out <v5.json>");
+    }
+    console.log(JSON.stringify(await promoteOfficeHandoffCalibrationFiles(args[0], args[1], target), null, 2));
+    return;
+  }
   if (command === "diff") {
     if (!args[0] || !args[1]) throw new Error("Usage: office-calibration diff <left-v4.json> <right-v4.json>");
     const changes = await diffOfficeCalibrationFiles(args[0], args[1]);
     console.log(changes.length === 0 ? "No calibration differences." : changes.join("\n"));
     return;
   }
-  throw new Error("Usage: office-calibration <migrate|validate|diff> [...args]");
+  throw new Error("Usage: office-calibration <migrate|promote-handoff|validate|diff> [...args]");
 }
 
 if (resolve(process.argv[1] ?? "") === resolve(fileURLToPath(import.meta.url))) {

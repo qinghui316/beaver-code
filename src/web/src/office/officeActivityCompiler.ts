@@ -6,7 +6,7 @@ import {
 } from "./officeBehaviorPolicy.js";
 import { OfficeCalibrationResolver } from "./officeCalibrationResolver.js";
 import type { OfficeAmbientIntent, OfficeFacilityId, OfficeHandoffRoute, OfficeRouteStage, OfficeStation } from "./officeExperience.js";
-import type { OfficePoint, OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
+import type { OfficeActorDepthMode, OfficePoint, OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 export class OfficeActivityCompiler {
   constructor(private readonly resolver: OfficeCalibrationResolver) {}
@@ -54,16 +54,27 @@ export class OfficeActivityCompiler {
     return {
       kind: "sequence",
       commands: [
-        { kind: "playAction", actorId: mainActorId, actionId: "off-chair", loop: false, durationMs: this.resolver.action("off-chair").durationMs },
+        this.actorDepth(mainActorId, "mobile"),
+        { kind: "playAction", actorId: mainActorId, actionId: "off-chair", loop: false, flipX: route.actionMirrors["depart:off-chair"], durationMs: this.resolver.action("off-chair").durationMs },
         this.vacateStation(mainStationId),
         ...route.outbound.map((stage) => this.routeStage(mainActorId, stage)),
         { kind: "parallel", commands: [
-          this.positionedAction(mainActorId, "handoff:standing-talk", "standing-talk", route.standingTalk, this.resolver.action("standing-talk").durationMs),
-          this.positionedAction(childActorId, "handoff:seated-talk", "seated-talk", route.seatedTalk, this.resolver.action("seated-talk").durationMs),
+          { kind: "sequence", commands: [
+            this.actorDepth(mainActorId, "mobile"),
+            this.positionedAction(mainActorId, "handoff:standing-talk", "standing-talk", route.standingTalk, this.resolver.action("standing-talk").durationMs, { flipX: route.actionMirrors["interaction:standing-talk"] }),
+          ] },
+          { kind: "sequence", commands: [
+            this.actorDepth(childActorId, "seated"),
+            this.positionedAction(childActorId, "handoff:seated-talk", "seated-talk", route.seatedTalk, this.resolver.action("seated-talk").durationMs, { flipX: route.actionMirrors["interaction:seated-talk"] }),
+          ] },
         ] },
-        this.positionedAction(childActorId, "handoff:salute", "salute", route.salute, this.resolver.action("salute").durationMs),
+        { kind: "sequence", commands: [
+          this.actorDepth(childActorId, "seated"),
+          this.positionedAction(childActorId, "handoff:salute", "salute", route.salute, this.resolver.action("salute").durationMs, { flipX: route.actionMirrors["interaction:salute"] }),
+        ] },
         ...route.return.map((stage) => this.routeStage(mainActorId, stage)),
-        { kind: "playAction", actorId: mainActorId, actionId: "off-chair", reverse: true, loop: false, durationMs: this.resolver.action("off-chair").durationMs },
+        { kind: "playAction", actorId: mainActorId, actionId: "off-chair", reverse: true, loop: false, flipX: route.actionMirrors["finish:off-chair"], durationMs: this.resolver.action("off-chair").durationMs },
+        this.actorDepth(mainActorId, "seated"),
       ],
     };
   }
@@ -73,6 +84,7 @@ export class OfficeActivityCompiler {
     return {
       kind: "sequence",
       commands: [
+        this.actorDepth(actor.actorId, "seated"),
         { kind: "setScreen", stationId: actor.stationId, profile: screenProfile(intent.seated.screen), phase: stablePhase(actor.actorId) },
         { kind: "setEffect", actorId: actor.actorId, effect: intent.seated.effect },
         { kind: "playAction", actorId: actor.actorId, actionId: "salute", loop: false, durationMs: this.resolver.action("salute").durationMs },
@@ -85,6 +97,7 @@ export class OfficeActivityCompiler {
     return {
       kind: "parallel",
       commands: [
+        this.actorDepth(actor.actorId, "seated"),
         { kind: "playAction", actorId: actor.actorId, actionId: "working", loop: true, phase: stablePhase(actor.actorId) },
         { kind: "setScreen", stationId: actor.stationId, profile: screenProfile(intent.screen), phase: stablePhase(actor.actorId) },
         { kind: "setEffect", actorId: actor.actorId, effect: intent.effect },
@@ -95,14 +108,23 @@ export class OfficeActivityCompiler {
   ambient(actorId: string, station: OfficeStation, intent: OfficeAmbientIntent): OfficeRuntimeVisualCommand {
     switch (intent.kind) {
       case "look-around":
-        return { kind: "playAction", actorId, actionId: "standby", loop: false, durationMs: this.resolver.action("standby").durationMs };
+        return { kind: "sequence", commands: [
+          this.actorDepth(actorId, "seated"),
+          { kind: "playAction", actorId, actionId: "standby", loop: false, durationMs: this.resolver.action("standby").durationMs },
+        ] };
       case "facility":
         return this.facilityActivity(actorId, station, intent.facilityId);
       case "desk":
         if (intent.activity === "peek") {
-          return { kind: "playAction", actorId, actionId: "peek", loop: false, durationMs: this.resolver.action("peek").durationMs };
+          return { kind: "sequence", commands: [
+            this.actorDepth(actorId, "seated"),
+            { kind: "playAction", actorId, actionId: "peek", loop: false, durationMs: this.resolver.action("peek").durationMs },
+          ] };
         }
-        return { kind: "playAction", actorId, actionId: "coffee-drink", loop: false, durationMs: this.resolver.action("coffee-drink").durationMs };
+        return { kind: "sequence", commands: [
+          this.actorDepth(actorId, "seated"),
+          { kind: "playAction", actorId, actionId: "coffee-drink", loop: false, durationMs: this.resolver.action("coffee-drink").durationMs },
+        ] };
       default:
         return assertNever(intent);
     }
@@ -117,9 +139,11 @@ export class OfficeActivityCompiler {
     return {
       kind: "sequence",
       commands: [
+        this.actorDepth(actorId, "mobile"),
         ...stages.slice(0, 1).map((stage) => this.routeStage(actorId, stage)),
         { kind: "setScreen", stationId: station.stationId, profile: "off" },
         ...stages.slice(1).map((stage) => this.routeStage(actorId, stage, facility === "coffee" && stage.id === "facility-use")),
+        this.actorDepth(actorId, "seated"),
       ],
     };
   }
@@ -181,6 +205,10 @@ export class OfficeActivityCompiler {
       return next;
     });
     return positioned ? { ...command, commands } : command;
+  }
+
+  private actorDepth(actorId: string, mode: OfficeActorDepthMode): Extract<OfficeRuntimeVisualCommand, { kind: "setActorDepth" }> {
+    return { kind: "setActorDepth", actorId, mode };
   }
 }
 

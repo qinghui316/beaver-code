@@ -46,6 +46,7 @@ export type OfficeHandoffRoute = {
   seatedTalk: OfficePoint;
   salute: OfficePoint;
   return: OfficeRouteStage[];
+  actionMirrors: Record<import("./officeVisualContract.js").OfficeHandoffActionInstanceId, boolean>;
 };
 
 export type OfficeStation = {

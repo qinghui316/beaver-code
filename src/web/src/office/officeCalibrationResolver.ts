@@ -1,10 +1,12 @@
 import type { OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
+import { OFFICE_HANDOFF_RETURN_STAGE_IDS } from "./officeCalibrationDocument.js";
 import type { OfficeHandoffRoute, OfficeRouteStage, OfficeStation } from "./officeExperience.js";
 import {
   OFFICE_ACTION_FRAME_COUNTS,
   officeActionPlaybackRate,
   type OfficeActionId,
   type OfficeFacilityRoute,
+  type OfficeHandoffActionInstanceId,
   type OfficePoint,
 } from "./officeVisualContract.js";
 
@@ -87,11 +89,23 @@ export class OfficeCalibrationResolver {
     return {
       sourceStationId: handoff.sourceStationId,
       targetStationId: handoff.targetStationId,
-      outbound: handoff.outbound.map(cloneStage),
+      outbound: handoff.sharedPath.map((stage) => ({
+        ...cloneSharedHandoffStage(stage),
+        flipX: handoff.actionMirrors[`outbound:${stage.id}`],
+      })),
       standingTalk: { ...handoff.standingTalk },
       seatedTalk: { ...handoff.seatedTalk },
       salute: { ...handoff.salute },
-      return: handoff.return.map(cloneStage),
+      return: [...handoff.sharedPath].reverse().map((stage, index) => {
+        const id = OFFICE_HANDOFF_RETURN_STAGE_IDS[index]!;
+        return {
+          ...cloneSharedHandoffStage(stage),
+          id,
+          points: [...stage.points].reverse().map((point) => ({ ...point })),
+          flipX: handoff.actionMirrors[`return:${id}`],
+        };
+      }),
+      actionMirrors: { ...handoff.actionMirrors } as Record<OfficeHandoffActionInstanceId, boolean>,
     };
   }
 
@@ -123,6 +137,17 @@ function cloneStage(stage: OfficeCalibrationDocument["routes"][string][string][n
     durationMs: stage.durationMs,
     flipX: stage.flipX,
     ...(stage.reverse == null ? {} : { reverse: stage.reverse }),
+  };
+}
+
+function cloneSharedHandoffStage(
+  stage: OfficeCalibrationDocument["handoffs"][string][string]["sharedPath"][number],
+): Omit<OfficeRouteStage, "flipX"> {
+  return {
+    id: stage.id,
+    actionId: stage.actionId,
+    points: stage.points.map((point) => ({ ...point })),
+    durationMs: stage.durationMs,
   };
 }
 

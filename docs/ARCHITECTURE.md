@@ -42,6 +42,16 @@ BrowserWindow
 
 Electron Main owns no Conversation, Provider, SQLite, Timeline, Change, Workflow, Run, validation, audit, or source-transition state. The Utility Process starts the existing `startWorkbenchServer()` composition and keeps Node/TypeScript Core authoritative. The Renderer has no Node integration or general IPC surface. Desktop authentication, shutdown and native folder selection are opt-in host ports, so the CLI and ordinary browser Workbench retain their existing composition.
 
+### Agent Office choreography composition
+
+Agent Office calibration V5 separates spatial geometry from action posture. A
+handoff stores one shared outbound path; `OfficeCalibrationResolver` derives the
+return path by reversing its stages and points. Independent action-instance
+mirror values remain part of the same V5 document. `OfficeActivityCompiler`
+owns pose depth (`seated` or `mobile`) and emits explicit depth commands;
+renderers only reparent the existing actor container between calibrated layers
+and never infer depth from action names or coordinates.
+
 The long-term architecture is a local-first Agent Development OS with a Spec-Anchored Harness Kernel. AHO keeps durable project memory in AHO-managed stores, prepares context for constrained external agents, records execution evidence, and routes local source transitions through explicit bounded authorization while remote landing and Harness evolution remain separately confirmed.
 
 The current target architecture is governed by
