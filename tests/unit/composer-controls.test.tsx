@@ -34,11 +34,13 @@ describe("Composer controls", () => {
   });
 
   it("uses a mode-appropriate description without implying an AHO turn override", () => {
+    const onOpenModelSettings = () => undefined;
     render(<ComposerControls
       providerDisplayName="Codex"
       modelLabel="gpt-5.6-sol"
       requestDescription="查看当前 AHO 服务配置"
       readOnly
+      onOpenModelSettings={onOpenModelSettings}
       providerOptions={[{ id: "codex", label: "Codex" }, { id: "claude", label: "Claude Code" }]}
     />);
     fireEvent.click(screen.getByRole("button", { name: "当前 AHO 模型配置：gpt-5.6-sol" }));
@@ -47,5 +49,6 @@ describe("Composer controls", () => {
     expect(screen.getByText("查看当前 AHO 服务配置")).toBeTruthy();
     expect(screen.queryByText("设置下一次 Agent 请求")).toBeNull();
     expect(screen.queryByLabelText("选择 AI 服务")).toBeNull();
+    expect(screen.queryByRole("button", { name: "模型与服务设置" })).toBeNull();
   });
 });

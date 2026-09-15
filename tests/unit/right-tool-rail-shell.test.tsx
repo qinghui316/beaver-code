@@ -34,6 +34,8 @@ describe("Right tool rail shell", () => {
     renderShell({ state: { mode: "launcher" }, onToolOpen, onCollapse });
     expect(screen.getByText("工作")).toBeTruthy();
     expect(screen.getByText("支持")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "工作" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "支持" })).toBeTruthy();
     expect(screen.getByText("帮助与诊断")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-agent")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-confirm")).toBeTruthy();

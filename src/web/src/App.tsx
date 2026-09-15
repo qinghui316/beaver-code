@@ -84,8 +84,13 @@ import { emptySnapshotForMode, removalConfirmationMessage, useProjectConversatio
 import { useAppModeController } from "./controllers/AppModeController.js";
 import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
 import { ModeExperienceGuide } from "./presentation/ModeExperienceGuide.js";
-import { projectConversationWorkspaceChrome } from "./presentation/conversation-workspace.js";
+import {
+  projectConversationWorkspaceChrome,
+  projectReadinessComposerSurface,
+  topicComposerSurface,
+} from "./presentation/conversation-workspace.js";
 import { productModeControlLabel, productModeControlTitle } from "./presentation/core-workbench-experience.js";
+import { projectNavigationSurface } from "./presentation/project-navigation.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "./presentation/user-facing-language.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
@@ -402,6 +407,11 @@ export function App(): ReactElement {
 
   async function toggleProjectFolder(projectId: string): Promise<void> {
     await session.toggleProjectFolder(projectId);
+  }
+
+  function updateSidebarSearch(value: string): void {
+    setSidebarSearch(value);
+    if (value.trim()) void session.prepareProjectNavigationSearch();
   }
 
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
@@ -1121,6 +1131,141 @@ export function App(): ReactElement {
 
   const agentModeActivityState = modeActivity.snapshot?.agent.state;
   const harnessModeActivityState = modeActivity.snapshot?.harness.state;
+  const projectNavigation = projectNavigationSurface({
+    projects,
+    selectedProjectId,
+    selectedTopicId: activeTopic?.id ?? selectedTopicForMode,
+    snapshots: snapshotMatchesCurrentMode ? projectSnapshots : {},
+    snapshot: activeModeSnapshot,
+    search: sidebarSearch,
+    onSearch: updateSidebarSearch,
+    expandedProjects,
+    projectMenuMode,
+    projectDetailsId,
+    onProjectMenuMode: setProjectMenuMode,
+    onProjectDetails: setProjectDetailsId,
+    onNewConversation: beginNewConversation,
+    onOpenProject: openProject,
+    onToggleProject: toggleProjectFolder,
+    onChooseConversation: chooseConversation,
+    onArchiveConversation: archiveConversation,
+    onRestoreConversation: restoreConversation,
+    onPrepareConversationDelete: session.prepareConversationDelete,
+    onDeleteConversation: deleteConversation,
+    onRenameConversation: session.updateConversationTitle,
+    onRemoveProject: removeProject,
+    onRefresh: loadApp,
+    onOpenSettings: () => openSettings("basic"),
+    onOpenProjectSettings: (projectId: string) => {
+      void (async () => {
+        if (projectId !== selectedProjectId) await openProject(projectId);
+        openSettings("project");
+      })();
+    },
+  });
+  const readinessComposer = selectedProjectStatus?.project
+    ? projectReadinessComposerSurface({
+        project: selectedProjectStatus,
+        providerDisplayName,
+        modelLabel: providerModelLabel,
+        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
+        projects,
+        selectedProjectId,
+        onCreateDemand: createTopicFromText,
+        draft: composerText,
+        onDraftChange: setComposerText,
+        draftFileRefs: composerFileRefs,
+        onDraftFileRefsChange: setComposerFileRefs,
+        draftAttachments: composerAttachments,
+        onAttachFiles: appendComposerAttachments,
+        onRemoveAttachment: removeComposerAttachment,
+        providerOptions: composerProviderOptions,
+        selectedProviderId: composerProviderId ?? undefined,
+        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
+        productMode: appMode.productMode,
+        agentTurnMode: composer.agentTurnMode,
+        onSelectAgentTurnMode: composer.selectAgentTurnMode,
+        agentTurnModeDisabledReason: composer.agentTurnModeDisabledReason,
+        agentModelId: composer.agentModelId,
+        agentReasoningEffort: composer.agentReasoningEffort,
+        providerModelSettings,
+        onSelectAgentModel: composer.selectAgentModel,
+        onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
+        enabledSkillCount,
+        skills: skillItems,
+        activeSkillIds: selectedComposerSkillIds,
+        onToggleSkill: toggleComposerSkill,
+        onOpenProject: openProject,
+        onRefresh: loadApp,
+        resetToken: homeComposerResetToken,
+        reviewOpen: conversationReview.open,
+        reviewOptions: conversationReview.options,
+        reviewLoading: conversationReview.loading,
+        reviewSubmitting: conversationReview.submitting,
+        onOpenReview: conversationReview.openSelector,
+        onCloseReview: conversationReview.closeSelector,
+        onStartReview: conversationReview.startSelected,
+        onStartReviewCommand: conversationReview.start,
+        onReviewCommandError: setError,
+      })
+    : null;
+  const activeComposer = activeTopic
+    ? topicComposerSurface({
+        value: composerText,
+        onChange: setComposerText,
+        providerDisplayName,
+        modelLabel: providerModelLabel,
+        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
+        enabledSkillCount,
+        projectId: selectedProjectId,
+        skills: skillItems,
+        activeSkillIds: selectedComposerSkillIds,
+        selectedFileRefs: composerFileRefs,
+        attachments: composerAttachments,
+        onAttachFiles: (files) => { void appendComposerAttachments(files); },
+        onRemoveAttachment: removeComposerAttachment,
+        onToggleSkill: toggleComposerSkill,
+        onSelectedFileRefsChange: setComposerFileRefs,
+        disabledReason: activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined,
+        productMode: appMode.productMode,
+        agentTurnMode: composer.agentTurnMode,
+        onSelectAgentTurnMode: composer.selectAgentTurnMode,
+        agentTurnModeDisabledReason: composer.agentTurnModeDisabledReason,
+        agentModelId: composer.agentModelId,
+        agentReasoningEffort: composer.agentReasoningEffort,
+        providerModelSettings,
+        onSelectAgentModel: composer.selectAgentModel,
+        onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
+        onSend: sendTopicMessage,
+        onStopAndContinue: stopAndContinueCurrentRun,
+        actionRunning,
+        currentWorkpadStatus: composerRunning ? "running" : currentWorkpadSummary(activeModeSnapshot, activeTopic)?.runtimeStatus,
+        runControlState: activeWorkpad.runControlState,
+        providerOptions: composerProviderOptions,
+        selectedProviderId: composerProviderId ?? activeTopic.selectedProviderId,
+        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
+        conversationContext: conversationContext.snapshot,
+        contextSubmitting: conversationContext.submitting,
+        onCompactContext: conversationContext.compact,
+        turnQueue: conversationTurnQueue.snapshot,
+        queueAvailable: Boolean(conversationTurnQueue.snapshot),
+        queueBusy: conversationTurnQueue.loading || conversationTurnQueue.mutating,
+        onEnqueue: composer.enqueue,
+        onReclaimQueuedTurn: composer.reclaimQueuedTurn,
+        onRemoveQueuedTurn: (queueItemId) => { void conversationTurnQueue.remove(queueItemId); },
+        onRetryQueuedTurn: (queueItemId) => { void conversationTurnQueue.retry(queueItemId); },
+        onConfirmQueuedTurnExecution: (queueItemId) => { void conversationTurnQueue.confirmExecutionContract(queueItemId); },
+        reviewOpen: conversationReview.open,
+        reviewOptions: conversationReview.options,
+        reviewLoading: conversationReview.loading,
+        reviewSubmitting: conversationReview.submitting,
+        onOpenReview: conversationReview.openSelector,
+        onCloseReview: conversationReview.closeSelector,
+        onStartReview: conversationReview.startSelected,
+        onStartReviewCommand: conversationReview.start,
+        onReviewCommandError: setError,
+      })
+    : null;
 
   return (
     <div
@@ -1188,38 +1333,7 @@ export function App(): ReactElement {
           tabIndex={mobileSidebarModalOpen ? -1 : undefined}
         >
           <div className="brand compact-brand" aria-hidden="true" />
-              <ProjectConversationSidebar
-                projects={projects}
-          selectedProjectId={selectedProjectId}
-          selectedTopicId={activeTopic?.id ?? selectedTopicForMode}
-          snapshots={snapshotMatchesCurrentMode ? projectSnapshots : {}}
-          snapshot={activeModeSnapshot}
-          search={sidebarSearch}
-          onSearch={setSidebarSearch}
-          expandedProjects={expandedProjects}
-          projectMenuMode={projectMenuMode}
-          projectDetailsId={projectDetailsId}
-          onProjectMenuMode={setProjectMenuMode}
-          onProjectDetails={setProjectDetailsId}
-          onNewConversation={beginNewConversation}
-          onOpenProject={openProject}
-          onToggleProject={toggleProjectFolder}
-          onChooseConversation={chooseConversation}
-          onArchiveConversation={archiveConversation}
-          onRestoreConversation={restoreConversation}
-          onPrepareConversationDelete={session.prepareConversationDelete}
-          onDeleteConversation={deleteConversation}
-          onRenameConversation={session.updateConversationTitle}
-          onRemoveProject={removeProject}
-          onRefresh={loadApp}
-          onOpenSettings={() => openSettings("basic")}
-          onOpenProjectSettings={(projectId) => {
-            void (async () => {
-              if (projectId !== selectedProjectId) await openProject(projectId);
-              openSettings("project");
-            })();
-          }}
-        />
+              <ProjectConversationSidebar {...projectNavigation.view} {...projectNavigation.actions} />
           <div
             className="shell-resize-grip sidebar-resizer"
             role="separator"
@@ -1277,50 +1391,7 @@ export function App(): ReactElement {
             onOpenDiagnostics={() => openRightToolPanel("diagnostics")}
           />
         ) : !activeTopic ? (
-          <ProjectReadinessHome
-            project={selectedProjectStatus}
-            providerDisplayName={providerDisplayName}
-            modelLabel={providerModelLabel}
-            onOpenModelSettings={() => openSettings("provider")}
-            projects={projects}
-            selectedProjectId={selectedProjectId}
-            onCreateDemand={createTopicFromText}
-            draft={composerText}
-            onDraftChange={setComposerText}
-            draftFileRefs={composerFileRefs}
-            onDraftFileRefsChange={setComposerFileRefs}
-            draftAttachments={composerAttachments}
-            onAttachFiles={appendComposerAttachments}
-            onRemoveAttachment={removeComposerAttachment}
-            providerOptions={composerProviderOptions}
-            selectedProviderId={composerProviderId ?? undefined}
-            onSelectProvider={(providerId) => { void composer.selectProvider(providerId); }}
-            productMode={appMode.productMode}
-            agentTurnMode={composer.agentTurnMode}
-            onSelectAgentTurnMode={composer.selectAgentTurnMode}
-            agentTurnModeDisabledReason={composer.agentTurnModeDisabledReason}
-            agentModelId={composer.agentModelId}
-            agentReasoningEffort={composer.agentReasoningEffort}
-            providerModelSettings={providerModelSettings}
-            onSelectAgentModel={composer.selectAgentModel}
-            onSelectAgentReasoningEffort={composer.selectAgentReasoningEffort}
-            enabledSkillCount={enabledSkillCount}
-            skills={skillItems}
-            activeSkillIds={selectedComposerSkillIds}
-            onToggleSkill={toggleComposerSkill}
-            onOpenProject={openProject}
-            onRefresh={loadApp}
-            resetToken={homeComposerResetToken}
-            reviewOpen={conversationReview.open}
-            reviewOptions={conversationReview.options}
-            reviewLoading={conversationReview.loading}
-            reviewSubmitting={conversationReview.submitting}
-            onOpenReview={conversationReview.openSelector}
-            onCloseReview={conversationReview.closeSelector}
-            onStartReview={conversationReview.startSelected}
-            onStartReviewCommand={conversationReview.start}
-            onReviewCommandError={setError}
-          />
+          readinessComposer ? <ProjectReadinessHome {...readinessComposer.view} {...readinessComposer.actions} /> : null
         ) : (
           <>
             <header className="thread-header">
@@ -1437,63 +1508,9 @@ export function App(): ReactElement {
                   onSettle={settleConversationInteraction}
                   onStop={stopAndContinueCurrentRun}
                 />
-              ) : !orchestrationOpen ? <TopicComposer
-                  value={composerText}
-                  onChange={setComposerText}
-                  providerDisplayName={providerDisplayName}
-                  modelLabel={providerModelLabel}
-                  onOpenModelSettings={() => openSettings("provider")}
-                  enabledSkillCount={enabledSkillCount}
-                  projectId={selectedProjectId}
-                  skills={skillItems}
-                  activeSkillIds={selectedComposerSkillIds}
-                  selectedFileRefs={composerFileRefs}
-                  attachments={composerAttachments}
-                  onAttachFiles={(files) => { void appendComposerAttachments(files); }}
-                  onRemoveAttachment={removeComposerAttachment}
-                  onSelectedFileRefsChange={setComposerFileRefs}
-                  onToggleSkill={toggleComposerSkill}
-                  disabledReason={activeTopic.state !== "active"
-                    ? "已完成或稍后处理的需求对话为只读。"
-                    : undefined}
-                  productMode={appMode.productMode}
-                  agentTurnMode={composer.agentTurnMode}
-                  onSelectAgentTurnMode={composer.selectAgentTurnMode}
-                  agentTurnModeDisabledReason={composer.agentTurnModeDisabledReason}
-                  agentModelId={composer.agentModelId}
-                  agentReasoningEffort={composer.agentReasoningEffort}
-                  providerModelSettings={providerModelSettings}
-                  onSelectAgentModel={composer.selectAgentModel}
-                  onSelectAgentReasoningEffort={composer.selectAgentReasoningEffort}
-                  onSend={sendTopicMessage}
-                  onStopAndContinue={stopAndContinueCurrentRun}
-                  actionRunning={actionRunning}
-                  currentWorkpadStatus={composerRunning ? "running" : currentWorkpadSummary(activeModeSnapshot, activeTopic)?.runtimeStatus}
-                  runControlState={activeWorkpad.runControlState}
-                  providerOptions={composerProviderOptions}
-                  selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
-                  onSelectProvider={(providerId) => { void composer.selectProvider(providerId); }}
-                  conversationContext={conversationContext.snapshot}
-                  contextSubmitting={conversationContext.submitting}
-                   onCompactContext={conversationContext.compact}
-                   turnQueue={conversationTurnQueue.snapshot}
-                   queueAvailable={Boolean(conversationTurnQueue.snapshot)}
-                   queueBusy={conversationTurnQueue.loading || conversationTurnQueue.mutating}
-                   onEnqueue={composer.enqueue}
-                   onReclaimQueuedTurn={composer.reclaimQueuedTurn}
-                   onRemoveQueuedTurn={(queueItemId) => { void conversationTurnQueue.remove(queueItemId); }}
-                   onRetryQueuedTurn={(queueItemId) => { void conversationTurnQueue.retry(queueItemId); }}
-                   onConfirmQueuedTurnExecution={(queueItemId) => { void conversationTurnQueue.confirmExecutionContract(queueItemId); }}
-                   reviewOpen={conversationReview.open}
-                   reviewOptions={conversationReview.options}
-                   reviewLoading={conversationReview.loading}
-                   reviewSubmitting={conversationReview.submitting}
-                   onOpenReview={conversationReview.openSelector}
-                   onCloseReview={conversationReview.closeSelector}
-                   onStartReview={conversationReview.startSelected}
-                   onStartReviewCommand={conversationReview.start}
-                   onReviewCommandError={setError}
-                 /> : null}
+              ) : !orchestrationOpen && activeComposer
+                ? <TopicComposer {...activeComposer.view} {...activeComposer.actions} />
+                : null}
             </section>
           </>
         )}

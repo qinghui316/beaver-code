@@ -372,6 +372,27 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
   }, [expandedProjects, projectModeSnapshots]);
 
+  const prepareProjectNavigationSearch = useCallback(async (): Promise<void> => {
+    const requestProductMode = productModeRef.current;
+    const selectionGeneration = requestGenerationRef.current;
+    const requests = stateRef.current.projects.flatMap((status) => {
+      const projectId = status.project?.id;
+      if (!projectId || !canLoadWorkbenchSnapshot(status, requestProductMode)) return [];
+      const cacheKey = snapshotCacheKey(projectId, requestProductMode);
+      if (projectModeSnapshots[cacheKey]) return [];
+      const generation = (folderRequestGenerationsRef.current.get(cacheKey) ?? 0) + 1;
+      folderRequestGenerationsRef.current.set(cacheKey, generation);
+      return [sessionApi(portsRef.current).loadSnapshot(projectId, requestProductMode, null)
+        .then((next) => {
+          if (folderRequestGenerationsRef.current.get(cacheKey) !== generation
+            || !isCurrentSelection(selectionGeneration, requestProductMode, requestGenerationRef, productModeRef)
+            || !snapshotMatchesMode(next, requestProductMode)) return;
+          setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
+        })];
+    });
+    await Promise.allSettled(requests);
+  }, [projectModeSnapshots]);
+
   const chooseConversation = useCallback(async (projectId: string, conversationId: string): Promise<void> => {
     const kind: SessionTransitionKind = stateRef.current.selectedProjectId === projectId
       ? "conversation-changed"
@@ -909,6 +930,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     openProject,
     beginNewConversation,
     toggleProjectFolder,
+    prepareProjectNavigationSearch,
     chooseConversation,
     chooseRun,
     removeProject,

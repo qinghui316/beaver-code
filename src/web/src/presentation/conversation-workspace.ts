@@ -1,3 +1,33 @@
+import type { ProjectReadinessHome } from "../panels/ProjectHome.js";
+import type { TopicComposer } from "../shell/composer.js";
+import {
+  splitFeatureSurface,
+  type FeatureSurface,
+  type FeatureSurfaceActions,
+  type FeatureSurfaceView,
+} from "./feature-surface.js";
+
+type ProjectReadinessHomeProps = Parameters<typeof ProjectReadinessHome>[0];
+type TopicComposerProps = Parameters<typeof TopicComposer>[0];
+
+export type ProjectReadinessComposerFeatureSurface = FeatureSurface<
+  FeatureSurfaceView<ProjectReadinessHomeProps>,
+  FeatureSurfaceActions<ProjectReadinessHomeProps>
+>;
+
+export type TopicComposerFeatureSurface = FeatureSurface<
+  FeatureSurfaceView<TopicComposerProps>,
+  FeatureSurfaceActions<TopicComposerProps>
+>;
+
+export function projectReadinessComposerSurface(props: ProjectReadinessHomeProps): ProjectReadinessComposerFeatureSurface {
+  return splitFeatureSurface(props);
+}
+
+export function topicComposerSurface(props: TopicComposerProps): TopicComposerFeatureSurface {
+  return splitFeatureSurface(props);
+}
+
 export interface ConversationWorkspaceChromeInput {
   readonly governanceVisible: boolean;
   readonly primaryConfirmationPresent: boolean;

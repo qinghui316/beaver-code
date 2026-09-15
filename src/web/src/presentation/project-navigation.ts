@@ -1,5 +1,54 @@
 import { workpadStatusLabel } from "../formatters.js";
-import type { ConversationLifecycleSnapshot, Snapshot, WorkpadSummary } from "../types.js";
+import type {
+  ConversationDeleteConfirmation,
+  ConversationLifecycleSnapshot,
+  ProjectStatus,
+  Snapshot,
+  WorkpadSummary,
+} from "../types.js";
+import {
+  splitFeatureSurface,
+  type FeatureSurface,
+  type FeatureSurfaceActions,
+  type FeatureSurfaceView,
+} from "./feature-surface.js";
+
+export interface ProjectNavigationSurfaceProps {
+  projects: ProjectStatus[];
+  selectedProjectId: string | null;
+  selectedTopicId: string | null;
+  snapshots: Record<string, Snapshot>;
+  snapshot: Snapshot;
+  search: string;
+  onSearch: (value: string) => void;
+  expandedProjects: Set<string>;
+  projectMenuMode: "closed" | "add" | "new";
+  projectDetailsId: string | null;
+  onProjectMenuMode: (mode: "closed" | "add" | "new") => void;
+  onProjectDetails: (projectId: string | null) => void;
+  onNewConversation: (projectId?: string) => Promise<void>;
+  onOpenProject: (projectId: string) => Promise<void>;
+  onToggleProject: (projectId: string) => Promise<void>;
+  onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
+  onArchiveConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
+  onRestoreConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
+  onPrepareConversationDelete: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<ConversationDeleteConfirmation>;
+  onDeleteConversation: (projectId: string, conversationId: string, lifecycleRevision: string, confirmationToken: string) => Promise<void>;
+  onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>;
+  onRemoveProject: (projectId: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onOpenSettings: () => void;
+  onOpenProjectSettings: (projectId: string) => void;
+}
+
+export type ProjectNavigationFeatureSurface = FeatureSurface<
+  FeatureSurfaceView<ProjectNavigationSurfaceProps>,
+  FeatureSurfaceActions<ProjectNavigationSurfaceProps>
+>;
+
+export function projectNavigationSurface(props: ProjectNavigationSurfaceProps): ProjectNavigationFeatureSurface {
+  return splitFeatureSurface(props);
+}
 
 export interface ProjectNavigationConversationViewModel {
   readonly id: string;

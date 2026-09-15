@@ -242,6 +242,21 @@ describe("Project conversation session owner", () => {
     expect(result.current.snapshot.center.agentLoop.runs).toEqual([]);
   });
 
+  it("loads cold project snapshots before project-and-conversation search", async () => {
+    const fixture = ownerFixture();
+    fixture.api.loadSnapshot.mockImplementation(async (projectId: string, productMode: ProductMode) => (
+      snapshot(projectId, `${projectId}-conversation`, undefined, productMode)
+    ));
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+
+    expect(result.current.projectSnapshots["repo-2"]).toBeUndefined();
+    await act(async () => { await result.current.prepareProjectNavigationSearch(); });
+
+    expect(fixture.api.loadSnapshot).toHaveBeenCalledWith("repo-2", "harness", null);
+    expect(result.current.projectSnapshots["repo-2"]?.center.selectedTopic?.title).toBe("repo-2-conversation");
+  });
+
   it("rekeys provisional demand metadata without creating or merging canonical transcript", async () => {
     const fixture = ownerFixture();
     const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));

@@ -129,7 +129,8 @@ function RightToolLauncher({
   return (
     <div className="right-tool-launcher" data-testid="right-tool-launcher" aria-label="右侧工具入口">
       <div className="right-tool-launcher-list">
-        <span className="right-tool-launcher-group-label">工作</span>
+        <section className="right-tool-launcher-group" role="group" aria-labelledby="right-tool-work-group">
+        <span id="right-tool-work-group" className="right-tool-launcher-group-label">工作</span>
         <button
           type="button"
           className="right-tool-launcher-item"
@@ -167,7 +168,9 @@ function RightToolLauncher({
           <GitBranch size={17} aria-hidden="true" />
           <span>Git</span>
         </button>
-        <span className="right-tool-launcher-group-label support">支持</span>
+        </section>
+        <section className="right-tool-launcher-group support" role="group" aria-labelledby="right-tool-support-group">
+        <span id="right-tool-support-group" className="right-tool-launcher-group-label">支持</span>
         <button
           type="button"
           className="right-tool-launcher-item"
@@ -177,6 +180,7 @@ function RightToolLauncher({
           <Activity size={17} aria-hidden="true" />
           <span>帮助与诊断</span>
         </button>
+        </section>
       </div>
     </div>
   );

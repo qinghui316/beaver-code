@@ -21,14 +21,15 @@ import { projectDisplayName } from "../formatters.js";
 import {
   groupProjectNavigationConversations,
   projectNavigationConversations,
+  type ProjectNavigationSurfaceProps,
 } from "../presentation/project-navigation.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
+  ConversationDeleteConfirmation,
   ProjectStatus,
   Snapshot,
   TopicDetail,
   WorkpadSummary,
-  ConversationDeleteConfirmation,
 } from "../types.js";
 
 export function ProjectConversationSidebar({
@@ -57,33 +58,7 @@ export function ProjectConversationSidebar({
   onRefresh,
   onOpenSettings,
   onOpenProjectSettings,
-}: {
-  projects: ProjectStatus[];
-  selectedProjectId: string | null;
-  selectedTopicId: string | null;
-  snapshots: Record<string, Snapshot>;
-  snapshot: Snapshot;
-  search: string;
-  onSearch: (value: string) => void;
-  expandedProjects: Set<string>;
-  projectMenuMode: "closed" | "add" | "new";
-  projectDetailsId: string | null;
-  onProjectMenuMode: (mode: "closed" | "add" | "new") => void;
-  onProjectDetails: (projectId: string | null) => void;
-  onNewConversation: (projectId?: string) => Promise<void>;
-  onOpenProject: (projectId: string) => Promise<void>;
-  onToggleProject: (projectId: string) => Promise<void>;
-  onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
-  onArchiveConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
-  onRestoreConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
-  onPrepareConversationDelete: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<ConversationDeleteConfirmation>;
-  onDeleteConversation: (projectId: string, conversationId: string, lifecycleRevision: string, confirmationToken: string) => Promise<void>;
-  onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>;
-  onRemoveProject: (projectId: string) => Promise<void>;
-  onRefresh: () => Promise<void>;
-  onOpenSettings: () => void;
-  onOpenProjectSettings: (projectId: string) => void;
-}): ReactElement {
+}: ProjectNavigationSurfaceProps): ReactElement {
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [archivedProjects, setArchivedProjects] = useState<Set<string>>(new Set());

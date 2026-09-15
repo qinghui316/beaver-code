@@ -71,7 +71,7 @@ export function ComposerControls({
             ) : <span>{providerDisplayName}</span>}
           </div>
           {children}
-          {onOpenModelSettings ? (
+          {!readOnly && onOpenModelSettings ? (
             <button type="button" className="composer-model-settings-link" onClick={() => { setOpen(false); onOpenModelSettings(); }}>
               <Settings2 size={14} aria-hidden="true" />模型与服务设置
             </button>
