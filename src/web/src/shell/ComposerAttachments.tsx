@@ -28,6 +28,8 @@ export function ComposerAttachButton({
         ref={inputRef}
         className="visually-hidden-file-input"
         type="file"
+        tabIndex={-1}
+        aria-hidden="true"
         multiple
         accept="image/*,.txt,.md,.markdown,.json,.jsonc,.yaml,.yml,.js,.jsx,.ts,.tsx,.css,.scss,.html,.xml,.py,.ps1,.sh,.sql,.toml,.ini,.env"
         onChange={(event) => {

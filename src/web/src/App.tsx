@@ -1259,7 +1259,11 @@ export function App(): ReactElement {
             onRefresh={loadApp}
           />
         ) : selectedProjectStatus.runtimeAvailability?.state === "unavailable" ? (
-          <UnmanagedProjectView project={selectedProjectStatus} />
+          <UnmanagedProjectView
+            project={selectedProjectStatus}
+            onRetry={loadApp}
+            onOpenDiagnostics={() => openRightToolPanel("diagnostics")}
+          />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}

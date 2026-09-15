@@ -700,7 +700,7 @@ describe("Project conversation session owner", () => {
     const harness = renderHook(() => useProjectConversationSession({ ...harnessFixture.ports, productMode: "harness", autoLoad: false }));
     await act(async () => { await harness.result.current.loadApp(); });
     expect(harnessFixture.api.loadSnapshot).not.toHaveBeenCalled();
-    expect(harness.result.current.snapshot.warnings).toContain("首次需求会根据项目情况建立必要工作说明。");
+    expect(harness.result.current.snapshot.warnings).toContain("创建第一条会话即可开始使用。");
   });
 
   it("keeps committed identity when the live stream fails after topic.created", async () => {

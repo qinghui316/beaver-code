@@ -6,6 +6,8 @@ import {
   X,
 } from "lucide-react";
 import { ConversationComposerSurface } from "../shell/composer.js";
+import { DialogSurface } from "../presentation/DialogSurface.js";
+import type { AsyncSurfaceState } from "../presentation/surface-state.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
 import { parseReviewCommand } from "../reviewCommand.js";
@@ -253,9 +255,24 @@ export function ProviderModelPicker({
   const candidates = snapshot?.candidates ?? [];
   const selectedModel = snapshot?.selectedModel?.modelId ?? null;
   const effectiveModel = snapshot?.effectiveModel?.modelId ?? null;
+  const candidateState: AsyncSurfaceState<ProviderModelCandidate[]> = busy && !snapshot
+    ? { status: "loading" }
+    : message && candidates.length === 0
+      ? {
+          status: "error",
+          failure: { summary: "模型列表暂时无法加载。", recoveryAction: "重新检测后再试。" },
+          actions: [{ id: "retry", label: "重新检测", emphasis: "primary" }],
+        }
+      : candidates.length === 0
+        ? {
+            status: "empty",
+            title: "没有读取到模型列表",
+            description: "可以重新检测，或继续使用当前服务配置。",
+            actions: [{ id: "retry", label: "重新检测", emphasis: "primary" }],
+          }
+        : { status: "ready", data: candidates };
   return (
-    <div className="settings-overlay model-picker-overlay" role="dialog" aria-label="选择 Agent 模型">
-      <section className="model-picker-panel">
+    <DialogSurface open={open} onClose={onClose} ariaLabel="选择 Agent 模型" overlayClassName="model-picker-overlay" panelClassName="model-picker-panel">
         <header className="settings-panel-header">
           <div>
             <p className="eyebrow">AI 服务</p>
@@ -267,14 +284,14 @@ export function ProviderModelPicker({
         <div className="model-picker-summary">
           <InfoRow label="当前模型" value={effectiveModel ?? "默认模型"} />
           <InfoRow label="来源" value={modelSourceLabel(snapshot?.effectiveModelSource)} />
-          {snapshot?.degradedReason ? <p className="muted-copy">{snapshot.degradedReason}</p> : null}
+          {snapshot?.degradedReason ? <p className="muted-copy">模型信息需要重新检测。</p> : null}
         </div>
         <div className="model-picker-actions">
           <button className="outline-button" disabled={busy} onClick={() => void onRefresh()}><RefreshCw size={14} />刷新</button>
           <button className="outline-button" disabled={busy || !selectedModel} onClick={() => void onSelect(null)}>使用服务配置</button>
         </div>
         <div className="model-candidate-list" aria-label="可选模型">
-          {candidates.length === 0 ? <p className="muted-copy">没有读取到模型列表。将继续使用服务配置或默认模型。</p> : candidates.map((candidate) => (
+          {candidateState.status === "loading" ? <p className="muted-copy" role="status">正在加载模型…</p> : candidateState.status === "error" ? <div className="model-picker-state" role="alert"><strong>{candidateState.failure.summary}</strong><span>{candidateState.failure.recoveryAction}</span><button className="primary-button" disabled={busy} onClick={() => void onRefresh()}>重新检测</button></div> : candidateState.status === "empty" ? <div className="model-picker-state"><strong>{candidateState.title}</strong><span>{candidateState.description}</span><button className="primary-button" disabled={busy} onClick={() => void onRefresh()}>重新检测</button></div> : candidateState.data.map((candidate) => (
             <div className="model-candidate-row" key={`${candidate.source}:${candidate.modelId}`}>
               <div>
                 <strong>{candidate.label}</strong>
@@ -287,9 +304,8 @@ export function ProviderModelPicker({
             </div>
           ))}
         </div>
-        {message ? <p className="diagnostic-errors">{message}</p> : null}
-      </section>
-    </div>
+        {message && candidateState.status === "ready" ? <p className="diagnostic-errors" role="alert">{message}</p> : null}
+    </DialogSurface>
   );
 }
 
@@ -303,5 +319,5 @@ function modelSourceLabel(source: ProviderModelSettingsSnapshot["effectiveModelS
 function modelCandidateSourceLabel(candidate: ProviderModelCandidate): string {
   if (candidate.source === "runtime") return candidate.isDefault ? "服务默认" : "服务发现";
   if (candidate.source === "config") return "服务配置";
-  return candidate.source;
+  return "其他来源";
 }

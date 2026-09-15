@@ -453,6 +453,18 @@
   font-size: 13px;
 }
 
+.project-form .project-form-field {
+  display: grid;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.project-form .project-form-field > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .project-form small,
 .sidebar-empty {
   color: var(--text-muted);

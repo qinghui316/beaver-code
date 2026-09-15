@@ -9,7 +9,7 @@ export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRef
   return (
     <div className="project-details-panel">
       <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已准备" : "未检测到 Git")} />
-      <InfoRow label="项目状态" value={harnessReady ? "已准备" : project.harness.readiness === "partial" ? "需要修复协作配置" : "首次使用时自动准备"} />
+      <InfoRow label="项目状态" value={harnessReady ? "可用" : project.harness.readiness === "partial" ? "需要处理" : "可开始使用"} />
       {!selected ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>
@@ -59,20 +59,20 @@ export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Pro
       return;
     }
     setManual(true);
-    setMessage(result.error ?? "无法打开文件夹选择器，请手动输入路径。");
+    setMessage("无法打开文件夹选择器，请手动输入路径。");
   }
   return (
     <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
       <button type="button" className="primary-button" onClick={() => void chooseFolder().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />打开文件夹</button>
-      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名称，可选" />
+      <label className="project-form-field"><span>项目名称（可选）</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 Beaver Code" /></label>
       <button type="button" className="text-button" onClick={() => setManual(!manual)}>{manual ? "收起路径输入" : "输入路径"}</button>
       {manual ? (
         <>
-          <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="项目路径，例如 E:\\work\\my-app" />
-          <button className="outline-button"><Plus size={15} />添加项目</button>
+          <label className="project-form-field"><span>项目路径</span><input type="text" value={path} onChange={(event) => setPath(event.target.value)} placeholder="例如 E:\\work\\my-app" /></label>
+          <button type="submit" className="outline-button"><Plus size={15} />添加项目</button>
         </>
       ) : null}
-      {message ? <small>{message}</small> : null}
+      {message ? <small role="status">{message}</small> : null}
     </form>
   );
 }
@@ -110,18 +110,18 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
       setMessage("已取消选择。");
       return;
     }
-    setMessage(result.error ?? "无法打开文件夹选择器，请手动输入父目录。");
+    setMessage("无法打开文件夹选择器，请手动输入保存位置。");
   }
   return (
     <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
       <button type="button" className="outline-button" onClick={() => void chooseParent().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />选择位置</button>
-      <input value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="保存位置，例如 E:\\work" />
-      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名" />
+      <label className="project-form-field"><span>保存位置</span><input type="text" value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="例如 E:\\work" /></label>
+      <label className="project-form-field"><span>项目名称</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 my-app" /></label>
       <label><input type="checkbox" checked={git} onChange={(event) => setGit(event.target.checked)} /> 初始化 Git</label>
       <label><input type="checkbox" checked={readme} onChange={(event) => setReadme(event.target.checked)} /> 创建 README</label>
       <label><input type="checkbox" checked={initialCommit} onChange={(event) => setInitialCommit(event.target.checked)} /> 创建初始提交</label>
-      <button className="primary-button"><Plus size={15} />新建项目</button>
-      {message ? <small>{message}</small> : null}
+      <button type="submit" className="primary-button"><Plus size={15} />新建项目</button>
+      {message ? <small role="status">{message}</small> : null}
     </form>
   );
 }

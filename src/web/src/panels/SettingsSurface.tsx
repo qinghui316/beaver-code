@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { ArrowLeft, Bot, CircleAlert, RefreshCw, Sparkles, X } from "lucide-react";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
-import { useModalDialogFocus } from "./useModalDialogFocus.js";
+import { DialogSurface } from "../presentation/DialogSurface.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
@@ -36,13 +36,6 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   const providerLabel = diagnostics?.displayName ?? "当前 AI 服务";
   const capabilitySnapshot = providerCapabilities?.find((item) => item.providerId === (diagnostics?.providerId ?? selectedProviderId)) ?? null;
 
-  useEffect(() => {
-    if (!diagnosticsOpen) return;
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setDiagnosticsOpen(false); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [diagnosticsOpen]);
-
   async function refresh(): Promise<void> {
     setMessage(null);
     try { await onRefresh(); }
@@ -73,7 +66,6 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
             <dl className="settings-definition-list">
               <div><dt>默认模型</dt><dd>{modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}</dd></div>
               <div><dt>模型来源</dt><dd>{modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)}</dd></div>
-              <div><dt>服务版本</dt><dd>{diagnostics?.installation.version ?? "自动检测"}</dd></div>
             </dl>
             <div className="settings-inline-actions">
               <button className="primary-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择默认模型</button>
@@ -92,28 +84,27 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
 }
 
 function ProviderDiagnosticsDrawer({ snapshot, diagnostics, modelMessage, onClose }: { snapshot: ProviderCapabilitySnapshot | null; diagnostics: ProviderDiagnostics | null; modelMessage?: string | null; onClose: () => void }): ReactElement {
-  const dialogRef = useModalDialogFocus(true);
   const capabilities = snapshot?.capabilities ?? [];
   const reasons = [modelMessage, diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
-  return <div className="settings-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef} className="settings-panel provider-diagnostics-drawer" role="dialog" aria-modal="true" aria-label="服务诊断" tabIndex={-1} data-diagnostic-raw-evidence>
+  return <DialogSurface open onClose={onClose} ariaLabel="服务诊断" panelClassName="settings-panel provider-diagnostics-drawer">
+    <div data-diagnostic-raw-evidence>
       <header className="settings-panel-header"><div><p className="eyebrow">高级诊断</p><h2>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</h2></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
       <p className="muted-copy">这些信息用于排查连接和能力问题，不会改变服务配置。</p>
       {reasons.length > 0 ? <div className="diagnostic-errors"><strong>检测到的问题</strong>{reasons.map((reason) => <p key={reason}>{sanitizeTechnicalDetail(reason)}</p>)}</div> : <p className="provider-healthy-note">当前未检测到服务问题。</p>}
       <div className="provider-capability-list" aria-label="能力诊断">{capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}</div>
       <dl className="settings-definition-list compact"><div><dt>Adapter</dt><dd>{diagnostics ? `${diagnostics.adapter.id} ${diagnostics.adapter.version}` : "未读取"}</dd></div><div><dt>Snapshot</dt><dd>{snapshot ? `v${snapshot.snapshotVersion}` : "未读取"}</dd></div></dl>
-    </section>
-  </div>;
+    </div>
+  </DialogSurface>;
 }
 
 function ProviderCapabilityRow({ item }: { item: ProviderCapabilityItem }): ReactElement {
   return <div className="provider-capability-row"><div><strong>{item.label}</strong><small>{item.summary}</small>{item.reason ? <small className="provider-capability-reason">{item.reason}</small> : null}<code>{item.key}</code></div><div className="provider-capability-states"><span className={`provider-state-pill spec ${item.spec}`}>{specStateLabel(item.spec)}</span><span className={`provider-state-pill runtime ${item.runtime}`}>{runtimeStateLabel(item.runtime)}</span></div></div>;
 }
 
-function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "管理当前 Coding Agent 的连接和默认模型。" : "查找、了解并管理当前项目可用的技能。"; }
+function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "管理当前 Agent 的连接和默认模型。" : "查找、了解并管理当前项目可用的技能。"; }
 function providerConnectionStatus(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): ProviderCapabilitySnapshot["status"] { return snapshot?.status ?? (diagnostics?.installation.available ? "ready" : "unavailable"); }
 function providerSummary(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): string {
-  if (!diagnostics?.installation.available) return "尚未检测到可用的 Coding Agent。";
+  if (!diagnostics?.installation.available) return "尚未检测到可用的 Agent。";
   if (snapshot?.status === "degraded") return `${snapshot.displayName} 已连接，部分功能暂不可用。`;
   if (snapshot?.status === "unavailable") return `${snapshot.displayName} 当前不可用。`;
   return `${snapshot?.displayName ?? diagnostics.displayName} 已连接，当前功能可用。`;

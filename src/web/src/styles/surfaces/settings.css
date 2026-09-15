@@ -467,6 +467,46 @@
   box-shadow: var(--shadow-soft);
 }
 
+.model-picker-state,
+.skills-state-notice {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.model-picker-state strong,
+.skills-state-notice strong {
+  color: var(--text);
+}
+
+.model-picker-state .primary-button {
+  justify-self: start;
+}
+
+.skills-state-notice {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.skills-state-notice > div {
+  display: grid;
+  gap: 3px;
+}
+
+.skill-root-field {
+  display: grid;
+  flex: 1 1 240px;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .model-picker-summary {
   display: grid;
   gap: 8px;

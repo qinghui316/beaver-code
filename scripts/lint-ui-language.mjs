@@ -13,6 +13,7 @@ const USER_PRESENTATION_MODULES = new Set([
 ]);
 const DIAGNOSTIC_RAW_EVIDENCE_ATTRIBUTE = "data-diagnostic-raw-evidence";
 const USER_VISIBLE_ATTRIBUTES = new Set(["aria-label", "title", "placeholder", "alt", "label", "description", "emptyMessage"]);
+const USER_VISIBLE_CONFIG_PROPERTIES = new Set(["label", "title", "description", "emptyMessage", "placeholder"]);
 const FORBIDDEN_TERMS = [
   /\bWorkpad\b/i,
   /\bTaskGraph\b/i,
@@ -78,14 +79,35 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       if (inspectVisibleCopy && ts.isJsxAttribute(node) && USER_VISIBLE_ATTRIBUTES.has(node.name.getText(source))) {
         const expression = attributeExpression(node.initializer);
         for (const value of staticExpressionValues(expression)) checkText(value, node, source, relativePath, violations);
+        if (containsRawErrorValue(expression)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
+        }
+        for (const rawState of rawStateNames(expression)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} exposes raw state ${rawState} outside Diagnostics`);
+        }
         for (const rawId of rawIdNames(expression, aliasesForNode(rawAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw identifier ${rawId} outside Diagnostics`);
         }
       }
       if (inspectVisibleCopy && ts.isJsxExpression(node) && isVisibleJsxChild(node) && node.expression) {
         for (const value of staticExpressionValues(node.expression)) checkText(value, node, source, relativePath, violations);
+        if (containsRawErrorValue(node.expression)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
+        }
+        for (const rawState of rawStateNames(node.expression)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} exposes raw state ${rawState} outside Diagnostics`);
+        }
         for (const rawId of rawIdNames(node.expression, aliasesForNode(rawAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw identifier ${rawId} outside Diagnostics`);
+        }
+      }
+      if (inspectVisibleCopy && ts.isPropertyAssignment(node) && USER_VISIBLE_CONFIG_PROPERTIES.has(propertyName(node.name))) {
+        for (const value of staticExpressionValues(node.initializer)) checkText(value, node, source, relativePath, violations);
+        if (containsRawErrorValue(node.initializer)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} configures a raw error or response body outside Diagnostics`);
+        }
+        for (const rawState of rawStateNames(node.initializer)) {
+          violations.push(`${relativePath}:${lineOf(source, node)} configures raw state ${rawState} outside Diagnostics`);
         }
       }
       if (USER_PRESENTATION_MODULES.has(relativePath) && ts.isReturnStatement(node) && node.expression) {
@@ -114,7 +136,16 @@ function checkText(value, node, source, path, violations) {
 }
 
 function isRawEnumFallback(expression) {
-  return ts.isIdentifier(expression) && /^(?:status|state|kind|type|action|actionType)$/i.test(expression.text);
+  if (isRawStateExpression(expression)) return true;
+  if (ts.isParenthesizedExpression(expression)) return isRawEnumFallback(expression.expression);
+  if (ts.isBinaryExpression(expression)
+    && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(expression.operatorToken.kind)) {
+    return isRawEnumFallback(expression.left) || isRawEnumFallback(expression.right);
+  }
+  if (ts.isConditionalExpression(expression)) {
+    return isRawEnumFallback(expression.whenTrue) || isRawEnumFallback(expression.whenFalse);
+  }
+  return false;
 }
 
 function directlyPresentsRawError(call) {
@@ -130,6 +161,7 @@ function isSafeFailureProjection(node) {
 }
 
 function containsRawErrorValue(node) {
+  if (!node) return false;
   let found = false;
   const visit = (current) => {
     if (ts.isCallExpression(current)
@@ -158,6 +190,52 @@ function containsRawErrorValue(node) {
   };
   visit(node);
   return found;
+}
+
+function rawStateNames(expression) {
+  if (!expression) return [];
+  const isCompositeOutput = ts.isConditionalExpression(expression)
+    || ts.isTemplateExpression(expression)
+    || (ts.isBinaryExpression(expression)
+      && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.PlusToken].includes(expression.operatorToken.kind));
+  if (!isCompositeOutput) return [];
+  const names = new Set();
+  const visitOutput = (node) => {
+    if (ts.isParenthesizedExpression(node)
+      || ts.isAsExpression(node)
+      || ts.isTypeAssertionExpression(node)
+      || ts.isNonNullExpression(node)) {
+      visitOutput(node.expression);
+      return;
+    }
+    if (isRawStateExpression(node)) names.add(node.getText());
+    if (ts.isConditionalExpression(node)) {
+      visitOutput(node.whenTrue);
+      visitOutput(node.whenFalse);
+      return;
+    }
+    if (ts.isBinaryExpression(node)
+      && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.PlusToken].includes(node.operatorToken.kind)) {
+      visitOutput(node.left);
+      visitOutput(node.right);
+      return;
+    }
+    if (ts.isTemplateExpression(node)) {
+      for (const span of node.templateSpans) visitOutput(span.expression);
+    }
+  };
+  visitOutput(expression);
+  return [...names];
+}
+
+function isRawStateExpression(node) {
+  if (ts.isIdentifier(node)) return /^(?:status|state|kind|type|action|actionType)$/i.test(node.text);
+  return ts.isPropertyAccessExpression(node) && /^(?:status|state|kind|type|action|actionType)$/i.test(node.name.text);
+}
+
+function propertyName(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) return name.text;
+  return name.getText();
 }
 
 function attributeExpression(initializer) {

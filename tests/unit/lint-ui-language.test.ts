@@ -68,6 +68,21 @@ describe("UI language lint", () => {
     expect(violations).toContain("unregistered raw enum value");
   });
 
+  it("checks configured copy and raw fallback branches", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `export function Panel({ state, cause }) {
+        const labels = { ready: "完成" };
+        const actions = [{ label: "Open Provider Snapshot" }];
+        return <><span>{labels[state] ?? state}</span><button title={cause.message}>{actions[0].label}</button></>;
+      }`,
+    });
+    const violations = (await lintUiLanguage(root)).violations.join("\n");
+    expect(violations).toContain("Provider");
+    expect(violations).toContain("Snapshot");
+    expect(violations).toContain("raw state state");
+    expect(violations).toContain("raw error or response body");
+  });
+
   it("allows raw terms only inside an explicit Diagnostics evidence subtree", async () => {
     const root = await fixture({
       "src/web/src/panels/workbench/RuntimeDiagnosticsDock.tsx": `export const Diagnostics = ({ raw }) => <><header>Workpad</header><div data-diagnostic-raw-evidence>SchedulerRun {raw.taskRunId}</div></>;`,

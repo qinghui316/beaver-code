@@ -257,7 +257,7 @@ export function ProjectConversationSidebar({
                   <div className="conversation-list">
                     {lifecycleError && selected ? <div className="conversation-lifecycle-error" role="alert">{lifecycleError}</div> : null}
                     {harnessReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
-                    {!projectUnavailable && !harnessReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
+                    {!projectUnavailable && !harnessReady && !hasConversationSnapshot ? <div className="conversation-placeholder">创建第一条会话即可开始使用。</div> : null}
                     {activeConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
                       const editing = editingConversation?.menuId === menuId ? editingConversation : null;
@@ -441,7 +441,12 @@ export function currentWorkpadSummary(snapshot: Snapshot, topic: TopicDetail | n
   return snapshot.left.workpads?.find((item) => item.id === topic.id);
 }
 
-export function UnmanagedProjectView({ project }: { project: ProjectStatus | null }): ReactElement {
+export function UnmanagedProjectView({ project, onRetry, onOpenDiagnostics }: {
+  project: ProjectStatus | null;
+  onRetry: () => void | Promise<void>;
+  onOpenDiagnostics: () => void;
+}): ReactElement {
+  const [retrying, setRetrying] = useState(false);
   if (!project?.project) return <EmptyWorkbench title="项目不可用" description="请选择左侧项目或重新刷新项目列表。" />;
   const issue = harnessStatusIssue(project);
   return (
@@ -453,7 +458,12 @@ export function UnmanagedProjectView({ project }: { project: ProjectStatus | nul
         <>
           <p>{project.runtimeAvailability.recovery ?? "修复后请退出并重新打开 Beaver Code。"}</p>
           <div className="empty-workbench-actions">
-            <button type="button" className="primary-button" onClick={() => { window.location.href = "/"; }}>打开其他项目</button>
+            <button type="button" className="primary-button" disabled={retrying} onClick={() => {
+              setRetrying(true);
+              void Promise.resolve(onRetry()).finally(() => setRetrying(false));
+            }}>{retrying ? "正在检测…" : "重新检测"}</button>
+            <button type="button" className="outline-button" onClick={onOpenDiagnostics}>查看诊断</button>
+            <button type="button" className="outline-button" onClick={() => { window.location.href = "/"; }}>打开其他项目</button>
           </div>
         </>
       ) : null}
@@ -523,8 +533,8 @@ function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind
   }
   return {
     kind: "uninitialized",
-    short: project.harness.readiness === "partial" ? "协作配置需要修复" : "首次对话自动准备",
-    detail: project.harness.readiness === "partial" ? "项目协作配置尚未通过检查。" : "首次需求时会自动准备必要的协作说明。",
+    short: project.harness.readiness === "partial" ? "项目需要处理" : "可以开始使用",
+    detail: project.harness.readiness === "partial" ? "这个项目需要处理后才能继续使用。" : "这个项目可以开始使用。",
   };
 }
 

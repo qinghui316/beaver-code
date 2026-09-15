@@ -98,6 +98,15 @@ use the shared Chinese vocabulary, including `默认`, `计划`, `技能`, `代�
 Terminal output, Git content, model names, Skill names, and Skill bodies remain
 verbatim rather than being rewritten by the presentation layer.
 
+Async product surfaces project exactly one loading, error, empty, or ready state.
+A recoverable error presents its next action beside the summary and calls the
+existing feature owner; it does not render an empty state at the same time or
+bypass readiness. Shared modal presentation owns initial focus, Tab containment,
+Escape and backdrop dismissal, and trigger-focus restoration, while its feature
+controller continues to own selection and mutation. Visible form labels identify
+project and advanced Skill-source inputs; programmatically opened native file
+inputs are removed from the keyboard focus order.
+
 Composer drafts are durable full snapshots scoped by `projectId + productMode`.
 They reuse the schema-14 `composer_drafts` row and include unsent text, safe
 project-relative file references, managed attachment ids, provider-neutral Skill

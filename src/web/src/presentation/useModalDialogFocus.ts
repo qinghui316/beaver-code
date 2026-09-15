@@ -9,14 +9,14 @@ const focusableSelector = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
-export function useModalDialogFocus(open: boolean): RefObject<HTMLElement | null> {
+export function useModalDialogFocus(open: boolean, returnFocusRef?: RefObject<HTMLElement | null>): RefObject<HTMLElement | null> {
   const dialogRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousFocus = returnFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
     const focusInitial = () => (focusable()[0] ?? dialog).focus();
     focusInitial();
@@ -47,7 +47,7 @@ export function useModalDialogFocus(open: boolean): RefObject<HTMLElement | null
       window.removeEventListener("keydown", trapFocus);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [open]);
+  }, [open, returnFocusRef]);
 
   return dialogRef;
 }

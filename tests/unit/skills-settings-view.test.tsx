@@ -20,6 +20,21 @@ afterEach(() => {
 });
 
 describe("SkillsSettingsView request identity", () => {
+  it("renders a load failure with local recovery instead of an empty catalog", async () => {
+    fetchJson
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce({ skills: [skill("recovered-skill")] });
+    render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(screen.getByText("暂时无法连接到本地服务。")).toBeTruthy();
+    expect(screen.queryByText("还没有发现技能")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    await waitFor(() => expect(screen.getByText("recovered-skill")).toBeTruthy());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("ignores a late catalog response after the Provider changes", async () => {
     const initial = deferred<{ skills: SkillListItem[] }>();
     fetchJson

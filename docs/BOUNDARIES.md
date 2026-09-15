@@ -743,6 +743,14 @@ Skill names, and Skill bodies remain verbatim. It also cannot reinterpret domain
 success, bypass HTTP Conflict, or change any admission, permission, Provider, or
 Harness decision.
 
+Presentation state uses a discriminated loading/error/empty/ready contract; only
+feature controllers load data or execute recovery actions. The shared dialog
+primitive owns focus lifecycle and dismissal semantics but cannot select models,
+change Skills, navigate projects, or settle domain work. Project recovery buttons
+are injected narrow actions backed by the existing refresh, diagnostics, and
+navigation owners. Electron Main remains limited to host-level summaries and
+native actions and does not reinterpret Workbench failures.
+
 Composer draft persistence has one owner per layer. The schema-14
 `ComposerDraftRepository` owns the sole durable `projectId + productMode` row and
 full-snapshot compare-and-swap; the Workbench recovery service owns structured

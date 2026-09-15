@@ -372,7 +372,7 @@ function buildMenu(): Menu {
 
 function updateMenuLabel(): string {
   if (updatesPausedForRecovery) return "重启应用后检查更新";
-  if (!updateCoordinator) return "当前构建未启用自动更新";
+  if (!updateCoordinator) return "当前版本暂不支持自动更新";
   const labels: Record<DesktopUpdateState, string> = {
     idle: "检查更新", checking: "正在检查更新…", downloading: "正在下载更新…",
     "ready-to-install": "重新启动并更新", preparing: "正在保存…", stopping: "正在准备重启…", installing: "正在安装更新…", failed: "重试检查更新",

@@ -1098,7 +1098,7 @@ export function snapshotForProject(
       harnessReady: project.harness.readiness === "ready",
     },
     center: { ...empty.center, workpad: emptyWorkpad(projectDisplayName(project.project)) },
-    warnings: project.managed ? [] : ["首次需求会根据项目情况建立必要工作说明。"],
+    warnings: project.managed ? [] : ["创建第一条会话即可开始使用。"],
   };
 }
 
