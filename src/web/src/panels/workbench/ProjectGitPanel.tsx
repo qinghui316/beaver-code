@@ -582,9 +582,12 @@ function splitPath(path: string): { name: string; dir: string } {
 
 function statusSymbol(file: ProjectGitFileStatus): string {
   if (file.group === "untracked") return "?";
+  if (UNMERGED_GIT_STATUS_PAIRS.has(`${file.indexStatus}${file.worktreeStatus}`)) return "U";
   const symbol = (file.group === "staged" ? file.indexStatus : file.worktreeStatus).trim();
   return symbol || "M";
 }
+
+const UNMERGED_GIT_STATUS_PAIRS = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
 export function gitFileStatusPresentation(file: ProjectGitFileStatus): { symbol: string; label: string; className: "added" | "deleted" | "renamed" | "modified" } {
   const symbol = statusSymbol(file);

@@ -58,11 +58,18 @@ interface TerminalRuntimeSession extends TerminalRuntimeSessionInfo {
   buffer: TerminalRuntimeEvent[];
 }
 
+interface TerminalRuntimeOpeningSession {
+  projectId: string;
+  terminalId: string;
+  cancelled: boolean;
+  promise?: Promise<TerminalRuntimeSessionInfo>;
+}
+
 const MAX_BUFFERED_EVENTS = 200;
 
 export class TerminalRuntime {
   private readonly sessions = new Map<string, TerminalRuntimeSession>();
-  private readonly openingSessions = new Map<string, Promise<TerminalRuntimeSessionInfo>>();
+  private readonly openingSessions = new Map<string, TerminalRuntimeOpeningSession>();
   private readonly emitter = new EventEmitter();
   private readonly loadPty: () => Promise<NodePtyModule>;
 
@@ -78,20 +85,22 @@ export class TerminalRuntime {
     if (existing) return sessionInfo(existing);
 
     const opening = this.openingSessions.get(key);
-    if (opening) return opening;
+    if (opening?.promise) return opening.promise;
 
-    const pending = this.openSession(request, projectId, terminalId, key);
-    this.openingSessions.set(key, pending);
+    const openingSession: TerminalRuntimeOpeningSession = { projectId, terminalId, cancelled: false };
+    const pending = this.openSession(request, projectId, terminalId, key, openingSession);
+    openingSession.promise = pending;
+    this.openingSessions.set(key, openingSession);
     try {
       return await pending;
     } finally {
-      if (this.openingSessions.get(key) === pending) this.openingSessions.delete(key);
+      if (this.openingSessions.get(key) === openingSession) this.openingSessions.delete(key);
     }
   }
 
-  private async openSession(request: TerminalRuntimeOpenRequest, projectId: string, terminalId: string, key: string): Promise<TerminalRuntimeSessionInfo> {
-
+  private async openSession(request: TerminalRuntimeOpenRequest, projectId: string, terminalId: string, key: string, opening: TerminalRuntimeOpeningSession): Promise<TerminalRuntimeSessionInfo> {
     const cwd = await resolveExistingDirectory(request.cwd);
+    requireOpeningActive(opening);
     const cols = normalizeDimension(request.cols, 80);
     const rows = normalizeDimension(request.rows, 24);
     const shell = resolveShellPath();
@@ -101,6 +110,7 @@ export class TerminalRuntime {
     } catch (cause) {
       throw terminalUnavailable(cause);
     }
+    requireOpeningActive(opening);
 
     let pty: IPty;
     try {
@@ -162,6 +172,8 @@ export class TerminalRuntime {
 
   close(projectId: string, terminalId: string): void {
     const key = sessionKey(projectId, terminalId);
+    const opening = this.openingSessions.get(key);
+    if (opening) opening.cancelled = true;
     const session = this.sessions.get(key);
     if (!session) return;
     this.sessions.delete(key);
@@ -170,12 +182,16 @@ export class TerminalRuntime {
 
   cleanupProject(projectId: string): void {
     const normalizedProjectId = normalizeRequiredId(projectId, "projectId");
+    for (const opening of this.openingSessions.values()) {
+      if (opening.projectId === normalizedProjectId) opening.cancelled = true;
+    }
     for (const session of [...this.sessions.values()]) {
       if (session.projectId === normalizedProjectId) this.close(session.projectId, session.terminalId);
     }
   }
 
   cleanup(): void {
+    for (const opening of this.openingSessions.values()) opening.cancelled = true;
     for (const session of [...this.sessions.values()]) {
       this.close(session.projectId, session.terminalId);
     }
@@ -184,6 +200,11 @@ export class TerminalRuntime {
 
   /** Update admission waits for actual PTY exits, not merely removal from the map. */
   async shutdown(deadlineMs = 6_000): Promise<void> {
+    const shutdownStartedAt = Date.now();
+    const openings = [...this.openingSessions.values()];
+    for (const opening of openings) opening.cancelled = true;
+    if (openings.length) await waitForOpeningSessions(openings, deadlineMs);
+    const remainingDeadlineMs = Math.max(1, deadlineMs - (Date.now() - shutdownStartedAt));
     const results = await Promise.allSettled([...this.sessions.values()].map((session) => new Promise<void>((resolvePromise, reject) => {
       let finished = false;
       const exitListener: { current?: IDisposable } = {};
@@ -194,7 +215,7 @@ export class TerminalRuntime {
         exitListener.current?.dispose();
         if (cause) reject(cause); else resolvePromise();
       };
-      const timer = setTimeout(() => finish(new Error("Terminal process did not confirm exit.")), deadlineMs);
+      const timer = setTimeout(() => finish(new Error("Terminal process did not confirm exit.")), remainingDeadlineMs);
       exitListener.current = session.pty.onExit(() => finish());
       if (finished) exitListener.current.dispose();
       try { session.pty.kill(); }
@@ -210,7 +231,7 @@ export class TerminalRuntime {
   }
 
   activeSessionCount(): number {
-    return this.sessions.size;
+    return this.sessions.size + this.openingSessions.size;
   }
 
   subscribe(projectId: string, terminalId: string, listener: (event: TerminalRuntimeEvent) => void): () => void {
@@ -235,6 +256,29 @@ export class TerminalRuntime {
     session.buffer.push(event);
     if (session.buffer.length > MAX_BUFFERED_EVENTS) session.buffer.splice(0, session.buffer.length - MAX_BUFFERED_EVENTS);
     this.emitter.emit(eventChannel(session.projectId, session.terminalId), event);
+  }
+}
+
+function requireOpeningActive(opening: TerminalRuntimeOpeningSession): void {
+  if (!opening.cancelled) return;
+  const error = new Error("Terminal opening was cancelled.");
+  error.name = "TerminalOpenCancelled";
+  throw error;
+}
+
+async function waitForOpeningSessions(openings: TerminalRuntimeOpeningSession[], deadlineMs: number): Promise<void> {
+  const pending = openings.flatMap((opening) => opening.promise ? [opening.promise] : []);
+  if (!pending.length) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled(pending),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Terminal opening did not settle.")), deadlineMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

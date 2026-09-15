@@ -45,6 +45,46 @@ describe("update Terminal exit evidence", () => {
     runtime.cleanup();
   });
 
+  it("cancels a pending open when the scoped terminal is closed", async () => {
+    let releaseLoad!: () => void;
+    const loadReady = new Promise<void>((resolve) => { releaseLoad = resolve; });
+    const spawn = vi.fn();
+    const runtime = new TerminalRuntime({
+      loadPty: async () => {
+        await loadReady;
+        return { spawn } as unknown as typeof import("node-pty");
+      },
+    });
+    const pending = runtime.open({ projectId: "fixture", cwd: tmpdir(), terminalId: "terminal" });
+    expect(runtime.activeSessionCount()).toBe(1);
+    runtime.close("fixture", "terminal");
+    releaseLoad();
+
+    await expect(pending).rejects.toMatchObject({ name: "TerminalOpenCancelled" });
+    expect(spawn).not.toHaveBeenCalled();
+    expect(runtime.activeSessionCount()).toBe(0);
+  });
+
+  it("cancels and awaits pending opens during shutdown", async () => {
+    let releaseLoad!: () => void;
+    const loadReady = new Promise<void>((resolve) => { releaseLoad = resolve; });
+    const spawn = vi.fn();
+    const runtime = new TerminalRuntime({
+      loadPty: async () => {
+        await loadReady;
+        return { spawn } as unknown as typeof import("node-pty");
+      },
+    });
+    const pending = runtime.open({ projectId: "fixture", cwd: tmpdir(), terminalId: "terminal" });
+    const shutdown = runtime.shutdown(1_000);
+    releaseLoad();
+
+    await expect(pending).rejects.toMatchObject({ name: "TerminalOpenCancelled" });
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(runtime.activeSessionCount()).toBe(0);
+  });
+
   it("waits for a real PTY exit instead of declaring success after kill", async () => {
     const { runtime, pty, exit } = await fixture();
     let completed = false;

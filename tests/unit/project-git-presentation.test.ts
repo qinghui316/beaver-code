@@ -36,4 +36,17 @@ describe("Git file status presentation", () => {
     expect(gitFileStatusPresentation(mixed)).toMatchObject({ symbol: "M", label: "已修改" });
     expect(gitFileStatusPresentation({ ...mixed, group: "unstaged" })).toMatchObject({ symbol: "D", label: "已删除" });
   });
+
+  it.each(["DD", "AU", "UD", "UA", "DU", "AA", "UU"])("presents unmerged Git pair %s as a conflict in both groups", (pair) => {
+    const file: ProjectGitFileStatus = {
+      relativePath: "src/conflicted.ts",
+      name: "conflicted.ts",
+      group: "staged",
+      indexStatus: pair[0],
+      worktreeStatus: pair[1],
+      statusLabel: pair,
+    };
+    expect(gitFileStatusPresentation(file)).toMatchObject({ symbol: "U", label: "存在冲突" });
+    expect(gitFileStatusPresentation({ ...file, group: "unstaged" })).toMatchObject({ symbol: "U", label: "存在冲突" });
+  });
 });
