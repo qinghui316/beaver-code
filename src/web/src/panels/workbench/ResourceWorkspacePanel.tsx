@@ -124,16 +124,16 @@ export function ResourceWorkspacePanel({
         <DocumentReadingSurface
           resource={selectedDocument}
           loading={loadingResourceIds.includes(selectedTab.resourceId)}
-          error={resourceErrors[selectedTab.resourceId]}
+          failureMessage={resourceErrors[selectedTab.resourceId]}
         />
       ) : !mountedAgent ? <div className="agent-workspace-empty"><Bot size={20} /><span>从对话或 Agent 办公室中打开一个 Agent。</span></div> : null}
     </div>
   );
 }
 
-function DocumentReadingSurface({ resource, loading, error }: { resource: TextDocumentResource | null; loading: boolean; error?: string }): ReactElement {
+function DocumentReadingSurface({ resource, loading, failureMessage }: { resource: TextDocumentResource | null; loading: boolean; failureMessage?: string }): ReactElement {
   if (loading && !resource) return <div className="resource-document-state" role="status">正在打开...</div>;
-  if (error && !resource) return <div className="resource-document-state error" role="alert">{error}</div>;
+  if (failureMessage && !resource) return <div className="resource-document-state error" role="alert">{failureMessage}</div>;
   if (!resource) return <div className="resource-document-state">文档不可用。</div>;
   return (
     <section className="resource-document-surface" data-testid="resource-document-surface" aria-label={resource.title}>

@@ -91,14 +91,14 @@ export function TranscriptReviewCard({ cell, onFork, onOpenProjectFile }: {
   onOpenProjectFile?: (relativePath: string) => void;
 }): ReactElement {
   const running = cell.status === "submitting" || cell.status === "reviewing";
-  const status = running ? "正在审查代码" : cell.status === "completed" ? "审查完成"
+  const statusLabel = running ? "正在审查代码" : cell.status === "completed" ? "审查完成"
     : cell.status === "interrupted" ? "审查已中断" : "审查失败";
   return <section className={`transcript-review-card ${cell.isError ? "danger" : ""}`} aria-label={cell.title ?? "代码审查"}>
     <header>
       <FileSearch2 size={16} aria-hidden="true" />
       <div>
         <strong>{cell.title ?? "代码审查"}</strong>
-        <span>{status}</span>
+        <span>{statusLabel}</span>
       </div>
       {running ? <LoaderCircle size={15} className="spin" aria-hidden="true" />
         : cell.status === "completed" ? <CheckCircle2 size={15} aria-hidden="true" /> : null}
@@ -215,7 +215,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   const statusLabel = cell.status ? humanStatus(cell.status) : "";
   const text = isDuplicativeActivitySummary(rawText, title, statusLabel) ? "" : rawText;
   const detailText = normalizeProviderTranscriptText(cleanTranscriptText(cell.detailText));
-  const status = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
+  const visibleStatusLabel = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
   const detailsId = `${cell.id}:details`;
   const tone = transcriptActivityTone(cell);
   const opensAgent = Boolean(cell.targetAgentSurfaceId && onOpenAgent && (canOpenAgent?.(cell.targetAgentSurfaceId) ?? true));
@@ -236,7 +236,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
           <ActivityGlyph cell={cell} />
           <span className="tool-result-heading transcript-activity-heading">
             <span className="transcript-activity-title">{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
-            {status ? <span>{status}</span> : null}
+            {visibleStatusLabel ? <span>{visibleStatusLabel}</span> : null}
           </span>
           {opensAgent ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
         </button>

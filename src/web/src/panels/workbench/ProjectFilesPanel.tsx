@@ -22,7 +22,7 @@ export function ProjectFilesPanel({
   const [selectedPath, setSelectedPath] = useState("");
   const [loadingTree, setLoadingTree] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
 
   const visibleEntries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -34,13 +34,13 @@ export function ProjectFilesPanel({
   async function loadTree(nextPath = path): Promise<void> {
     if (!projectId) return;
     setLoadingTree(true);
-    setError(null);
+    setFailureMessage(null);
     try {
       const result = await fetchJson<ProjectFileTreeResult>(`/api/projects/${encodeURIComponent(projectId)}/files/children?path=${encodeURIComponent(nextPath)}`);
       setTree(result);
       setPath(result.path);
     } catch (err) {
-      setError(userFacingErrorMessage(err, "files"));
+      setFailureMessage(userFacingErrorMessage(err, "files"));
     } finally {
       setLoadingTree(false);
     }
@@ -61,11 +61,11 @@ export function ProjectFilesPanel({
       return;
     }
     setLoadingPreview(true);
-    setError(null);
+    setFailureMessage(null);
     try {
       setPreview(await fetchJson<ProjectFilePreviewResult>(`/api/projects/${encodeURIComponent(projectId)}/files/preview?path=${encodeURIComponent(ref.relativePath)}`));
     } catch (err) {
-      setError(userFacingErrorMessage(err, "files"));
+      setFailureMessage(userFacingErrorMessage(err, "files"));
     } finally {
       setLoadingPreview(false);
     }
@@ -127,7 +127,7 @@ export function ProjectFilesPanel({
         })}
       </div>
 
-      {error ? <div className="project-files-error">{error}</div> : null}
+      {failureMessage ? <div className="project-files-error">{failureMessage}</div> : null}
 
       <div className="project-files-list" data-testid="project-files-tree">
         {loadingTree ? <div className="project-files-empty">正在加载文件...</div> : null}

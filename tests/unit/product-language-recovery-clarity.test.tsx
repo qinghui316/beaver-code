@@ -105,6 +105,21 @@ describe("product language and recovery clarity", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("暂时无法连接到本地服务。"));
     expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("does not settle an older project retry into the current project", async () => {
+    const firstRetry = deferred<void>();
+    const view = render(<UnmanagedProjectView project={unavailableProject("repo-a")} onRetry={() => firstRetry.promise} onOpenDiagnostics={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
+    expect((screen.getByRole("button", { name: "正在检测…" }) as HTMLButtonElement).disabled).toBe(true);
+
+    view.rerender(<UnmanagedProjectView project={unavailableProject("repo-b")} onRetry={vi.fn(async () => undefined)} onOpenDiagnostics={vi.fn()} />);
+    expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
+    firstRetry.reject(new TypeError("stale network failure"));
+    await Promise.resolve();
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
+  });
 });
 
 function modelSnapshot(): ProviderModelSettingsSnapshot {
@@ -126,10 +141,10 @@ function modelSnapshot(): ProviderModelSettingsSnapshot {
   };
 }
 
-function unavailableProject(): ProjectStatus {
+function unavailableProject(id = "repo"): ProjectStatus {
   return {
-    project: { id: "repo", name: "Demo", path: "C:/demo" },
-    path: "C:/demo",
+    project: { id, name: `Demo ${id}`, path: `C:/demo/${id}` },
+    path: `C:/demo/${id}`,
     pathExists: true,
     isGitRepo: true,
     managed: true,
@@ -147,4 +162,14 @@ function unavailableProject(): ProjectStatus {
       recovery: "修复后重新检测。",
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

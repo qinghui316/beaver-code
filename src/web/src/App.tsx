@@ -1561,7 +1561,7 @@ export function App(): ReactElement {
             confirmationQueue={activeConfirmationQueue}
             confirming={confirming}
             busy={actionRunning !== null}
-            error={error}
+            failureMessage={error}
             onConfirmingChange={setConfirming}
             onExecuteAction={executeDecisionAction}
             onFeedback={requestDecisionFeedback}

@@ -78,7 +78,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
 
   useEffect(() => {
     actionGenerationRef.current += 1;
-    setBusy(false); setLoading(true); setFailure(null); setQuery(""); setSkills([]); setRoots([]); setCatalogErrors([]); setSelectedSkillId(null); setSourceManagerOpen(false); setCatalogDiagnosticsOpen(false);
+    setBusy(false); setLoading(true); setFailure(null); setQuery(""); setRootPath(""); setSkills([]); setRoots([]); setCatalogErrors([]); setSelectedSkillId(null); setSourceManagerOpen(false); setCatalogDiagnosticsOpen(false);
     const requestIdentityKey = identityKey;
     const requestGeneration = requestGenerationRef.current + 1;
     load().then(() => {

@@ -73,6 +73,7 @@ describe("SkillsSettingsView request identity", () => {
     await waitFor(() => expect(screen.getByText("old-skill")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "技能来源设置" }));
     expect(screen.getByText("C:/private/old-skills")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "技能目录" }), { target: { value: "C:/private/pending-source" } });
 
     view.rerender(<SkillsSettingsView projectId="repo-b" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
     expect(screen.queryByText("old-skill")).toBeNull();
@@ -82,6 +83,8 @@ describe("SkillsSettingsView request identity", () => {
 
     next.resolve({ skills: [skill("new-skill")], roots: [] });
     await waitFor(() => expect(screen.getByText("new-skill")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "技能来源设置" }));
+    expect((screen.getByRole("textbox", { name: "技能目录" }) as HTMLInputElement).value).toBe("");
   });
 
   it("groups Skills, opens details on demand, and hides absolute paths outside source settings", async () => {

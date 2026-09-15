@@ -77,11 +77,19 @@ describe("UI language lint", () => {
     expect(violations).toContain("raw state status");
   });
 
-  it("allows explicitly projected display strings and mapped local status copy", async () => {
+  it("does not treat TypeScript string annotations or label-like function names as proof of projection", async () => {
     const root = await fixture({
-      "src/web/src/Panel.tsx": `export function Panel({ error }: { error: string | null }) { const status = true ? "已完成" : "需要处理"; return <>{error ? <p>{error}</p> : null}<span>{status}</span></>; }`,
+      "src/web/src/Panel.tsx": `import { useState } from "react";
+        const rawStatusLabel = (value: string) => value;
+        export function Panel({ error, response }: { error: string | null; response: { status: string } }) {
+          const [err] = useState<string | null>(error);
+          const status = rawStatusLabel(response.status);
+          return <>{error ? <p>{error}</p> : null}{err ? <p>{err}</p> : null}<span>{status}</span></>;
+        }`,
     });
-    expect((await lintUiLanguage(root)).violations).toEqual([]);
+    const violations = (await lintUiLanguage(root)).violations.join("\n");
+    expect(violations.match(/raw error or response body/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(violations).toContain("raw state status");
   });
 
   it("checks configured copy and raw fallback branches", async () => {

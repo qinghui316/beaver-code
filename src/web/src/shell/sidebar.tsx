@@ -446,8 +446,18 @@ export function UnmanagedProjectView({ project, onRetry, onOpenDiagnostics }: {
   onRetry: () => void | Promise<void>;
   onOpenDiagnostics: () => void;
 }): ReactElement {
-  const [retrying, setRetrying] = useState(false);
-  const [retryFailure, setRetryFailure] = useState<string | null>(null);
+  const retryIdentityKey = project?.project?.id ?? project?.path ?? "";
+  const retryIdentityRef = useRef(retryIdentityKey);
+  retryIdentityRef.current = retryIdentityKey;
+  const retryGenerationRef = useRef(0);
+  const [retryState, setRetryState] = useState<{ identityKey: string; retrying: boolean; failure: string | null }>({
+    identityKey: retryIdentityKey,
+    retrying: false,
+    failure: null,
+  });
+  const currentRetryState = retryState.identityKey === retryIdentityKey
+    ? retryState
+    : { identityKey: retryIdentityKey, retrying: false, failure: null };
   if (!project?.project) return <EmptyWorkbench title="项目不可用" description="请选择左侧项目或重新刷新项目列表。" />;
   const issue = harnessStatusIssue(project);
   return (
@@ -458,15 +468,24 @@ export function UnmanagedProjectView({ project, onRetry, onOpenDiagnostics }: {
       {project.runtimeAvailability?.state === "unavailable" ? (
         <>
           <p>{project.runtimeAvailability.recovery ?? "修复后请退出并重新打开 Beaver Code。"}</p>
-          {retryFailure ? <p className="form-error" role="alert">{retryFailure}</p> : null}
+          {currentRetryState.failure ? <p className="form-error" role="alert">{currentRetryState.failure}</p> : null}
           <div className="empty-workbench-actions">
-            <button type="button" className="primary-button" disabled={retrying} onClick={() => {
-              setRetryFailure(null);
-              setRetrying(true);
+            <button type="button" className="primary-button" disabled={currentRetryState.retrying} onClick={() => {
+              const generation = ++retryGenerationRef.current;
+              const identityKey = retryIdentityKey;
+              setRetryState({ identityKey, retrying: true, failure: null });
               void Promise.resolve(onRetry())
-                .catch((cause: unknown) => setRetryFailure(userFacingErrorMessage(cause, "load")))
-                .finally(() => setRetrying(false));
-            }}>{retrying ? "正在检测…" : "重新检测"}</button>
+                .catch((cause: unknown) => {
+                  if (generation === retryGenerationRef.current && identityKey === retryIdentityRef.current) {
+                    setRetryState({ identityKey, retrying: true, failure: userFacingErrorMessage(cause, "load") });
+                  }
+                })
+                .finally(() => {
+                  if (generation === retryGenerationRef.current && identityKey === retryIdentityRef.current) {
+                    setRetryState((current) => current.identityKey === identityKey ? { ...current, retrying: false } : current);
+                  }
+                });
+            }}>{currentRetryState.retrying ? "正在检测…" : "重新检测"}</button>
             <button type="button" className="outline-button" onClick={onOpenDiagnostics}>查看诊断</button>
             <button type="button" className="outline-button" onClick={() => { window.location.href = "/"; }}>打开其他项目</button>
           </div>

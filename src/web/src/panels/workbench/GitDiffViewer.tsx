@@ -15,16 +15,16 @@ export function GitDiffViewer({
 }): ReactElement {
   const [diff, setDiff] = useState<ProjectGitDiffResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
 
   async function loadDiff(): Promise<void> {
     if (!projectId || !selectedPath) return;
     setLoading(true);
-    setError(null);
+    setFailureMessage(null);
     try {
       setDiff(await fetchJson<ProjectGitDiffResult>(`/api/projects/${encodeURIComponent(projectId)}/git/diff?path=${encodeURIComponent(selectedPath)}`));
     } catch (err) {
-      setError(userFacingErrorMessage(err, "git"));
+      setFailureMessage(userFacingErrorMessage(err, "git"));
     } finally {
       setLoading(false);
     }
@@ -47,7 +47,7 @@ export function GitDiffViewer({
           <RefreshCw size={16} aria-hidden="true" />
         </button>
       </header>
-      {error ? <div className="project-files-error">{error}</div> : null}
+      {failureMessage ? <div className="project-files-error">{failureMessage}</div> : null}
       {loading ? <div className="git-diff-empty">正在读取 diff...</div> : null}
       {!loading && !selectedPath ? (
         <div className="git-diff-empty">

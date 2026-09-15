@@ -33,17 +33,17 @@ export function ProjectGitPanel({
   const [commitDiffLoading, setCommitDiffLoading] = useState(false);
   const [commitDiffError, setCommitDiffError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ProjectGitFileStatus["group"]>>(new Set());
 
   async function loadStatus(): Promise<void> {
     if (!projectId) return;
     setLoading(true);
-    setError(null);
+    setFailureMessage(null);
     try {
       setStatus(await fetchJson<ProjectGitStatusResult>(`/api/projects/${encodeURIComponent(projectId)}/git/status`));
     } catch (err) {
-      setError(userFacingErrorMessage(err, "git"));
+      setFailureMessage(userFacingErrorMessage(err, "git"));
     } finally {
       setLoading(false);
     }
@@ -178,7 +178,7 @@ export function ProjectGitPanel({
           history={history}
           query={historyQuery}
           loading={historyLoading}
-          error={historyError}
+          failureMessage={historyError}
           selectedCommitSha={selectedCommitSha}
           detail={commitDetail}
           detailLoading={commitDetailLoading}
@@ -234,7 +234,7 @@ export function ProjectGitPanel({
         </button>
       </header>
 
-      {error ? <div className="project-files-error">{error}</div> : null}
+      {failureMessage ? <div className="project-files-error">{failureMessage}</div> : null}
       {loading ? <div className="project-files-empty">正在读取 Git 状态...</div> : null}
       {!loading && status && !status.isGitRepository ? (
         <div className="project-git-empty">{status.message ?? "当前项目不是 Git 仓库。"}</div>
@@ -285,7 +285,7 @@ function GitHistoryRail({
   history,
   query,
   loading,
-  error,
+  failureMessage,
   selectedCommitSha,
   detail,
   detailLoading,
@@ -306,7 +306,7 @@ function GitHistoryRail({
   history: ProjectGitHistoryResult | null;
   query: string;
   loading: boolean;
-  error: string | null;
+  failureMessage: string | null;
   selectedCommitSha: string | null;
   detail: ProjectGitCommitDetailResult | null;
   detailLoading: boolean;
@@ -386,7 +386,7 @@ function GitHistoryRail({
         <Search size={13} aria-hidden="true" />
         <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="搜索历史" />
       </form>
-      {error ? <div className="project-files-error">{error}</div> : null}
+      {failureMessage ? <div className="project-files-error">{failureMessage}</div> : null}
       {loading ? <div className="project-files-empty">正在读取 Git 历史...</div> : null}
       {!loading && history?.status !== "ok" ? (
         <div className="project-git-empty">{history?.message ?? "无法读取 Git 历史。"}</div>

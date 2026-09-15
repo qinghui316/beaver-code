@@ -9,7 +9,7 @@ export function DecisionInspectorPane({
   confirmationQueue,
   confirming,
   busy,
-  error,
+  failureMessage,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -19,7 +19,7 @@ export function DecisionInspectorPane({
   confirmationQueue: ConfirmationQueue;
   confirming: string | null;
   busy: boolean;
-  error: string | null;
+  failureMessage: string | null;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -32,7 +32,7 @@ export function DecisionInspectorPane({
         <h2>需要你确认</h2>
         <span>{primaryQueueItem ? 1 : 0}</span>
       </div>
-      {error ? <div className="error-box">{error}</div> : null}
+      {failureMessage ? <div className="error-box">{failureMessage}</div> : null}
       {!primaryQueueItem ? (
         <div className="approval-empty">
           <h3>暂无需要确认</h3>
