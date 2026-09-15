@@ -234,6 +234,15 @@
   letter-spacing: 0;
 }
 
+.home-mode-description {
+  max-width: 560px;
+  margin: -6px 0 2px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  text-align: center;
+}
+
 .workspace-picker {
   position: relative;
   max-width: min(520px, 100%);

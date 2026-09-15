@@ -21,7 +21,9 @@ describe("Right tool rail shell", () => {
       rightRailPendingCount={2}
       onToggleRightRail={onToggleRightRail}
     />);
-    fireEvent.click(screen.getByLabelText("打开右侧工具，2 个待确认"));
+    expect(screen.getByText("Agent Office")).toBeTruthy();
+    expect(screen.getByText("Terminal")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("打开工具，2 个待确认"));
     expect(onToggleRightRail).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
   });
@@ -30,6 +32,9 @@ describe("Right tool rail shell", () => {
     const onToolOpen = vi.fn();
     const onCollapse = vi.fn();
     renderShell({ state: { mode: "launcher" }, onToolOpen, onCollapse });
+    expect(screen.getByText("工作")).toBeTruthy();
+    expect(screen.getByText("支持")).toBeTruthy();
+    expect(screen.getByText("帮助与诊断")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-agent")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-confirm")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-files")).toBeTruthy();

@@ -12,7 +12,7 @@ const toolLabels: Record<RightToolRailTab, string> = {
   confirm: "确认事项",
   files: "文件",
   git: "Git",
-  diagnostics: "诊断",
+  diagnostics: "帮助与诊断",
 };
 
 export function RightToolRailShell({
@@ -129,6 +129,7 @@ function RightToolLauncher({
   return (
     <div className="right-tool-launcher" data-testid="right-tool-launcher" aria-label="右侧工具入口">
       <div className="right-tool-launcher-list">
+        <span className="right-tool-launcher-group-label">工作</span>
         <button
           type="button"
           className="right-tool-launcher-item"
@@ -145,7 +146,7 @@ function RightToolLauncher({
           onClick={() => onToolOpen("confirm")}
         >
           <ListChecks size={17} aria-hidden="true" />
-          <span>确认</span>
+          <span>确认事项</span>
           {pendingCount > 0 ? <span className="right-tool-launcher-badge">{pendingCount}</span> : null}
         </button> : null}
         <button
@@ -166,6 +167,7 @@ function RightToolLauncher({
           <GitBranch size={17} aria-hidden="true" />
           <span>Git</span>
         </button>
+        <span className="right-tool-launcher-group-label support">支持</span>
         <button
           type="button"
           className="right-tool-launcher-item"
@@ -173,7 +175,7 @@ function RightToolLauncher({
           onClick={() => onToolOpen("diagnostics")}
         >
           <Activity size={17} aria-hidden="true" />
-          <span>诊断</span>
+          <span>帮助与诊断</span>
         </button>
       </div>
     </div>

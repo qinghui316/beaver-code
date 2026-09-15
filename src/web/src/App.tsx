@@ -83,6 +83,9 @@ import {
 import { emptySnapshotForMode, removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
 import { useAppModeController } from "./controllers/AppModeController.js";
 import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
+import { ModeExperienceGuide } from "./presentation/ModeExperienceGuide.js";
+import { projectConversationWorkspaceChrome } from "./presentation/conversation-workspace.js";
+import { productModeControlLabel, productModeControlTitle } from "./presentation/core-workbench-experience.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "./presentation/user-facing-language.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
@@ -1032,15 +1035,19 @@ export function App(): ReactElement {
     agentRunControl?.state,
     appMode.productMode,
   ]);
-  const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
-    + activeConfirmationQueue.otherDemands.length
-    + activeConfirmationQueue.maintenance.length;
-  const visiblePendingConfirmationCount = presentation.harness["governance-approvals"] ? pendingConfirmationCount : 0;
+  const workspaceChrome = projectConversationWorkspaceChrome({
+    governanceVisible: presentation.harness["governance-approvals"],
+    primaryConfirmationPresent: Boolean(activeConfirmationQueue.primary),
+    otherConfirmationCount: activeConfirmationQueue.otherDemands.length,
+    maintenanceConfirmationCount: activeConfirmationQueue.maintenance.length,
+    providerDiagnosticName: providerDiagnostics?.displayName,
+    selectedProviderId: composerProviderId,
+    providerOptions: composerProviderOptions,
+  });
+  const visiblePendingConfirmationCount = workspaceChrome.pendingConfirmationCount;
   const officeSurfaceProjection = agentSurfaces.projection;
   const providerModelLabel = composer.modelLabel;
-  const providerDisplayName = providerDiagnostics?.displayName
-    ?? composerProviderOptions.find((provider) => provider.id === composerProviderId)?.label
-    ?? (composerProviderOptions.length === 1 ? composerProviderOptions[0]!.label : "正在加载");
+  const providerDisplayName = workspaceChrome.providerDisplayName;
 
   function appendComposerFileRefs(refs: TopicFileReference[]): void {
     composer.setFileRefs([...composerFileRefs, ...refs]);
@@ -1112,6 +1119,9 @@ export function App(): ReactElement {
     void timeline.loadLatest(activeTimelineScope);
   }, [activeTimelineScope, projectionVersion, timeline.loadLatest]);
 
+  const agentModeActivityState = modeActivity.snapshot?.agent.state;
+  const harnessModeActivityState = modeActivity.snapshot?.harness.state;
+
   return (
     <div
       className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarModalOpen ? " mobile-sidebar-open" : ""}`}
@@ -1123,25 +1133,27 @@ export function App(): ReactElement {
             type="button"
             className={appMode.productMode === "agent" ? "active" : ""}
             aria-pressed={appMode.productMode === "agent"}
-            aria-label={modeButtonLabel("Agent", appMode.productMode === "agent", modeActivity.snapshot?.agent.state)}
-            title={modeButtonTitle("Agent", appMode.productMode === "agent", modeActivity.snapshot?.agent.state)}
+            aria-label={productModeControlLabel("agent", appMode.productMode === "agent", agentModeActivityState)}
+            title={productModeControlTitle("agent", appMode.productMode === "agent", agentModeActivityState)}
             onClick={() => {
               setMobileSidebarOpen(false);
               appMode.selectMode("agent");
             }}
-          ><span>Agent</span><ProductModeActivityIcon active={appMode.productMode === "agent"} state={modeActivity.snapshot?.agent.state} /></button>
+          ><span>Agent</span><ProductModeActivityIcon active={appMode.productMode === "agent"} state={agentModeActivityState} /></button>
           <button
             type="button"
             className={appMode.productMode === "harness" ? "active" : ""}
             aria-pressed={appMode.productMode === "harness"}
-            aria-label={modeButtonLabel("AHO", appMode.productMode === "harness", modeActivity.snapshot?.harness.state)}
-            title={modeButtonTitle("AHO", appMode.productMode === "harness", modeActivity.snapshot?.harness.state)}
+            aria-label={productModeControlLabel("harness", appMode.productMode === "harness", harnessModeActivityState)}
+            title={productModeControlTitle("harness", appMode.productMode === "harness", harnessModeActivityState)}
             onClick={() => {
               setMobileSidebarOpen(false);
               appMode.selectMode("harness");
             }}
-          ><span>AHO</span><ProductModeActivityIcon active={appMode.productMode === "harness"} state={modeActivity.snapshot?.harness.state} /></button>
+          ><span>AHO</span><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></button>
         </div>
+        <ModeExperienceGuide mode={appMode.productMode} />
+        <ModeExperienceGuide mode={appMode.productMode} compact />
       </div> : null}
       {!settingsOpen ? (
         <button
@@ -1632,19 +1644,6 @@ function ProductModeActivityIcon({ active, state }: { active: boolean; state: Pr
     {visibleState === "attention" ? <CircleAlert size={13} /> : null}
     {visibleState === "failed" ? <XCircle size={13} /> : null}
   </span>;
-}
-
-function modeButtonLabel(label: string, active: boolean, state: ProductModeActivityState | undefined): string {
-  if (active || state === undefined || state === "idle" || state === "unavailable") return label;
-  return modeButtonTitle(label, false, state) ?? label;
-}
-
-function modeButtonTitle(label: string, active: boolean, state: ProductModeActivityState | undefined): string | undefined {
-  if (active) return undefined;
-  if (state === "running") return `${label}运行中`;
-  if (state === "attention") return `${label}需要处理`;
-  if (state === "failed") return `${label}执行失败`;
-  return `切换到${label}`;
 }
 
 function isOrchestrationTabParam(value: string | null): boolean {

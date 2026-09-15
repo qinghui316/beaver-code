@@ -143,6 +143,37 @@
   z-index: 30;
   top: 9px;
   left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.product-mode-guide {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  max-width: calc(100vw - 500px);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.product-mode-guide strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.product-mode-guide span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-mode-compact-guide {
+  display: none;
 }
 
 .mobile-sidebar-toggle,
@@ -251,11 +282,25 @@
     z-index: 43;
   }
 
+  .product-mode-guide {
+    display: none;
+  }
+
+  .product-mode-compact-guide {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+  }
+
   .mobile-sidebar-toggle {
     position: fixed;
     z-index: 44;
     top: 8px;
-    left: 150px;
+    left: 194px;
     display: inline-flex;
     width: 32px;
     height: 32px;

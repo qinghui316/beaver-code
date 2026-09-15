@@ -676,6 +676,23 @@ body.is-resizing-column {
   gap: 2px;
 }
 
+.right-tool-launcher-group-label {
+  margin: 8px 10px 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.right-tool-launcher-group-label:first-child {
+  margin-top: 0;
+}
+
+.right-tool-launcher-group-label.support {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .right-tool-launcher-item {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
@@ -944,7 +961,32 @@ body.is-resizing-column {
 .workspace-orchestration-toggle,
 .workspace-right-rail-toggle {
   position: relative;
+  width: auto;
+  min-width: 34px;
+  padding-inline: 9px;
+  gap: 6px;
   pointer-events: auto;
+}
+
+.workspace-tool-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .workspace-dock-toggle,
+  .workspace-orchestration-toggle,
+  .workspace-right-rail-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .workspace-tool-label {
+    display: none;
+  }
 }
 
 .agent-workspace-readonly {

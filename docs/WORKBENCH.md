@@ -157,6 +157,26 @@ only its captured text, and Stop clears nothing. Conversation navigation keeps
 the established shared project/mode Composer scope rather than creating
 per-Conversation draft rows.
 
+The core Workbench is composed from bounded Project Navigation and Conversation
+Workspace presentation adapters. The project list owns one visible primary entry,
+one persistent new-conversation action, and a menu for lower-frequency project
+actions. Search matches both projects and their conversations; archived
+conversations stay collapsed unless explicitly opened or matched by search.
+Unavailable projects remain visible with a recovery state instead of disappearing.
+
+Agent and AHO use the same page skeleton and expose a short task-oriented mode
+description near the selector. Desktop tool launchers show `Agent Office`,
+`Terminal`, and `工具`; compact layouts retain the same order and accessible names
+while reducing them to icon controls. The right launcher separates everyday work
+from `帮助与诊断`, so diagnostics remain reachable without competing with primary
+tasks. These labels and counts are display projections only; all actions still
+route through the existing feature controllers.
+
+Realtime Turn status uses one visual activity row. Its visible timer may update
+every second, while the polite live region announces only phase changes such as
+`正在思考` and `正在回复`; streamed token content does not repeatedly interrupt
+assistive technology.
+
 The `Agent / AHO` selector shows one compact icon on the inactive mode when the
 selected project has running work, needs user attention, or has a current
 failure there. The server returns only the aggregate mode state and update time;

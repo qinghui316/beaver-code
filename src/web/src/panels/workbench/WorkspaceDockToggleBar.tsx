@@ -1,5 +1,6 @@
 import { GitBranch, PanelRightOpen, SquareTerminal } from "lucide-react";
 import type { ReactElement } from "react";
+import { WORKSPACE_TOOLS } from "../../presentation/core-workbench-experience.js";
 
 export function WorkspaceDockToggleBar({
   orchestrationActive,
@@ -32,11 +33,12 @@ export function WorkspaceDockToggleBar({
         data-testid="orchestration-overlay-toggle"
         disabled={orchestrationDisabled}
         aria-pressed={orchestrationActive}
-        aria-label={orchestrationNeedsAttention ? "Agent 编排图，需要你回答" : orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
-        title={orchestrationNeedsAttention ? "Agent 需要你回答" : orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
+        aria-label={orchestrationNeedsAttention ? "Agent Office，需要你处理" : orchestrationActive ? WORKSPACE_TOOLS.office.closeLabel : WORKSPACE_TOOLS.office.openLabel}
+        title={orchestrationNeedsAttention ? "Agent Office 需要你处理" : orchestrationActive ? WORKSPACE_TOOLS.office.closeLabel : WORKSPACE_TOOLS.office.openLabel}
         onClick={onToggleOrchestration}
       >
         <GitBranch size={16} aria-hidden="true" />
+        <span className="workspace-tool-label">{WORKSPACE_TOOLS.office.label}</span>
       </button>
       <button
         type="button"
@@ -44,11 +46,12 @@ export function WorkspaceDockToggleBar({
         data-testid="terminal-dock-toggle"
         disabled={terminalDisabled}
         aria-pressed={terminalActive}
-        aria-label={terminalActive ? "收起终端" : "打开终端"}
-        title={terminalActive ? "收起终端" : "打开终端"}
+        aria-label={terminalActive ? WORKSPACE_TOOLS.terminal.closeLabel : WORKSPACE_TOOLS.terminal.openLabel}
+        title={terminalActive ? WORKSPACE_TOOLS.terminal.closeLabel : WORKSPACE_TOOLS.terminal.openLabel}
         onClick={onToggleTerminal}
       >
         <SquareTerminal size={16} aria-hidden="true" />
+        <span className="workspace-tool-label">{WORKSPACE_TOOLS.terminal.label}</span>
       </button>
       <button
         type="button"
@@ -56,14 +59,15 @@ export function WorkspaceDockToggleBar({
         data-testid="right-tool-rail-toggle"
         aria-expanded={rightRailOpen}
         aria-label={rightRailOpen
-          ? "关闭右侧工具"
+          ? WORKSPACE_TOOLS.tools.closeLabel
           : rightRailPendingCount > 0
-            ? `打开右侧工具，${rightRailPendingCount} 个待确认`
-            : "打开右侧工具"}
-        title={rightRailOpen ? "关闭右侧工具" : "打开右侧工具"}
+            ? `${WORKSPACE_TOOLS.tools.openLabel}，${rightRailPendingCount} 个待确认`
+            : WORKSPACE_TOOLS.tools.openLabel}
+        title={rightRailOpen ? WORKSPACE_TOOLS.tools.closeLabel : WORKSPACE_TOOLS.tools.openLabel}
         onClick={onToggleRightRail}
       >
         <PanelRightOpen size={16} aria-hidden="true" />
+        <span className="workspace-tool-label">{WORKSPACE_TOOLS.tools.label}</span>
         {rightRailPendingCount > 0 ? <span className="decision-pane-badge">{rightRailPendingCount}</span> : null}
       </button>
     </div>

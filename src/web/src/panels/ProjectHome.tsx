@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { ConversationComposerSurface } from "../shell/composer.js";
 import { DialogSurface } from "../presentation/DialogSurface.js";
+import { productModeExperience } from "../presentation/core-workbench-experience.js";
 import type { AsyncSurfaceState } from "../presentation/surface-state.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
@@ -129,6 +130,7 @@ export function ProjectReadinessHome({
   const [submitting, setSubmitting] = useState(false);
   const canStartDemand = project.pathExists;
   const canAttach = canStartDemand;
+  const modeExperience = productModeExperience(productMode);
 
   async function submitDemand(): Promise<void> {
     if (productMode === "agent") {
@@ -169,7 +171,8 @@ export function ProjectReadinessHome({
         <div className="home-chat-mark" aria-label={productMode === "agent" ? "Agent" : "AHO"}>
           <Bot size={50} />
         </div>
-        <h1>创造任何东西</h1>
+        <h1>{modeExperience.title}</h1>
+        <p className="home-mode-description">{modeExperience.description}</p>
         <WorkspacePicker
           projects={projects}
           selectedProjectId={selectedProjectId}

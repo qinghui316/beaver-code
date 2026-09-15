@@ -815,3 +815,28 @@ The 18 -> 19 migration labels historical Attempts and active Queue items as
 `legacy-v0`; it does not manufacture policy facts or rewrite Timeline and Harness
 evidence. Legacy Queue content is preserved and waits for explicit confirmation
 before it can run under current semantics.
+
+## 16. Workbench Experience Composition
+
+Workbench presentation follows one dependency direction:
+
+```text
+canonical Workbench facts
+-> feature controllers
+-> pure presentation adapters
+-> feature ViewModels
+-> React surfaces
+```
+
+User actions travel back through narrow feature action ports into the existing
+controllers and HTTP/SSE owners. `App.tsx` selects identity, composes controllers,
+and injects feature surfaces; it does not interpret Conversation phases, project
+navigation rows, model display truth, or governance counters. Project Navigation,
+Conversation Workspace, Settings, and Desktop Host remain separate feature
+assemblies rather than one application-wide controller.
+
+Agent and AHO share the same Workbench and Composer skeleton. Product mode is a
+capability and presentation projection, not a second UI implementation. Pure
+presentation modules may format canonical facts for display but cannot issue
+requests, persist state, import Provider/database/Harness owners, or infer a
+successful business transition.

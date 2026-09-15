@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Bot, ChevronDown, Settings2, X } from "lucide-react";
+import { Bot, ChevronDown, Info, Settings2, X } from "lucide-react";
 
 export function ComposerControls({
   providerDisplayName = "AI 服务",
@@ -9,6 +9,7 @@ export function ComposerControls({
   selectedProviderId,
   onSelectProvider,
   requestDescription = "设置下一次 Agent 请求",
+  readOnly = false,
   children,
 }: {
   providerDisplayName?: string;
@@ -18,6 +19,7 @@ export function ComposerControls({
   selectedProviderId?: string;
   onSelectProvider?: (providerId: string) => void;
   requestDescription?: string;
+  readOnly?: boolean;
   children?: ReactNode;
 }): ReactElement {
   const [open, setOpen] = useState(false);
@@ -44,21 +46,21 @@ export function ComposerControls({
       <button
         type="button"
         className="composer-model-trigger"
-        aria-label={`模型与推理设置，当前模型：${modelLabel}`}
+        aria-label={readOnly ? `当前 AHO 模型配置：${modelLabel}` : `模型与推理设置，当前模型：${modelLabel}`}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{modelLabel}</span><ChevronDown size={14} aria-hidden="true" />
+        <span>{modelLabel}</span>{readOnly ? <Info size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
       </button>
       {open ? (
-        <section className="composer-model-popover" role="dialog" aria-label="模型与推理设置">
+        <section className="composer-model-popover" role="dialog" aria-label={readOnly ? "当前 AHO 配置" : "模型与推理设置"}>
           <header>
-            <div><strong>模型与推理</strong><small>{requestDescription}</small></div>
-            <button type="button" className="icon-button" aria-label="关闭模型与推理设置" onClick={() => setOpen(false)}><X size={15} /></button>
+            <div><strong>{readOnly ? "当前 AHO 配置" : "模型与推理"}</strong><small>{requestDescription}</small></div>
+            <button type="button" className="icon-button" aria-label={readOnly ? "关闭 AHO 配置" : "关闭模型与推理设置"} onClick={() => setOpen(false)}><X size={15} /></button>
           </header>
           <div className="composer-provider-summary">
             <Bot size={15} aria-hidden="true" />
-            {providerOptions.length > 1 ? (
+            {!readOnly && providerOptions.length > 1 ? (
               <label>
                 <span className="sr-only">选择 AI 服务</span>
                 <select value={selectedProviderId ?? ""} onChange={(event) => onSelectProvider?.(event.target.value)} aria-label="选择 AI 服务">

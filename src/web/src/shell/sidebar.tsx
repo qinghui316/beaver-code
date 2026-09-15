@@ -17,7 +17,11 @@ import {
   ProjectAddForm,
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
-import { projectDisplayName, workpadStatusLabel } from "../formatters.js";
+import { projectDisplayName } from "../formatters.js";
+import {
+  groupProjectNavigationConversations,
+  projectNavigationConversations,
+} from "../presentation/project-navigation.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
   ProjectStatus,
@@ -25,7 +29,6 @@ import type {
   TopicDetail,
   WorkpadSummary,
   ConversationDeleteConfirmation,
-  ConversationLifecycleSnapshot,
 } from "../types.js";
 
 export function ProjectConversationSidebar({
@@ -153,7 +156,7 @@ export function ProjectConversationSidebar({
       <nav className="global-nav" aria-label="全局入口">
         <label className="sidebar-search">
           <Search size={15} />
-          <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索" aria-label="搜索已加载对话" />
+          <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索项目和对话" aria-label="搜索项目和对话" />
         </label>
       </nav>
 
@@ -191,14 +194,12 @@ export function ProjectConversationSidebar({
               && item.pathExists
               && !projectUnavailable,
             );
-            const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
-            const filteredConversations = normalizedSearch
-              ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
-              : conversations;
-            const activeConversations = filteredConversations.filter((conversation) => conversation.state !== "archive");
-            const archivedConversations = filteredConversations.filter((conversation) => conversation.state === "archive");
+            const conversations = projectNavigationConversations(projectSnapshot, selectedTopicId);
+            const groupedConversations = groupProjectNavigationConversations(conversations, search);
+            const activeConversations = groupedConversations.active;
+            const archivedConversations = groupedConversations.archived;
             const archivedOpen = normalizedSearch.length > 0 || archivedProjects.has(projectId);
-            const showProject = !normalizedSearch || projectName.toLowerCase().includes(normalizedSearch) || filteredConversations.length > 0;
+            const showProject = !normalizedSearch || projectName.toLowerCase().includes(normalizedSearch) || groupedConversations.hasSearchMatch;
             if (!showProject) return null;
             return (
               <div className="project-folder" key={projectId}>
@@ -233,12 +234,6 @@ export function ProjectConversationSidebar({
                       onProjectDetails(null);
                       if (item.project) void onOpenProject(item.project.id);
                     }}><Folder size={15} />打开项目首页</button>
-                    {canStartConversation ? (
-                      <button className="project-menu-item" role="menuitem" onClick={() => {
-                        onProjectDetails(null);
-                        void onNewConversation(item.project?.id);
-                      }}><FileText size={15} />新建对话</button>
-                    ) : null}
                     {concreteProjectId ? (
                       <button className="project-menu-item" role="menuitem" onClick={() => {
                         onProjectDetails(null);
@@ -535,17 +530,6 @@ export function EmptyWorkbench({ title, description }: { title: string; descript
   );
 }
 
-type SidebarConversation = {
-  id: string;
-  title: string;
-  status: string;
-  selected: boolean;
-  waitingDecisionCount: number;
-  blocker?: string;
-  state: string;
-  lifecycle?: ConversationLifecycleSnapshot;
-};
-
 function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "uninitialized"; short: string; detail: string } | null {
   const harnessReady = snapshot?.harness.harnessReady ?? project.harness.readiness === "ready";
   if (harnessReady) return null;
@@ -561,33 +545,6 @@ function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind
     short: project.harness.readiness === "partial" ? "项目需要处理" : "可以开始使用",
     detail: project.harness.readiness === "partial" ? "这个项目需要处理后才能继续使用。" : "这个项目可以开始使用。",
   };
-}
-
-function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId: string | null): SidebarConversation[] {
-  if (!snapshot) return [];
-  const workpads = snapshot.left.workpads?.length
-    ? snapshot.left.workpads
-    : snapshot.left.topics.map((topic) => ({
-    id: topic.id,
-    title: topic.title,
-    state: topic.state,
-    runtimeStatus: topic.state === "archive" ? "archived" : "active",
-    userStatus: topic.state === "archive" ? "completed" : "waiting-confirmation",
-    userStatusLabel: topic.state === "archive" ? "已完成" : "等你确认",
-    selected: selectedTopicId === topic.id,
-    waitingDecisionCount: 0,
-    blocker: undefined,
-  } satisfies WorkpadSummary));
-  return workpads.map((workpad) => ({
-    id: workpad.id,
-    title: workpad.title,
-    status: workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus),
-    selected: selectedTopicId === workpad.id || workpad.selected,
-    waitingDecisionCount: workpad.waitingDecisionCount,
-    blocker: workpad.blocker,
-    state: workpad.state,
-    lifecycle: snapshot.left.topics.find((topic) => topic.id === workpad.id)?.lifecycle,
-  }));
 }
 
 function shortProjectContext(path: string): string {

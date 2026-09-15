@@ -1389,3 +1389,21 @@ Provider content hashing does not traverse Project Harness `state/`, does not re
 Attempt evidence, and does not replace Change, Registry, Integration, Evolution, or validation
 digests. Stable content rejects links and path escape. The separate ordinary Skill package limit is
 retained as a resource boundary.
+
+## 25. Workbench Presentation Boundary
+
+React surfaces consume user-facing ViewModels and invoke narrow action ports. They
+must not decode raw Provider, Queue, Review, Harness, persistence, or protocol
+records. Presentation adapters are pure and own only display choices such as mode
+guidance, project/conversation grouping, visible confirmation counts, and service
+labels. Existing feature controllers remain the mutation owners.
+
+`App.tsx` is the composition root, not a feature state machine. It may bind the
+selected project, product mode, Conversation, and controller instances, but feature
+status projection belongs to the corresponding adapter. Electron Main and Preload
+do not receive Conversation presentation or business dependencies.
+
+The shared Agent/AHO layout does not weaken product-mode isolation. Agent-only
+model overrides, Default/Plan, Review, and direct-turn controls remain absent from
+AHO. AHO governance and operation-profile facts remain server-owned even when both
+modes use the same React surface.

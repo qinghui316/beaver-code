@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MainConversationView } from "../../src/web/src/panels/workbench/ConversationPanel.js";
+import { TranscriptActivityRow } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
 import type { ParentAgentTranscript, ParentAgentTranscriptCell } from "../../src/web/src/types.js";
 
 type ResizeCallback = ResizeObserverCallback;
@@ -31,6 +32,31 @@ afterEach(() => {
 });
 
 describe("main conversation virtualization", () => {
+  it("announces a realtime Turn phase once without announcing the changing timer", () => {
+    const { container } = render(
+      <TranscriptActivityRow
+        cell={{
+          id: "turn-live",
+          kind: "process-row",
+          source: "provider-runtime",
+          activityKind: "turn",
+          title: "正在思考",
+          text: "",
+          realtime: true,
+          timestamp: new Date().toISOString(),
+          status: "running",
+        }}
+        expanded={false}
+        onToggleExpanded={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toBe("正在思考");
+    const visualTitle = container.querySelector(".transcript-activity-title");
+    expect(visualTitle?.getAttribute("aria-hidden")).toBe("true");
+    expect(visualTitle?.textContent).toMatch(/^正在思考 · \d+ 秒$/);
+  });
+
   it("offers Retry only on the latest failed Turn boundary and submits its exact target once", async () => {
     const onRetry = vi.fn(async () => undefined);
     const retryTarget = {

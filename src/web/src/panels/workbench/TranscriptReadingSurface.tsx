@@ -219,12 +219,14 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   const detailsId = `${cell.id}:details`;
   const tone = transcriptActivityTone(cell);
   const opensAgent = Boolean(cell.targetAgentSurfaceId && onOpenAgent && (canOpenAgent?.(cell.targetAgentSurfaceId) ?? true));
+  const announceTurnPhase = cell.realtime && cell.activityKind === "turn";
   useEffect(() => {
     const node = detailsRef.current;
     if (expanded && node && detailsPinnedRef.current) node.scrollTop = node.scrollHeight;
   }, [detailText, expanded]);
   return (
     <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${cell.activityKind ? `activity-${cell.activityKind}` : ""} ${cell.realtime ? "realtime" : ""} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
+      {announceTurnPhase ? <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{title}</span> : null}
       <div className="transcript-activity-header">
         <button
           type="button"
@@ -235,7 +237,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
         >
           <ActivityGlyph cell={cell} />
           <span className="tool-result-heading transcript-activity-heading">
-            <span className="transcript-activity-title">{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
+            <span className="transcript-activity-title" aria-hidden={announceTurnPhase ? "true" : undefined}>{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
             {visibleStatusLabel ? <span>{visibleStatusLabel}</span> : null}
           </span>
           {opensAgent ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}

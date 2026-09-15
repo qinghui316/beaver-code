@@ -432,6 +432,7 @@ export function ConversationComposerSurface({
           selectedProviderId={selectedProviderId}
           onSelectProvider={onSelectProvider}
           requestDescription={productMode === "harness" ? "查看当前 AHO 服务配置" : undefined}
+          readOnly={productMode === "harness"}
         >
           <AgentTurnModelControls productMode={productMode} modelId={agentModelId} reasoningEffort={agentReasoningEffort} modelSettings={providerModelSettings} onSelectModel={onSelectAgentModel} onSelectReasoningEffort={onSelectAgentReasoningEffort} />
         </ComposerControls>
