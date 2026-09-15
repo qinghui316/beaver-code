@@ -1033,6 +1033,7 @@
   .skills-search button,
   .skills-catalog-warning button,
   .skills-empty-results button,
+  .settings-inline-actions > button,
   .settings-panel .icon-button,
   .skill-root-form button {
     min-width: 44px;
@@ -1059,9 +1060,6 @@
     gap: 10px;
   }
 
-  .settings-inline-actions > button {
-    min-height: 44px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

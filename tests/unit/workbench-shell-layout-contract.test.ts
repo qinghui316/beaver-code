@@ -80,7 +80,9 @@ describe("Workbench shell layout contract", () => {
       expect(css).toMatch(/min-(?:width|height): 44px/);
     }
     expect(settingsCss).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(settingsCss).toMatch(/@media \(max-width: 720px\), \(pointer: coarse\)[\s\S]*\.settings-inline-actions > button/);
     expect(terminalCss).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(composerCss).toMatch(/@media \(pointer: coarse\) and \(min-width: 681px\)[\s\S]*grid-template-columns: 126px 44px/);
     expect(decisionCss).toContain("font-family: var(--font-sans)");
   });
 });

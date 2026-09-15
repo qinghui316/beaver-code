@@ -62,6 +62,7 @@ const MAX_BUFFERED_EVENTS = 200;
 
 export class TerminalRuntime {
   private readonly sessions = new Map<string, TerminalRuntimeSession>();
+  private readonly openingSessions = new Map<string, Promise<TerminalRuntimeSessionInfo>>();
   private readonly emitter = new EventEmitter();
   private readonly loadPty: () => Promise<NodePtyModule>;
 
@@ -75,6 +76,20 @@ export class TerminalRuntime {
     const key = sessionKey(projectId, terminalId);
     const existing = this.sessions.get(key);
     if (existing) return sessionInfo(existing);
+
+    const opening = this.openingSessions.get(key);
+    if (opening) return opening;
+
+    const pending = this.openSession(request, projectId, terminalId, key);
+    this.openingSessions.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.openingSessions.get(key) === pending) this.openingSessions.delete(key);
+    }
+  }
+
+  private async openSession(request: TerminalRuntimeOpenRequest, projectId: string, terminalId: string, key: string): Promise<TerminalRuntimeSessionInfo> {
 
     const cwd = await resolveExistingDirectory(request.cwd);
     const cols = normalizeDimension(request.cols, 80);

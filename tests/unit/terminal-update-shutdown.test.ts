@@ -19,6 +19,32 @@ async function fixture() {
 }
 
 describe("update Terminal exit evidence", () => {
+  it("single-flights concurrent opens for the same scoped terminal", async () => {
+    let releaseLoad!: () => void;
+    const loadReady = new Promise<void>((resolve) => { releaseLoad = resolve; });
+    const spawn = vi.fn(() => ({
+      kill: vi.fn(), write: vi.fn(), resize: vi.fn(),
+      onData: () => ({ dispose() {} }),
+      onExit: () => ({ dispose() {} }),
+    }));
+    const runtime = new TerminalRuntime({
+      loadPty: async () => {
+        await loadReady;
+        return { spawn } as unknown as typeof import("node-pty");
+      },
+    });
+    const request = { projectId: "fixture", cwd: tmpdir(), terminalId: "terminal" };
+    const first = runtime.open(request);
+    const second = runtime.open(request);
+    releaseLoad();
+
+    const [firstSession, secondSession] = await Promise.all([first, second]);
+    expect(firstSession).toEqual(secondSession);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(runtime.activeSessionCount()).toBe(1);
+    runtime.cleanup();
+  });
+
   it("waits for a real PTY exit instead of declaring success after kill", async () => {
     const { runtime, pty, exit } = await fixture();
     let completed = false;

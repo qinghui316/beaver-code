@@ -581,12 +581,9 @@ function splitPath(path: string): { name: string; dir: string } {
 }
 
 function statusSymbol(file: ProjectGitFileStatus): string {
-  if (file.indexStatus === "?" || file.worktreeStatus === "?") return "?";
-  if (file.indexStatus === "A" || file.worktreeStatus === "A") return "A";
-  if (file.indexStatus === "D" || file.worktreeStatus === "D") return "D";
-  if (file.indexStatus === "R" || file.worktreeStatus === "R") return "R";
-  if (file.indexStatus === "T" || file.worktreeStatus === "T") return "T";
-  return "U";
+  if (file.group === "untracked") return "?";
+  const symbol = (file.group === "staged" ? file.indexStatus : file.worktreeStatus).trim();
+  return symbol || "M";
 }
 
 export function gitFileStatusPresentation(file: ProjectGitFileStatus): { symbol: string; label: string; className: "added" | "deleted" | "renamed" | "modified" } {
@@ -595,7 +592,9 @@ export function gitFileStatusPresentation(file: ProjectGitFileStatus): { symbol:
   if (symbol === "A") return { symbol, label: "已添加", className: "added" };
   if (symbol === "D") return { symbol, label: "已删除", className: "deleted" };
   if (symbol === "R") return { symbol, label: "已重命名", className: "renamed" };
+  if (symbol === "C") return { symbol, label: "已复制", className: "renamed" };
   if (symbol === "T") return { symbol, label: "类型已更改", className: "modified" };
+  if (symbol === "U") return { symbol, label: "存在冲突", className: "modified" };
   return { symbol, label: "已修改", className: "modified" };
 }
 
