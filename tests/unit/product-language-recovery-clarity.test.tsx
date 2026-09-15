@@ -106,6 +106,14 @@ describe("product language and recovery clarity", () => {
     expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("settles synchronous project recovery failures through the same recovery state", async () => {
+    const retry = vi.fn(() => { throw new TypeError("network unavailable"); });
+    render(<UnmanagedProjectView project={unavailableProject()} onRetry={retry} onOpenDiagnostics={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("暂时无法连接到本地服务。"));
+    expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("does not settle an older project retry into the current project", async () => {
     const firstRetry = deferred<void>();
     const view = render(<UnmanagedProjectView project={unavailableProject("repo-a")} onRetry={() => firstRetry.promise} onOpenDiagnostics={vi.fn()} />);

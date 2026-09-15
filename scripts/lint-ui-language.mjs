@@ -60,6 +60,43 @@ const RAW_ID_FIELDS = new Set([
   "attemptId", "agentSurfaceId", "providerSessionId", "workerLeaseId", "integrationCheckId",
   "recommendedRoleId", "workerId", "nodeId", "unitId",
 ]);
+const SAFE_FAILURE_PROJECTIONS = new Set([
+  "userFacingErrorMessage",
+  "toUserFacingFailure",
+  "sanitizeTechnicalDetail",
+]);
+const SAFE_STATE_PROJECTIONS = new Set([
+  "workflowActionLabel",
+  "schedulerUserFacingActionLabel",
+  "workpadStateLabel",
+  "workpadStatusLabel",
+  "userStatusLabel",
+  "conversationLifecycleLabel",
+  "agentRunStatusLabel",
+  "readinessLabel",
+  "taskStatusLabel",
+  "codingPackageStatusLabel",
+  "stateLabel",
+  "runtimeLabel",
+  "humanStatus",
+  "resultReviewStatusLabel",
+  "eventLabel",
+  "decisionKindLabel",
+  "confirmationKindLabel",
+  "ahoProgressLabel",
+  "modeButtonLabel",
+  "modeButtonTitle",
+  "statusLabel",
+  "providerStatusLabel",
+  "sourceKindLabel",
+  "scopeLabel",
+  "runtimeStatusLabel",
+  "officeStatusLabel",
+  "typeLabel",
+  "queueExecutionCompatibilitySummary",
+  "queuedTurnStatusLabel",
+  "contextKindAriaLabel",
+]);
 
 export async function lintUiLanguage(rootDirectory = process.cwd()) {
   const root = resolve(rootDirectory);
@@ -71,6 +108,8 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
     const content = await readFile(file, "utf8");
     const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const rawAliasesByScope = collectRawIdentifierAliases(source);
+    const rawErrorAliasesByScope = collectValueAliases(source, (expression, aliases) => containsRawErrorValue(expression, aliases));
+    const rawStateAliasesByScope = collectValueAliases(source, (expression, aliases) => rawStateNames(expression, aliases).length > 0);
     const visit = (node, insideCode = false, insideDiagnosticRawEvidence = false) => {
       const nextInsideCode = insideCode || isCodeElement(node);
       const nextInsideDiagnosticRawEvidence = insideDiagnosticRawEvidence || isDiagnosticRawEvidenceElement(node);
@@ -79,10 +118,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       if (inspectVisibleCopy && ts.isJsxAttribute(node) && USER_VISIBLE_ATTRIBUTES.has(node.name.getText(source))) {
         const expression = attributeExpression(node.initializer);
         for (const value of staticExpressionValues(expression)) checkText(value, node, source, relativePath, violations);
-        if (containsRawErrorValue(expression)) {
+        if (containsRawErrorValue(expression, aliasesForNode(rawErrorAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
         }
-        for (const rawState of rawStateNames(expression)) {
+        for (const rawState of rawStateNames(expression, aliasesForNode(rawStateAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw state ${rawState} outside Diagnostics`);
         }
         for (const rawId of rawIdNames(expression, aliasesForNode(rawAliasesByScope, node))) {
@@ -91,10 +130,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       }
       if (inspectVisibleCopy && ts.isJsxExpression(node) && isVisibleJsxChild(node) && node.expression) {
         for (const value of staticExpressionValues(node.expression)) checkText(value, node, source, relativePath, violations);
-        if (containsRawErrorValue(node.expression)) {
+        if (containsRawErrorValue(node.expression, aliasesForNode(rawErrorAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
         }
-        for (const rawState of rawStateNames(node.expression)) {
+        for (const rawState of rawStateNames(node.expression, aliasesForNode(rawStateAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw state ${rawState} outside Diagnostics`);
         }
         for (const rawId of rawIdNames(node.expression, aliasesForNode(rawAliasesByScope, node))) {
@@ -103,10 +142,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       }
       if (inspectVisibleCopy && ts.isPropertyAssignment(node) && USER_VISIBLE_CONFIG_PROPERTIES.has(propertyName(node.name))) {
         for (const value of staticExpressionValues(node.initializer)) checkText(value, node, source, relativePath, violations);
-        if (containsRawErrorValue(node.initializer)) {
+        if (containsRawErrorValue(node.initializer, aliasesForNode(rawErrorAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} configures a raw error or response body outside Diagnostics`);
         }
-        for (const rawState of rawStateNames(node.initializer)) {
+        for (const rawState of rawStateNames(node.initializer, aliasesForNode(rawStateAliasesByScope, node))) {
           violations.push(`${relativePath}:${lineOf(source, node)} configures raw state ${rawState} outside Diagnostics`);
         }
       }
@@ -116,7 +155,7 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
           violations.push(`${relativePath}:${lineOf(source, node)} returns an unregistered raw enum value`);
         }
       }
-      if (inspectVisibleCopy && ts.isCallExpression(node) && directlyPresentsRawError(node)) {
+      if (inspectVisibleCopy && ts.isCallExpression(node) && directlyPresentsRawError(node, aliasesForNode(rawErrorAliasesByScope, node))) {
         violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
       }
       ts.forEachChild(node, (child) => visit(child, nextInsideCode, nextInsideDiagnosticRawEvidence));
@@ -148,27 +187,28 @@ function isRawEnumFallback(expression) {
   return false;
 }
 
-function directlyPresentsRawError(call) {
+function directlyPresentsRawError(call, aliases) {
   const callee = call.expression;
   if (!ts.isIdentifier(callee) || !/^(?:set.*Error|setMessage|onError)$/i.test(callee.text)) return false;
-  return call.arguments.some((argument) => !isSafeFailureProjection(argument) && containsRawErrorValue(argument));
+  return call.arguments.some((argument) => !isSafeFailureProjection(argument) && containsRawErrorValue(argument, aliases));
 }
 
 function isSafeFailureProjection(node) {
   return ts.isCallExpression(node)
     && ts.isIdentifier(node.expression)
-    && ["userFacingErrorMessage", "toUserFacingFailure", "sanitizeTechnicalDetail"].includes(node.expression.text);
+    && SAFE_FAILURE_PROJECTIONS.has(node.expression.text);
 }
 
-function containsRawErrorValue(node) {
+function containsRawErrorValue(node, aliases = new Set()) {
   if (!node) return false;
   if (ts.isParenthesizedExpression(node)
     || ts.isAsExpression(node)
     || ts.isTypeAssertionExpression(node)
-    || ts.isNonNullExpression(node)) return containsRawErrorValue(node.expression);
-  if (ts.isIdentifier(node) && /^(?:cause|error|err|response)$/i.test(node.text)) {
+    || ts.isNonNullExpression(node)) return containsRawErrorValue(node.expression, aliases);
+  if (ts.isIdentifier(node) && (/^(?:cause|error|err|response)$/i.test(node.text) || aliases.has(node.text))) {
     return true;
   }
+  if (isSafeFailureProjection(node)) return false;
   if (ts.isCallExpression(node)
     && ts.isPropertyAccessExpression(node.expression)
     && ts.isIdentifier(node.expression.expression)
@@ -182,23 +222,27 @@ function containsRawErrorValue(node) {
     && ts.isIdentifier(node.expression)
     && node.expression.text === "String"
     && node.arguments.some((argument) => ts.isIdentifier(argument) && /^(?:cause|error|err)$/i.test(argument.text))) return true;
+  if (ts.isCallExpression(node)) {
+    return node.arguments.some((argument) => containsRawErrorValue(argument, aliases));
+  }
   if (ts.isConditionalExpression(node)) {
-    return containsRawErrorValue(node.whenTrue) || containsRawErrorValue(node.whenFalse);
+    return containsRawErrorValue(node.whenTrue, aliases) || containsRawErrorValue(node.whenFalse, aliases);
   }
   if (ts.isBinaryExpression(node)
     && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.PlusToken].includes(node.operatorToken.kind)) {
-    return containsRawErrorValue(node.left) || containsRawErrorValue(node.right);
+    return containsRawErrorValue(node.left, aliases) || containsRawErrorValue(node.right, aliases);
   }
-  if (ts.isTemplateExpression(node)) return node.templateSpans.some((span) => containsRawErrorValue(span.expression));
+  if (ts.isTemplateExpression(node)) return node.templateSpans.some((span) => containsRawErrorValue(span.expression, aliases));
   return false;
 }
 
-function rawStateNames(expression) {
+function rawStateNames(expression, aliases = new Set()) {
   if (!expression) return [];
-  if (ts.isIdentifier(expression) && isRawStateExpression(expression)) {
+  if (ts.isIdentifier(expression) && (isRawStateExpression(expression) || aliases.has(expression.text))) {
     return [expression.getText()];
   }
-  const isCompositeOutput = ts.isConditionalExpression(expression)
+  const isCompositeOutput = ts.isCallExpression(expression)
+    || ts.isConditionalExpression(expression)
     || ts.isTemplateExpression(expression)
     || (ts.isBinaryExpression(expression)
       && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.PlusToken].includes(expression.operatorToken.kind));
@@ -212,7 +256,13 @@ function rawStateNames(expression) {
       visitOutput(node.expression);
       return;
     }
-    if (isRawStateExpression(node)) names.add(node.getText());
+    if (ts.isIdentifier(node) && aliases.has(node.text)) names.add(node.getText());
+    else if (isRawStateExpression(node)) names.add(node.getText());
+    if (ts.isCallExpression(node)) {
+      if (ts.isIdentifier(node.expression) && SAFE_STATE_PROJECTIONS.has(node.expression.text)) return;
+      for (const argument of node.arguments) visitOutput(argument);
+      return;
+    }
     if (ts.isConditionalExpression(node)) {
       visitOutput(node.whenTrue);
       visitOutput(node.whenFalse);
@@ -318,6 +368,31 @@ function collectRawIdentifierAliases(source) {
     for (const declaration of declarations) {
       const aliases = aliasesByScope.get(declaration.scope);
       if (aliases.has(declaration.name) || !expressionYieldsRawId(declaration.initializer, aliases)) continue;
+      aliases.add(declaration.name);
+      changed = true;
+    }
+  }
+  return aliasesByScope;
+}
+
+function collectValueAliases(source, expressionYieldsRawValue) {
+  const declarations = [];
+  const aliasesByScope = new Map();
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const scope = containingScope(node);
+      declarations.push({ name: node.name.text, initializer: node.initializer, scope });
+      if (!aliasesByScope.has(scope)) aliasesByScope.set(scope, new Set());
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const declaration of declarations) {
+      const aliases = aliasesByScope.get(declaration.scope);
+      if (aliases.has(declaration.name) || !expressionYieldsRawValue(declaration.initializer, aliases)) continue;
       aliases.add(declaration.name);
       changed = true;
     }

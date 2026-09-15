@@ -474,7 +474,8 @@ export function UnmanagedProjectView({ project, onRetry, onOpenDiagnostics }: {
               const generation = ++retryGenerationRef.current;
               const identityKey = retryIdentityKey;
               setRetryState({ identityKey, retrying: true, failure: null });
-              void Promise.resolve(onRetry())
+              void Promise.resolve()
+                .then(onRetry)
                 .catch((cause: unknown) => {
                   if (generation === retryGenerationRef.current && identityKey === retryIdentityRef.current) {
                     setRetryState({ identityKey, retrying: true, failure: userFacingErrorMessage(cause, "load") });

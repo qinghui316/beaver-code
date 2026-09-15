@@ -83,13 +83,13 @@ describe("UI language lint", () => {
         const rawStatusLabel = (value: string) => value;
         export function Panel({ error, response }: { error: string | null; response: { status: string } }) {
           const [err] = useState<string | null>(error);
-          const status = rawStatusLabel(response.status);
-          return <>{error ? <p>{error}</p> : null}{err ? <p>{err}</p> : null}<span>{status}</span></>;
+          const failureMessage = error;
+          return <>{error ? <p>{error}</p> : null}{err ? <p>{err}</p> : null}<p>{failureMessage}</p><span>{rawStatusLabel(response.status)}</span></>;
         }`,
     });
     const violations = (await lintUiLanguage(root)).violations.join("\n");
-    expect(violations.match(/raw error or response body/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(violations).toContain("raw state status");
+    expect(violations.match(/raw error or response body/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(violations).toContain("raw state response.status");
   });
 
   it("checks configured copy and raw fallback branches", async () => {
