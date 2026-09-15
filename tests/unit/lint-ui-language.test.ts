@@ -92,6 +92,21 @@ describe("UI language lint", () => {
     expect(violations).toContain("raw state response.status");
   });
 
+  it("does not trust locally spoofed projector names or destructured raw aliases", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `import { useState } from "react";
+        const statusLabel = (value: string) => value;
+        const userFacingErrorMessage = (value: unknown) => value;
+        export function Panel({ error, response }: { error: string; response: { status: string } }) {
+          const [failureMessage] = useState(error);
+          return <><p>{userFacingErrorMessage(error)}</p><p>{failureMessage}</p><span>{statusLabel(response.status)}</span></>;
+        }`,
+    });
+    const violations = (await lintUiLanguage(root)).violations.join("\n");
+    expect(violations.match(/raw error or response body/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(violations).toContain("raw state response.status");
+  });
+
   it("checks configured copy and raw fallback branches", async () => {
     const root = await fixture({
       "src/web/src/Panel.tsx": `export function Panel({ state, cause }) {

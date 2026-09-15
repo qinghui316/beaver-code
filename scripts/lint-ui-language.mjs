@@ -97,6 +97,19 @@ const SAFE_STATE_PROJECTIONS = new Set([
   "queuedTurnStatusLabel",
   "contextKindAriaLabel",
 ]);
+const LOCAL_STATE_PROJECTION_OWNERS = new Map([
+  ["src/web/src/App.tsx", new Set(["modeButtonLabel", "modeButtonTitle"])],
+  ["src/web/src/office/PixiOfficeRenderer.tsx", new Set(["statusLabel"])],
+  ["src/web/src/panels/SettingsSurface.tsx", new Set(["providerStatusLabel"])],
+  ["src/web/src/panels/SkillsSettingsView.tsx", new Set(["runtimeStatusLabel", "sourceKindLabel", "scopeLabel"])],
+  ["src/web/src/panels/workbench/ConversationPanel.tsx", new Set(["officeStatusLabel"])],
+  ["src/web/src/panels/workbench/RuntimeActivityLogPanel.tsx", new Set(["typeLabel"])],
+  ["src/web/src/shell/composer.tsx", new Set(["queueExecutionCompatibilitySummary", "queuedTurnStatusLabel"])],
+  ["src/web/src/shell/ComposerContextSources.tsx", new Set(["contextKindAriaLabel", "sourceKindLabel"])],
+  ["src/web/src/shell/SkillMentionPicker.tsx", new Set(["runtimeStatusLabel"])],
+]);
+const TRUSTED_FAILURE_PROJECTION_MODULE = /(?:^|\/)presentation\/user-facing-language\.js$/;
+const TRUSTED_STATE_PROJECTION_MODULE = /(?:^|\/)(?:formatters|action-labels|scheduler-action-labels)\.js$/;
 
 export async function lintUiLanguage(rootDirectory = process.cwd()) {
   const root = resolve(rootDirectory);
@@ -107,9 +120,14 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
     const relativePath = normalizePath(relative(root, file));
     const content = await readFile(file, "utf8");
     const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const safeFailureProjections = collectImportedProjectionNames(source, TRUSTED_FAILURE_PROJECTION_MODULE, SAFE_FAILURE_PROJECTIONS);
+    const safeStateProjections = new Set([
+      ...collectImportedProjectionNames(source, TRUSTED_STATE_PROJECTION_MODULE, SAFE_STATE_PROJECTIONS),
+      ...(LOCAL_STATE_PROJECTION_OWNERS.get(relativePath) ?? []),
+    ]);
     const rawAliasesByScope = collectRawIdentifierAliases(source);
-    const rawErrorAliasesByScope = collectValueAliases(source, (expression, aliases) => containsRawErrorValue(expression, aliases));
-    const rawStateAliasesByScope = collectValueAliases(source, (expression, aliases) => rawStateNames(expression, aliases).length > 0);
+    const rawErrorAliasesByScope = collectValueAliases(source, (expression, aliases) => containsRawErrorValue(expression, aliases, safeFailureProjections));
+    const rawStateAliasesByScope = collectValueAliases(source, (expression, aliases) => rawStateNames(expression, aliases, safeStateProjections).length > 0);
     const visit = (node, insideCode = false, insideDiagnosticRawEvidence = false) => {
       const nextInsideCode = insideCode || isCodeElement(node);
       const nextInsideDiagnosticRawEvidence = insideDiagnosticRawEvidence || isDiagnosticRawEvidenceElement(node);
@@ -118,10 +136,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       if (inspectVisibleCopy && ts.isJsxAttribute(node) && USER_VISIBLE_ATTRIBUTES.has(node.name.getText(source))) {
         const expression = attributeExpression(node.initializer);
         for (const value of staticExpressionValues(expression)) checkText(value, node, source, relativePath, violations);
-        if (containsRawErrorValue(expression, aliasesForNode(rawErrorAliasesByScope, node))) {
+        if (containsRawErrorValue(expression, aliasesForNode(rawErrorAliasesByScope, node), safeFailureProjections)) {
           violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
         }
-        for (const rawState of rawStateNames(expression, aliasesForNode(rawStateAliasesByScope, node))) {
+        for (const rawState of rawStateNames(expression, aliasesForNode(rawStateAliasesByScope, node), safeStateProjections)) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw state ${rawState} outside Diagnostics`);
         }
         for (const rawId of rawIdNames(expression, aliasesForNode(rawAliasesByScope, node))) {
@@ -130,10 +148,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       }
       if (inspectVisibleCopy && ts.isJsxExpression(node) && isVisibleJsxChild(node) && node.expression) {
         for (const value of staticExpressionValues(node.expression)) checkText(value, node, source, relativePath, violations);
-        if (containsRawErrorValue(node.expression, aliasesForNode(rawErrorAliasesByScope, node))) {
+        if (containsRawErrorValue(node.expression, aliasesForNode(rawErrorAliasesByScope, node), safeFailureProjections)) {
           violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
         }
-        for (const rawState of rawStateNames(node.expression, aliasesForNode(rawStateAliasesByScope, node))) {
+        for (const rawState of rawStateNames(node.expression, aliasesForNode(rawStateAliasesByScope, node), safeStateProjections)) {
           violations.push(`${relativePath}:${lineOf(source, node)} exposes raw state ${rawState} outside Diagnostics`);
         }
         for (const rawId of rawIdNames(node.expression, aliasesForNode(rawAliasesByScope, node))) {
@@ -142,10 +160,10 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
       }
       if (inspectVisibleCopy && ts.isPropertyAssignment(node) && USER_VISIBLE_CONFIG_PROPERTIES.has(propertyName(node.name))) {
         for (const value of staticExpressionValues(node.initializer)) checkText(value, node, source, relativePath, violations);
-        if (containsRawErrorValue(node.initializer, aliasesForNode(rawErrorAliasesByScope, node))) {
+        if (containsRawErrorValue(node.initializer, aliasesForNode(rawErrorAliasesByScope, node), safeFailureProjections)) {
           violations.push(`${relativePath}:${lineOf(source, node)} configures a raw error or response body outside Diagnostics`);
         }
-        for (const rawState of rawStateNames(node.initializer, aliasesForNode(rawStateAliasesByScope, node))) {
+        for (const rawState of rawStateNames(node.initializer, aliasesForNode(rawStateAliasesByScope, node), safeStateProjections)) {
           violations.push(`${relativePath}:${lineOf(source, node)} configures raw state ${rawState} outside Diagnostics`);
         }
       }
@@ -155,7 +173,7 @@ export async function lintUiLanguage(rootDirectory = process.cwd()) {
           violations.push(`${relativePath}:${lineOf(source, node)} returns an unregistered raw enum value`);
         }
       }
-      if (inspectVisibleCopy && ts.isCallExpression(node) && directlyPresentsRawError(node, aliasesForNode(rawErrorAliasesByScope, node))) {
+      if (inspectVisibleCopy && ts.isCallExpression(node) && directlyPresentsRawError(node, aliasesForNode(rawErrorAliasesByScope, node), safeFailureProjections)) {
         violations.push(`${relativePath}:${lineOf(source, node)} renders a raw error or response body outside Diagnostics`);
       }
       ts.forEachChild(node, (child) => visit(child, nextInsideCode, nextInsideDiagnosticRawEvidence));
@@ -187,28 +205,28 @@ function isRawEnumFallback(expression) {
   return false;
 }
 
-function directlyPresentsRawError(call, aliases) {
+function directlyPresentsRawError(call, aliases, safeProjections) {
   const callee = call.expression;
   if (!ts.isIdentifier(callee) || !/^(?:set.*Error|setMessage|onError)$/i.test(callee.text)) return false;
-  return call.arguments.some((argument) => !isSafeFailureProjection(argument) && containsRawErrorValue(argument, aliases));
+  return call.arguments.some((argument) => !isSafeFailureProjection(argument, safeProjections) && containsRawErrorValue(argument, aliases, safeProjections));
 }
 
-function isSafeFailureProjection(node) {
+function isSafeFailureProjection(node, safeProjections) {
   return ts.isCallExpression(node)
     && ts.isIdentifier(node.expression)
-    && SAFE_FAILURE_PROJECTIONS.has(node.expression.text);
+    && safeProjections.has(node.expression.text);
 }
 
-function containsRawErrorValue(node, aliases = new Set()) {
+function containsRawErrorValue(node, aliases = new Set(), safeProjections = new Set()) {
   if (!node) return false;
   if (ts.isParenthesizedExpression(node)
     || ts.isAsExpression(node)
     || ts.isTypeAssertionExpression(node)
-    || ts.isNonNullExpression(node)) return containsRawErrorValue(node.expression, aliases);
+    || ts.isNonNullExpression(node)) return containsRawErrorValue(node.expression, aliases, safeProjections);
   if (ts.isIdentifier(node) && (/^(?:cause|error|err|response)$/i.test(node.text) || aliases.has(node.text))) {
     return true;
   }
-  if (isSafeFailureProjection(node)) return false;
+  if (isSafeFailureProjection(node, safeProjections)) return false;
   if (ts.isCallExpression(node)
     && ts.isPropertyAccessExpression(node.expression)
     && ts.isIdentifier(node.expression.expression)
@@ -223,20 +241,20 @@ function containsRawErrorValue(node, aliases = new Set()) {
     && node.expression.text === "String"
     && node.arguments.some((argument) => ts.isIdentifier(argument) && /^(?:cause|error|err)$/i.test(argument.text))) return true;
   if (ts.isCallExpression(node)) {
-    return node.arguments.some((argument) => containsRawErrorValue(argument, aliases));
+    return node.arguments.some((argument) => containsRawErrorValue(argument, aliases, safeProjections));
   }
   if (ts.isConditionalExpression(node)) {
-    return containsRawErrorValue(node.whenTrue, aliases) || containsRawErrorValue(node.whenFalse, aliases);
+    return containsRawErrorValue(node.whenTrue, aliases, safeProjections) || containsRawErrorValue(node.whenFalse, aliases, safeProjections);
   }
   if (ts.isBinaryExpression(node)
     && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.PlusToken].includes(node.operatorToken.kind)) {
-    return containsRawErrorValue(node.left, aliases) || containsRawErrorValue(node.right, aliases);
+    return containsRawErrorValue(node.left, aliases, safeProjections) || containsRawErrorValue(node.right, aliases, safeProjections);
   }
-  if (ts.isTemplateExpression(node)) return node.templateSpans.some((span) => containsRawErrorValue(span.expression, aliases));
+  if (ts.isTemplateExpression(node)) return node.templateSpans.some((span) => containsRawErrorValue(span.expression, aliases, safeProjections));
   return false;
 }
 
-function rawStateNames(expression, aliases = new Set()) {
+function rawStateNames(expression, aliases = new Set(), safeProjections = new Set()) {
   if (!expression) return [];
   if (ts.isIdentifier(expression) && (isRawStateExpression(expression) || aliases.has(expression.text))) {
     return [expression.getText()];
@@ -259,7 +277,7 @@ function rawStateNames(expression, aliases = new Set()) {
     if (ts.isIdentifier(node) && aliases.has(node.text)) names.add(node.getText());
     else if (isRawStateExpression(node)) names.add(node.getText());
     if (ts.isCallExpression(node)) {
-      if (ts.isIdentifier(node.expression) && SAFE_STATE_PROJECTIONS.has(node.expression.text)) return;
+      if (ts.isIdentifier(node.expression) && safeProjections.has(node.expression.text)) return;
       for (const argument of node.arguments) visitOutput(argument);
       return;
     }
@@ -379,9 +397,9 @@ function collectValueAliases(source, expressionYieldsRawValue) {
   const declarations = [];
   const aliasesByScope = new Map();
   const visit = (node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
       const scope = containingScope(node);
-      declarations.push({ name: node.name.text, initializer: node.initializer, scope });
+      for (const name of bindingNames(node.name)) declarations.push({ name, initializer: node.initializer, scope });
       if (!aliasesByScope.has(scope)) aliasesByScope.set(scope, new Set());
     }
     ts.forEachChild(node, visit);
@@ -398,6 +416,31 @@ function collectValueAliases(source, expressionYieldsRawValue) {
     }
   }
   return aliasesByScope;
+}
+
+function bindingNames(name) {
+  if (ts.isIdentifier(name)) return [name.text];
+  const names = [];
+  for (const element of name.elements) {
+    if (!ts.isOmittedExpression(element)) names.push(...bindingNames(element.name));
+  }
+  return names;
+}
+
+function collectImportedProjectionNames(source, modulePattern, approvedNames) {
+  const names = new Set();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    const moduleName = statement.moduleSpecifier.text.replaceAll("\\", "/");
+    if (!modulePattern.test(moduleName)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (approvedNames.has(importedName)) names.add(element.name.text);
+    }
+  }
+  return names;
 }
 
 function expressionYieldsRawId(expression, aliases) {
