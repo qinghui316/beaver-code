@@ -288,8 +288,8 @@
 
   .product-mode-compact-guide {
     display: inline-flex;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-sm);
@@ -300,10 +300,18 @@
     position: fixed;
     z-index: 44;
     top: 8px;
-    left: 194px;
+    left: 206px;
     display: inline-flex;
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .product-mode-segment {
+    height: 48px;
+  }
+
+  .product-mode-segment button {
+    min-height: 42px;
   }
 
   .mobile-sidebar-backdrop {
@@ -355,5 +363,15 @@
   .app-shell.orchestration-open > .sidebar,
   .app-shell.orchestration-open > .approval-pane {
     display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .product-mode-segment {
+    height: 50px;
+  }
+
+  .product-mode-segment button {
+    min-height: 44px;
   }
 }

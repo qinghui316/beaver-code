@@ -2074,6 +2074,24 @@ body.is-resizing-column {
   font-weight: 700;
 }
 
+@media (max-width: 720px), (pointer: coarse) {
+  .project-files-row,
+  .project-files-breadcrumb button,
+  .project-git-subnav button,
+  .project-git-group-header,
+  .project-git-file-button,
+  .project-git-ref-button,
+  .project-git-commit-row,
+  .project-git-history-file-row,
+  .right-tool-launcher-item {
+    min-height: 44px;
+  }
+
+  .project-git-ref-button {
+    min-width: 44px;
+  }
+}
+
 .project-git-status.added {
   color: var(--success);
 }

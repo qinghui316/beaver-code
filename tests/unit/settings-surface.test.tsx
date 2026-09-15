@@ -16,6 +16,10 @@ describe("SettingsSurface clarity", () => {
     expect(screen.getByRole("button", { name: "技能" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "基础" })).toBeNull();
     expect(screen.queryByRole("button", { name: "项目" })).toBeNull();
+    expect(screen.getAllByText("设置")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "模型与服务" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByText("工作台设置")).toBeNull();
+    expect(screen.queryByRole("button", { name: "选择默认模型" })).toBeNull();
   });
 
   it("keeps capability keys inside diagnostics and contains keyboard focus", async () => {
@@ -29,6 +33,10 @@ describe("SettingsSurface clarity", () => {
     const close = screen.getByRole("button", { name: "关闭服务诊断" });
     expect(dialog).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(close));
+    const technicalDetails = screen.getByText("查看技术信息").closest("details");
+    expect(technicalDetails?.hasAttribute("open")).toBe(false);
+    fireEvent.click(screen.getByText("查看技术信息"));
+    expect(technicalDetails?.hasAttribute("open")).toBe(true);
     expect(screen.getByText("turn.review")).toBeTruthy();
     fireEvent.keyDown(close, { key: "Tab" });
     expect(document.activeElement).toBe(close);

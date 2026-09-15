@@ -674,3 +674,43 @@
     padding: 54px 12px 7px;
   }
 }
+
+@media (max-width: 720px), (pointer: coarse) {
+  .compact-icon,
+  .project-folder-toggle,
+  .project-folder-new,
+  .project-folder-more,
+  .conversation-more,
+  .conversation-archive-toggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .project-folder-row {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+    min-height: 48px;
+    column-gap: 1px;
+  }
+
+  .project-folder-main,
+  .conversation-row {
+    min-height: 44px;
+  }
+
+  .conversation-row {
+    padding-right: 48px;
+  }
+
+  .conversation-more {
+    top: 0;
+    right: 0;
+  }
+
+  .project-folder-text strong {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}

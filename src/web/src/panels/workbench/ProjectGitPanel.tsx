@@ -537,16 +537,17 @@ function GitFileRow({
 }): ReactElement {
   const pathParts = splitPath(file.relativePath);
   const counts = formatCounts(file);
+  const status = gitFileStatusPresentation(file);
   return (
     <div
       className={`project-git-row ${selected ? "selected" : ""}`}
       data-testid="project-git-file-row"
       data-git-file-path={file.relativePath}
-      data-git-status={statusSymbol(file)}
+      data-git-status={status.symbol}
       title={file.relativePath}
     >
-      <button type="button" className="project-git-file-button" aria-label={file.relativePath} onClick={onSelect}>
-        <span className={`project-git-status ${statusClass(file)}`}>({statusSymbol(file)})</span>
+      <button type="button" className="project-git-file-button" aria-label={`${file.relativePath}，${status.label}`} onClick={onSelect}>
+        <span className={`project-git-status ${status.className}`} title={status.label} aria-hidden="true">{status.symbol}</span>
         <span className="project-git-file-icon" aria-hidden="true">
           <FileText size={14} />
         </span>
@@ -588,12 +589,14 @@ function statusSymbol(file: ProjectGitFileStatus): string {
   return "U";
 }
 
-function statusClass(file: ProjectGitFileStatus): string {
+export function gitFileStatusPresentation(file: ProjectGitFileStatus): { symbol: string; label: string; className: "added" | "deleted" | "renamed" | "modified" } {
   const symbol = statusSymbol(file);
-  if (symbol === "A" || symbol === "?") return "added";
-  if (symbol === "D") return "deleted";
-  if (symbol === "R") return "renamed";
-  return "modified";
+  if (symbol === "?") return { symbol, label: "未跟踪", className: "added" };
+  if (symbol === "A") return { symbol, label: "已添加", className: "added" };
+  if (symbol === "D") return { symbol, label: "已删除", className: "deleted" };
+  if (symbol === "R") return { symbol, label: "已重命名", className: "renamed" };
+  if (symbol === "T") return { symbol, label: "类型已更改", className: "modified" };
+  return { symbol, label: "已修改", className: "modified" };
 }
 
 function formatCounts(file: ProjectGitFileStatus): string | null {

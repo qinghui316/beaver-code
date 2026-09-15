@@ -65,4 +65,22 @@ describe("Workbench shell layout contract", () => {
     expect(composerCss).toMatch(/@media \(max-width: 680px\)[\s\S]*\.composer-model-control \{\n {4}position: static;\n {2}\}/);
     expect(composerCss).toMatch(/@media \(max-width: 680px\)[\s\S]*\.composer-model-popover \{\n {4}right: 0;\n {4}left: 0;\n {4}width: auto;\n {2}\}/);
   });
+
+  it("keeps coarse-pointer controls touchable and supporting surfaces motion-safe", async () => {
+    const [composerCss, settingsCss, sidebarCss, terminalCss, workspaceCss, decisionCss] = await Promise.all([
+      readFile("src/web/src/styles/surfaces/composer.css", "utf8"),
+      readFile("src/web/src/styles/surfaces/settings.css", "utf8"),
+      readFile("src/web/src/styles/surfaces/sidebar.css", "utf8"),
+      readFile("src/web/src/styles/surfaces/terminal.css", "utf8"),
+      readFile("src/web/src/styles/surfaces/workspace.css", "utf8"),
+      readFile("src/web/src/styles/surfaces/decision.css", "utf8"),
+    ]);
+    for (const css of [composerCss, settingsCss, sidebarCss, terminalCss, workspaceCss]) {
+      expect(css).toContain("(pointer: coarse)");
+      expect(css).toMatch(/min-(?:width|height): 44px/);
+    }
+    expect(settingsCss).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(terminalCss).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(decisionCss).toContain("font-family: var(--font-sans)");
+  });
 });

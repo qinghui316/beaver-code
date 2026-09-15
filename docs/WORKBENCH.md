@@ -82,11 +82,15 @@ Workbench Settings has two user-facing destinations: `模型与服务` and `技�
 The normal provider view shows connection state, effective default
 model, source, and actions that can actually change or refresh configuration.
 Capability keys, spec/runtime states, versions, and bounded errors appear only
-in an on-demand diagnostics drawer. The Skills page uses grouped searchable
+after the user expands technical information inside an on-demand diagnostics
+drawer. The Settings content measure stays narrow enough for continuous reading
+and does not repeat the application-level Settings heading. The Skills page uses grouped searchable
 results and temporary detail/source drawers. Ordinary rows and details never
 show absolute source paths; real custom-root paths are confined to the explicit
 advanced source-management flow. The browser uses only the existing catalog
 contract and does not open arbitrary local paths or synthesize package content.
+Large catalogs retain stable Skill identity through grouping, search, refresh,
+selection, and detail dismissal.
 
 All product-authored Workbench copy passes through one user-facing language
 policy. Primary labels stay concise, recovery details explain the next useful
@@ -176,6 +180,16 @@ Realtime Turn status uses one visual activity row. Its visible timer may update
 every second, while the polite live region announces only phase changes such as
 `正在思考` and `正在回复`; streamed token content does not repeatedly interrupt
 assistive technology.
+
+Supporting work surfaces preserve developer vocabulary while adding readable
+interaction cues. Git change rows expose both their compact status symbol and a
+localized status name. Terminal tab selection and close are sibling controls,
+and a failed connection can retry in the same tab. At widths up to 720px or on
+coarse pointers, primary project, Composer, Settings, Git, Terminal, and tool
+controls provide a 44px target without changing action order. Full project,
+model, Skill, and Commit identities remain available through focusable labels or
+accessible names when visible text must truncate. Reduced-motion mode removes
+nonessential transitions without hiding status changes.
 
 The `Agent / AHO` selector shows one compact icon on the inactive mode when the
 selected project has running work, needs user attention, or has a current

@@ -689,9 +689,24 @@
 
 .settings-surface-content {
   width: 100%;
-  max-width: 1040px;
+  max-width: 816px;
   margin: 0 auto;
   padding: 30px clamp(18px, 4vw, 48px);
+}
+
+.settings-surface-sidebar header {
+  padding-block: 2px 8px;
+}
+
+.settings-surface-sidebar header h2 {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.settings-surface-sidebar nav button[aria-current="page"] {
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+  font-weight: 650;
 }
 
 .provider-settings-section {
@@ -752,6 +767,16 @@
 .settings-definition-list dd { margin: 0; color: var(--text-strong); overflow-wrap: anywhere; }
 .settings-definition-list.compact > div { grid-template-columns: 100px minmax(0, 1fr); }
 
+.settings-identity {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.settings-identity:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
 .settings-problem-summary,
 .provider-healthy-note {
   margin: 0;
@@ -761,6 +786,25 @@
 .provider-healthy-note { color: var(--success); }
 .provider-diagnostics-drawer { width: min(520px, 100vw); }
 .provider-capability-row code { display: block; margin-top: 5px; color: var(--text-faint); font-size: 11px; }
+
+.diagnostic-technical-details {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.diagnostic-technical-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.diagnostic-technical-details[open] summary {
+  margin-bottom: 12px;
+  color: var(--text-strong);
+}
 
 .skills-settings-view {
   display: grid;
@@ -919,6 +963,8 @@
 
 .skill-detail-title h2,
 .skill-detail-title p { margin: 0; }
+.skill-detail-title h2 { overflow-wrap: anywhere; }
+.skill-detail-source { margin-top: 3px !important; color: var(--text-muted); font-size: 12px; }
 .skill-detail-description { color: var(--text); line-height: 1.65; white-space: pre-wrap; }
 
 .skill-required-note {
@@ -965,7 +1011,7 @@
   .skills-group-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (pointer: coarse) {
   .settings-surface {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
@@ -980,14 +1026,49 @@
 
   .settings-surface-sidebar header { display: none; }
   .settings-surface-sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-surface-sidebar nav button,
+  .settings-back-button,
+  .skills-page-toolbar > button,
+  .skills-search,
+  .skills-search button,
+  .skills-catalog-warning button,
+  .skills-empty-results button,
+  .settings-panel .icon-button,
+  .skill-root-form button {
+    min-width: 44px;
+    min-height: 44px;
+  }
   .settings-surface-content { padding: 18px 14px; }
   .settings-surface-header { align-items: center; }
   .settings-surface-header p { display: none; }
-  .settings-back-button { width: 36px; height: 36px; padding: 0; font-size: 0; }
+  .settings-back-button { width: 44px; height: 44px; padding: 0; font-size: 0; }
   .provider-settings-summary { grid-template-columns: 38px minmax(0, 1fr); }
   .provider-settings-summary .provider-status-pill { grid-column: 2; justify-self: start; }
   .settings-definition-list > div { grid-template-columns: 1fr; gap: 4px; }
   .skills-page-toolbar { grid-template-columns: minmax(0, 1fr) auto auto; }
-  .skills-page-toolbar .outline-button { width: 36px; padding: 0; font-size: 0; }
+  .skills-page-toolbar .outline-button { width: 44px; padding: 0; font-size: 0; }
   .skill-root-form.compact { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 420px) {
+  .skills-page-toolbar {
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+  }
+
+  .provider-settings-summary {
+    gap: 10px;
+  }
+
+  .settings-inline-actions > button {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-surface * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

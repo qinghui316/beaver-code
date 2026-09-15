@@ -1407,3 +1407,12 @@ The shared Agent/AHO layout does not weaken product-mode isolation. Agent-only
 model overrides, Default/Plan, Review, and direct-turn controls remain absent from
 AHO. AHO governance and operation-profile facts remain server-owned even when both
 modes use the same React surface.
+
+Supporting-surface accessibility remains a presentation concern. Touch target
+size, responsive wrapping, focusable truncated identities, diagnostic disclosure,
+Git status labels, and Terminal tab semantics may change without changing the
+underlying Git, Terminal, Provider, Skill, project, or Conversation owners.
+Terminal retry reopens the same scoped terminal through the existing HTTP owner;
+it does not create a second runtime or move PTY ownership into React. Technical
+diagnostics remain present in the DOM only inside their explicitly collapsed
+advanced disclosure and never become ordinary readiness facts.

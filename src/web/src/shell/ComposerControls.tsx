@@ -48,6 +48,7 @@ export function ComposerControls({
         className="composer-model-trigger"
         aria-label={readOnly ? `当前 AHO 模型配置：${modelLabel}` : `模型与推理设置，当前模型：${modelLabel}`}
         aria-expanded={open}
+        title={modelLabel}
         onClick={() => setOpen((current) => !current)}
       >
         <span>{modelLabel}</span>{readOnly ? <Info size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}

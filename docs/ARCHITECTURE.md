@@ -840,3 +840,8 @@ capability and presentation projection, not a second UI implementation. Pure
 presentation modules may format canonical facts for display but cannot issue
 requests, persist state, import Provider/database/Harness owners, or infer a
 successful business transition.
+
+Settings, Skills, Git, Terminal, and diagnostics reuse the same feature assembly
+direction. Their responsive, focus, labeling, and recovery behavior is owned by
+React presentation plus narrow action ports; the existing service controllers
+continue to own catalog refresh, Git reads, terminal sessions, and diagnostics.

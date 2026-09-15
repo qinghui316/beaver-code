@@ -366,7 +366,7 @@
 
 .final-output {
   max-height: 260px;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .dark-panel .assistant-event-card {

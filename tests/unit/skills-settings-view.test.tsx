@@ -117,6 +117,22 @@ describe("SkillsSettingsView request identity", () => {
     await waitFor(() => expect(document.activeElement).toBe(sourceTrigger));
   });
 
+  it("keeps a large catalog searchable by stable Skill identity", async () => {
+    const skills = Array.from({ length: 120 }, (_, index) => skill(`skill-${String(index).padStart(3, "0")}`));
+    fetchJson.mockResolvedValue({ skills });
+    render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("skill-119")).toBeTruthy());
+    expect(within(screen.getByRole("list", { name: "技能列表" })).getAllByRole("button")).toHaveLength(120);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索技能" }), { target: { value: "skill-087" } });
+    const result = screen.getByRole("button", { name: /skill-087/ });
+    expect(result.getAttribute("aria-label")).toContain("自定义来源");
+    expect(result.getAttribute("aria-label")).toContain("已启用");
+    fireEvent.click(result);
+    expect(screen.getByRole("dialog", { name: "skill-087 详情" })).toBeTruthy();
+  });
+
   it("closes a detail drawer when search filters out the selected Skill", async () => {
     fetchJson.mockResolvedValue({ skills: [skill("reviewer"), skill("planner")] });
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);

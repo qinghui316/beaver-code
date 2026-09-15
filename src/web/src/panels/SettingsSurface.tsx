@@ -46,8 +46,8 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   return (
     <section className="settings-surface" aria-label="设置">
       <aside className="settings-surface-sidebar" aria-label="设置分类">
-        <header><p className="eyebrow">设置</p><h2>工作台设置</h2></header>
-        <nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" className={visibleSection === item.id ? "selected" : ""} onClick={() => onSectionChange(item.id)}><Icon size={16} aria-hidden="true" />{item.label}</button>; })}</nav>
+        <header><h2>设置</h2></header>
+        <nav aria-label="设置页面">{sections.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" className={visibleSection === item.id ? "selected" : ""} aria-current={visibleSection === item.id ? "page" : undefined} onClick={() => onSectionChange(item.id)}><Icon size={16} aria-hidden="true" />{item.label}</button>; })}</nav>
       </aside>
 
       <div className="settings-surface-content">
@@ -64,11 +64,11 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
               <span className={`provider-status-pill ${status}`}>{providerStatusLabel(status)}</span>
             </div>
             <dl className="settings-definition-list">
-              <div><dt>默认模型</dt><dd>{modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}</dd></div>
+              <div><dt>默认模型</dt><dd className="settings-identity" tabIndex={0} title={modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}>{modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}</dd></div>
               <div><dt>模型来源</dt><dd>{modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)}</dd></div>
             </dl>
             <div className="settings-inline-actions">
-              <button className="primary-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择默认模型</button>
+              {onOpenModelSettings ? <button className="primary-button" onClick={onOpenModelSettings} disabled={modelSettingsBusy}>选择默认模型</button> : null}
               <button className="outline-button" onClick={() => void refresh()} disabled={modelSettingsBusy}><RefreshCw size={14} className={modelSettingsBusy ? "spin" : undefined} />重新检测</button>
               {(capabilitySnapshot?.status !== "ready" || modelSettingsMessage || diagnostics?.lastError) ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
             </div>
@@ -88,11 +88,14 @@ function ProviderDiagnosticsDrawer({ snapshot, diagnostics, modelMessage, onClos
   const reasons = [modelMessage, diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
   return <DialogSurface open onClose={onClose} ariaLabel="服务诊断" panelClassName="settings-panel provider-diagnostics-drawer">
     <div data-diagnostic-raw-evidence>
-      <header className="settings-panel-header"><div><p className="eyebrow">高级诊断</p><h2>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</h2></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
-      <p className="muted-copy">这些信息用于排查连接和能力问题，不会改变服务配置。</p>
+      <header className="settings-panel-header"><div><h2>服务诊断</h2><p>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</p></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
+      <p className="muted-copy">查看检测结果和建议操作。</p>
       {reasons.length > 0 ? <div className="diagnostic-errors"><strong>检测到的问题</strong>{reasons.map((reason) => <p key={reason}>{sanitizeTechnicalDetail(reason)}</p>)}</div> : <p className="provider-healthy-note">当前未检测到服务问题。</p>}
-      <div className="provider-capability-list" aria-label="能力诊断">{capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}</div>
-      <dl className="settings-definition-list compact"><div><dt>Adapter</dt><dd>{diagnostics ? `${diagnostics.adapter.id} ${diagnostics.adapter.version}` : "未读取"}</dd></div><div><dt>Snapshot</dt><dd>{snapshot ? `v${snapshot.snapshotVersion}` : "未读取"}</dd></div></dl>
+      <details className="diagnostic-technical-details">
+        <summary>查看技术信息</summary>
+        <div className="provider-capability-list" aria-label="能力诊断">{capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}</div>
+        <dl className="settings-definition-list compact"><div><dt>Adapter</dt><dd>{diagnostics ? `${diagnostics.adapter.id} ${diagnostics.adapter.version}` : "未读取"}</dd></div><div><dt>Snapshot</dt><dd>{snapshot ? `v${snapshot.snapshotVersion}` : "未读取"}</dd></div></dl>
+      </details>
     </div>
   </DialogSurface>;
 }

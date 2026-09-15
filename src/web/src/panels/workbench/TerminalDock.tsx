@@ -87,35 +87,21 @@ export function TerminalDock({
         </button>
         <div className="terminal-tabs" role="tablist" aria-label="终端会话">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={tab.id === activeTabId}
-              className={`terminal-tab${tab.id === activeTabId ? " active" : ""}`}
-              onClick={() => onSelectTab(tab.id)}
-            >
-              <span>{tab.title}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                className="terminal-tab-close"
-                aria-label={`关闭 ${tab.title}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onCloseTab(tab.id);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onCloseTab(tab.id);
-                  }
-                }}
+            <span className={`terminal-tab-item${tab.id === activeTabId ? " active" : ""}`} key={tab.id}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.id === activeTabId}
+                className="terminal-tab"
+                title={tab.title}
+                onClick={() => onSelectTab(tab.id)}
               >
+                <span>{tab.title}</span>
+              </button>
+              <button type="button" className="terminal-tab-close" aria-label={`关闭 ${tab.title}`} onClick={() => onCloseTab(tab.id)}>
                 <X size={12} aria-hidden="true" />
-              </span>
-            </button>
+              </button>
+            </span>
           ))}
           <button type="button" className="terminal-tab-add" onClick={onNewTab} aria-label="新建终端">
             <Plus size={14} aria-hidden="true" />
@@ -140,6 +126,7 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
   const eventSourceRef = useRef<EventSource | null>(null);
   const [status, setStatus] = useState<"connecting" | "ready" | "closed" | "error">("connecting");
   const [message, setMessage] = useState<string | null>(null);
+  const [retryGeneration, setRetryGeneration] = useState(0);
   const openPayload = useMemo(() => ({ terminalId, cols: 80, rows: 24 }), [terminalId]);
 
   useEffect(() => {
@@ -250,15 +237,16 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [onOpen, openPayload, projectId, terminalId]);
+  }, [onOpen, openPayload, projectId, retryGeneration, terminalId]);
 
   return (
     <div className="terminal-pane">
       <div ref={hostRef} className="terminal-xterm" data-testid="terminal-xterm" />
       {status !== "ready" || message ? (
-        <div className={`terminal-overlay ${status}`}>
+        <div className={`terminal-overlay ${status}`} role={status === "error" ? "alert" : "status"}>
           <strong>{status === "connecting" ? "正在连接终端" : status === "closed" ? "终端已关闭" : "终端不可用"}</strong>
           {message ? <span>{message}</span> : null}
+          {status === "error" ? <button type="button" className="outline-button" onClick={() => { setStatus("connecting"); setMessage(null); setRetryGeneration((current) => current + 1); }}>重新连接</button> : null}
         </div>
       ) : null}
     </div>
