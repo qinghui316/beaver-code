@@ -6,24 +6,22 @@ import type {
   Snapshot,
   WorkpadSummary,
 } from "../types.js";
-import {
-  splitFeatureSurface,
-  type FeatureSurface,
-  type FeatureSurfaceActions,
-  type FeatureSurfaceView,
-} from "./feature-surface.js";
+import type { FeatureSurface } from "./feature-surface.js";
 
-export interface ProjectNavigationSurfaceProps {
+export interface ProjectNavigationViewModel {
   projects: ProjectStatus[];
   selectedProjectId: string | null;
   selectedTopicId: string | null;
   snapshots: Record<string, Snapshot>;
   snapshot: Snapshot;
   search: string;
-  onSearch: (value: string) => void;
   expandedProjects: Set<string>;
   projectMenuMode: "closed" | "add" | "new";
   projectDetailsId: string | null;
+}
+
+export interface ProjectNavigationActions {
+  onSearch: (value: string) => void;
   onProjectMenuMode: (mode: "closed" | "add" | "new") => void;
   onProjectDetails: (projectId: string | null) => void;
   onNewConversation: (projectId?: string) => Promise<void>;
@@ -41,13 +39,15 @@ export interface ProjectNavigationSurfaceProps {
   onOpenProjectSettings: (projectId: string) => void;
 }
 
-export type ProjectNavigationFeatureSurface = FeatureSurface<
-  FeatureSurfaceView<ProjectNavigationSurfaceProps>,
-  FeatureSurfaceActions<ProjectNavigationSurfaceProps>
->;
+export type ProjectNavigationSurfaceProps = ProjectNavigationViewModel & ProjectNavigationActions;
 
-export function projectNavigationSurface(props: ProjectNavigationSurfaceProps): ProjectNavigationFeatureSurface {
-  return splitFeatureSurface(props);
+export type ProjectNavigationFeatureSurface = FeatureSurface<ProjectNavigationViewModel, ProjectNavigationActions>;
+
+export function projectNavigationSurface(
+  view: ProjectNavigationViewModel,
+  actions: ProjectNavigationActions,
+): ProjectNavigationFeatureSurface {
+  return { view, actions };
 }
 
 export interface ProjectNavigationConversationViewModel {

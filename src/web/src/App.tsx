@@ -24,14 +24,14 @@ import { MainConversationView,
   type TerminalTab,
 } from "./panels/WorkbenchPanels.js";
 import {
-  ProjectConversationSidebar,
-  TopicComposer,
+  ProjectConversationSidebarFeature,
+  TopicComposerFeature,
   UnmanagedProjectView,
   currentWorkpadSummary,
 } from "./shell/WorkbenchShellParts.js";
 import {
   ProjectHomeView,
-  ProjectReadinessHome,
+  ProjectReadinessHomeFeature,
   ProviderModelPicker,
 } from "./panels/ProjectHome.js";
 import { SettingsSurface, type SettingsSection } from "./panels/SettingsSurface.js";
@@ -1138,10 +1138,11 @@ export function App(): ReactElement {
     snapshots: snapshotMatchesCurrentMode ? projectSnapshots : {},
     snapshot: activeModeSnapshot,
     search: sidebarSearch,
-    onSearch: updateSidebarSearch,
     expandedProjects,
     projectMenuMode,
     projectDetailsId,
+  }, {
+    onSearch: updateSidebarSearch,
     onProjectMenuMode: setProjectMenuMode,
     onProjectDetails: setProjectDetailsId,
     onNewConversation: beginNewConversation,
@@ -1168,40 +1169,41 @@ export function App(): ReactElement {
         project: selectedProjectStatus,
         providerDisplayName,
         modelLabel: providerModelLabel,
-        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
         projects,
         selectedProjectId,
-        onCreateDemand: createTopicFromText,
         draft: composerText,
-        onDraftChange: setComposerText,
         draftFileRefs: composerFileRefs,
-        onDraftFileRefsChange: setComposerFileRefs,
         draftAttachments: composerAttachments,
-        onAttachFiles: appendComposerAttachments,
-        onRemoveAttachment: removeComposerAttachment,
         providerOptions: composerProviderOptions,
         selectedProviderId: composerProviderId ?? undefined,
-        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
         productMode: appMode.productMode,
         agentTurnMode: composer.agentTurnMode,
-        onSelectAgentTurnMode: composer.selectAgentTurnMode,
         agentTurnModeDisabledReason: composer.agentTurnModeDisabledReason,
         agentModelId: composer.agentModelId,
         agentReasoningEffort: composer.agentReasoningEffort,
         providerModelSettings,
-        onSelectAgentModel: composer.selectAgentModel,
-        onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
         enabledSkillCount,
         skills: skillItems,
         activeSkillIds: selectedComposerSkillIds,
-        onToggleSkill: toggleComposerSkill,
-        onOpenProject: openProject,
-        onRefresh: loadApp,
         resetToken: homeComposerResetToken,
         reviewOpen: conversationReview.open,
         reviewOptions: conversationReview.options,
         reviewLoading: conversationReview.loading,
         reviewSubmitting: conversationReview.submitting,
+      }, {
+        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
+        onCreateDemand: createTopicFromText,
+        onDraftChange: setComposerText,
+        onDraftFileRefsChange: setComposerFileRefs,
+        onAttachFiles: appendComposerAttachments,
+        onRemoveAttachment: removeComposerAttachment,
+        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
+        onSelectAgentTurnMode: composer.selectAgentTurnMode,
+        onSelectAgentModel: composer.selectAgentModel,
+        onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
+        onToggleSkill: toggleComposerSkill,
+        onOpenProject: openProject,
+        onRefresh: loadApp,
         onOpenReview: conversationReview.openSelector,
         onCloseReview: conversationReview.closeSelector,
         onStartReview: conversationReview.startSelected,
@@ -1212,53 +1214,54 @@ export function App(): ReactElement {
   const activeComposer = activeTopic
     ? topicComposerSurface({
         value: composerText,
-        onChange: setComposerText,
         providerDisplayName,
         modelLabel: providerModelLabel,
-        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
         enabledSkillCount,
         projectId: selectedProjectId,
         skills: skillItems,
         activeSkillIds: selectedComposerSkillIds,
         selectedFileRefs: composerFileRefs,
         attachments: composerAttachments,
-        onAttachFiles: (files) => { void appendComposerAttachments(files); },
-        onRemoveAttachment: removeComposerAttachment,
-        onToggleSkill: toggleComposerSkill,
-        onSelectedFileRefsChange: setComposerFileRefs,
         disabledReason: activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined,
         productMode: appMode.productMode,
         agentTurnMode: composer.agentTurnMode,
-        onSelectAgentTurnMode: composer.selectAgentTurnMode,
         agentTurnModeDisabledReason: composer.agentTurnModeDisabledReason,
         agentModelId: composer.agentModelId,
         agentReasoningEffort: composer.agentReasoningEffort,
         providerModelSettings,
-        onSelectAgentModel: composer.selectAgentModel,
-        onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
-        onSend: sendTopicMessage,
-        onStopAndContinue: stopAndContinueCurrentRun,
         actionRunning,
         currentWorkpadStatus: composerRunning ? "running" : currentWorkpadSummary(activeModeSnapshot, activeTopic)?.runtimeStatus,
         runControlState: activeWorkpad.runControlState,
         providerOptions: composerProviderOptions,
         selectedProviderId: composerProviderId ?? activeTopic.selectedProviderId,
-        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
         conversationContext: conversationContext.snapshot,
         contextSubmitting: conversationContext.submitting,
-        onCompactContext: conversationContext.compact,
         turnQueue: conversationTurnQueue.snapshot,
         queueAvailable: Boolean(conversationTurnQueue.snapshot),
         queueBusy: conversationTurnQueue.loading || conversationTurnQueue.mutating,
+        reviewOpen: conversationReview.open,
+        reviewOptions: conversationReview.options,
+        reviewLoading: conversationReview.loading,
+        reviewSubmitting: conversationReview.submitting,
+      }, {
+        onChange: setComposerText,
+        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
+        onAttachFiles: (files) => { void appendComposerAttachments(files); },
+        onRemoveAttachment: removeComposerAttachment,
+        onToggleSkill: toggleComposerSkill,
+        onSelectedFileRefsChange: setComposerFileRefs,
+        onSelectAgentTurnMode: composer.selectAgentTurnMode,
+        onSelectAgentModel: composer.selectAgentModel,
+        onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
+        onSend: sendTopicMessage,
+        onStopAndContinue: stopAndContinueCurrentRun,
+        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
+        onCompactContext: conversationContext.compact,
         onEnqueue: composer.enqueue,
         onReclaimQueuedTurn: composer.reclaimQueuedTurn,
         onRemoveQueuedTurn: (queueItemId) => { void conversationTurnQueue.remove(queueItemId); },
         onRetryQueuedTurn: (queueItemId) => { void conversationTurnQueue.retry(queueItemId); },
         onConfirmQueuedTurnExecution: (queueItemId) => { void conversationTurnQueue.confirmExecutionContract(queueItemId); },
-        reviewOpen: conversationReview.open,
-        reviewOptions: conversationReview.options,
-        reviewLoading: conversationReview.loading,
-        reviewSubmitting: conversationReview.submitting,
         onOpenReview: conversationReview.openSelector,
         onCloseReview: conversationReview.closeSelector,
         onStartReview: conversationReview.startSelected,
@@ -1333,7 +1336,7 @@ export function App(): ReactElement {
           tabIndex={mobileSidebarModalOpen ? -1 : undefined}
         >
           <div className="brand compact-brand" aria-hidden="true" />
-              <ProjectConversationSidebar {...projectNavigation.view} {...projectNavigation.actions} />
+              <ProjectConversationSidebarFeature surface={projectNavigation} />
           <div
             className="shell-resize-grip sidebar-resizer"
             role="separator"
@@ -1391,7 +1394,7 @@ export function App(): ReactElement {
             onOpenDiagnostics={() => openRightToolPanel("diagnostics")}
           />
         ) : !activeTopic ? (
-          readinessComposer ? <ProjectReadinessHome {...readinessComposer.view} {...readinessComposer.actions} /> : null
+          readinessComposer ? <ProjectReadinessHomeFeature surface={readinessComposer} /> : null
         ) : (
           <>
             <header className="thread-header">
@@ -1509,7 +1512,7 @@ export function App(): ReactElement {
                   onStop={stopAndContinueCurrentRun}
                 />
               ) : !orchestrationOpen && activeComposer
-                ? <TopicComposer {...activeComposer.view} {...activeComposer.actions} />
+                ? <TopicComposerFeature surface={activeComposer} />
                 : null}
             </section>
           </>

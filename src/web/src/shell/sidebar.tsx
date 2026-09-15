@@ -22,6 +22,7 @@ import {
   groupProjectNavigationConversations,
   projectNavigationConversations,
   type ProjectNavigationSurfaceProps,
+  type ProjectNavigationFeatureSurface,
 } from "../presentation/project-navigation.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
@@ -31,6 +32,10 @@ import type {
   TopicDetail,
   WorkpadSummary,
 } from "../types.js";
+
+export function ProjectConversationSidebarFeature({ surface }: { surface: ProjectNavigationFeatureSurface }): ReactElement {
+  return <ProjectConversationSidebar {...surface.view} {...surface.actions} />;
+}
 
 export function ProjectConversationSidebar({
   projects,

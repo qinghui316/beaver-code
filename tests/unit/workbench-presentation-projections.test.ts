@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { projectConversationWorkspaceChrome } from "../../src/web/src/presentation/conversation-workspace.js";
-import { splitFeatureSurface } from "../../src/web/src/presentation/feature-surface.js";
+import {
+  projectConversationWorkspaceChrome,
+  projectReadinessComposerSurface,
+  type ProjectReadinessComposerActions,
+  type ProjectReadinessComposerViewModel,
+} from "../../src/web/src/presentation/conversation-workspace.js";
 import {
   groupProjectNavigationConversations,
   projectNavigationConversations,
@@ -8,13 +12,13 @@ import {
 import type { Snapshot } from "../../src/web/src/types.js";
 
 describe("core Workbench presentation projections", () => {
-  it("separates display state from narrow feature actions", () => {
-    const onSubmit = () => undefined;
-    const surface = splitFeatureSurface({ title: "会话", busy: false, onSubmit });
+  it("keeps presentation-owned view state and action ports separate", () => {
+    const view = {} as ProjectReadinessComposerViewModel;
+    const actions = {} as ProjectReadinessComposerActions;
+    const surface = projectReadinessComposerSurface(view, actions);
 
-    expect(surface.view).toEqual({ title: "会话", busy: false });
-    expect(surface.actions).toEqual({ onSubmit });
-    expect("onSubmit" in surface.view).toBe(false);
+    expect(surface.view).toBe(view);
+    expect(surface.actions).toBe(actions);
   });
   it("keeps governance counts out of Agent presentation while preserving the selected service label", () => {
     expect(projectConversationWorkspaceChrome({

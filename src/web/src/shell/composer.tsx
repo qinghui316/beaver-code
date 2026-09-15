@@ -12,9 +12,14 @@ import {
   type ComposerActionProjection,
   type ComposerPrimaryIntent,
 } from "../controllers/ComposerExperienceProjection.js";
+import type { TopicComposerFeatureSurface } from "../presentation/conversation-workspace.js";
 
 export { buildComposerActionProjection } from "../controllers/ComposerExperienceProjection.js";
 export type { ComposerActionProjection, ComposerPrimaryIntent } from "../controllers/ComposerExperienceProjection.js";
+
+export function TopicComposerFeature({ surface }: { surface: TopicComposerFeatureSurface }): ReactElement {
+  return <TopicComposer {...surface.view} {...surface.actions} />;
+}
 
 export function TopicComposer({
   value,

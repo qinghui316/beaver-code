@@ -8,6 +8,7 @@ import {
 import { ConversationComposerSurface } from "../shell/composer.js";
 import { DialogSurface } from "../presentation/DialogSurface.js";
 import { productModeExperience } from "../presentation/core-workbench-experience.js";
+import type { ProjectReadinessComposerFeatureSurface } from "../presentation/conversation-workspace.js";
 import type { AsyncSurfaceState } from "../presentation/surface-state.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
@@ -39,6 +40,10 @@ export function ProjectHomeView({
       </div>
     </section>
   );
+}
+
+export function ProjectReadinessHomeFeature({ surface }: { surface: ProjectReadinessComposerFeatureSurface }): ReactElement {
+  return <ProjectReadinessHome {...surface.view} {...surface.actions} />;
 }
 
 export function ProjectReadinessHome({
