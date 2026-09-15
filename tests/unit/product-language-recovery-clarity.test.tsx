@@ -5,6 +5,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProviderModelPicker } from "../../src/web/src/panels/ProjectHome.js";
 import { ProjectAddForm, ProjectCreateForm } from "../../src/web/src/panels/ProjectPanels.js";
+import { DialogSurface } from "../../src/web/src/presentation/DialogSurface.js";
 import { ComposerAttachButton } from "../../src/web/src/shell/ComposerAttachments.js";
 import { UnmanagedProjectView } from "../../src/web/src/shell/sidebar.js";
 import type { ProjectStatus, ProviderModelSettingsSnapshot } from "../../src/web/src/types.js";
@@ -48,6 +49,24 @@ describe("product language and recovery clarity", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
+  it("recaptures focus when the currently focused dialog action becomes unavailable", async () => {
+    function Harness() {
+      const [busy, setBusy] = useState(false);
+      return <DialogSurface open onClose={vi.fn()} ariaLabel="测试弹窗">
+        <button type="button">关闭</button>
+        <button type="button" disabled={busy} onClick={() => setBusy(true)}>执行</button>
+      </DialogSurface>;
+    }
+    render(<Harness />);
+    const action = screen.getByRole("button", { name: "执行" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "关闭" })));
+    action.focus();
+    fireEvent.click(action);
+    expect((action as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(action, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "关闭" }));
+  });
+
   it("shows model loading failures without also showing the empty state", () => {
     render(<ProviderModelPicker open snapshot={null} message="模型配置暂时无法读取。" onClose={vi.fn()} onRefresh={vi.fn()} onSelect={vi.fn()} />);
     expect(screen.getByRole("alert")).toBeTruthy();
@@ -77,6 +96,14 @@ describe("product language and recovery clarity", () => {
     expect(diagnostics).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
     await waitFor(() => expect(retry).toHaveBeenCalledOnce());
+  });
+
+  it("keeps project recovery failures adjacent and handled", async () => {
+    const retry = vi.fn(async () => { throw new TypeError("network unavailable"); });
+    render(<UnmanagedProjectView project={unavailableProject()} onRetry={retry} onOpenDiagnostics={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("暂时无法连接到本地服务。"));
+    expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

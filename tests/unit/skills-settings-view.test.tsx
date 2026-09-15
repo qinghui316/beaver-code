@@ -64,6 +64,26 @@ describe("SkillsSettingsView request identity", () => {
     expect(screen.queryByText("stale-skill")).toBeNull();
   });
 
+  it("does not paint the previous identity catalog or open source paths after a scope change", async () => {
+    const next = deferred<{ skills: SkillListItem[]; roots: Array<{ rootPath: string; sourceKind: "custom"; updatedAt: string }> }>();
+    fetchJson
+      .mockResolvedValueOnce({ skills: [skill("old-skill")], roots: [{ rootPath: "C:/private/old-skills", sourceKind: "custom", updatedAt: "2026-09-15T00:00:00.000Z" }] })
+      .mockImplementationOnce(() => next.promise);
+    const view = render(<SkillsSettingsView projectId="repo-a" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("old-skill")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "技能来源设置" }));
+    expect(screen.getByText("C:/private/old-skills")).toBeTruthy();
+
+    view.rerender(<SkillsSettingsView projectId="repo-b" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+    expect(screen.queryByText("old-skill")).toBeNull();
+    expect(screen.queryByText("C:/private/old-skills")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "技能来源设置" })).toBeNull();
+    expect(screen.getByText("正在加载技能…")).toBeTruthy();
+
+    next.resolve({ skills: [skill("new-skill")], roots: [] });
+    await waitFor(() => expect(screen.getByText("new-skill")).toBeTruthy());
+  });
+
   it("groups Skills, opens details on demand, and hides absolute paths outside source settings", async () => {
     fetchJson.mockResolvedValue({ skills: [{ ...skill("reviewer"), sourceKind: "provider-native" }], roots: [{ rootPath: "C:/skills", sourceKind: "custom", updatedAt: "2026-09-04T00:00:00.000Z" }] });
     render(<SkillsSettingsView projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);

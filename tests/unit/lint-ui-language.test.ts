@@ -68,6 +68,22 @@ describe("UI language lint", () => {
     expect(violations).toContain("unregistered raw enum value");
   });
 
+  it("rejects direct raw error and state values in ordinary JSX", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `export function Panel({ error, status }) { return <><p>{error}</p><span>{status}</span></>; }`,
+    });
+    const violations = (await lintUiLanguage(root)).violations.join("\n");
+    expect(violations).toContain("raw error or response body");
+    expect(violations).toContain("raw state status");
+  });
+
+  it("allows explicitly projected display strings and mapped local status copy", async () => {
+    const root = await fixture({
+      "src/web/src/Panel.tsx": `export function Panel({ error }: { error: string | null }) { const status = true ? "已完成" : "需要处理"; return <>{error ? <p>{error}</p> : null}<span>{status}</span></>; }`,
+    });
+    expect((await lintUiLanguage(root)).violations).toEqual([]);
+  });
+
   it("checks configured copy and raw fallback branches", async () => {
     const root = await fixture({
       "src/web/src/Panel.tsx": `export function Panel({ state, cause }) {

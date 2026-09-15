@@ -32,10 +32,15 @@ export function useModalDialogFocus(open: boolean, returnFocusRef?: RefObject<HT
       }
       const first = items[0]!;
       const last = items[items.length - 1]!;
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const activeIndex = active ? items.indexOf(active) : -1;
+      if (!active || !dialog.contains(active) || activeIndex === -1) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && (active === first || active === dialog)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && active === last) {
         event.preventDefault();
         first.focus();
       }

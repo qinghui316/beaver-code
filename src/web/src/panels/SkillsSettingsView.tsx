@@ -25,6 +25,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
   const [catalogDiagnosticsOpen, setCatalogDiagnosticsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [resolvedIdentityKey, setResolvedIdentityKey] = useState<string | null>(null);
   const [failure, setFailure] = useState<UserFacingFailure | null>(null);
   const [catalogErrors, setCatalogErrors] = useState<Array<{ path: string; message: string }>>([]);
   const requestGenerationRef = useRef(0);
@@ -35,12 +36,17 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
   const identityKey = skillSettingsIdentityKey(projectId, productMode, conversationId, providerId);
   const identityKeyRef = useRef(identityKey);
   identityKeyRef.current = identityKey;
+  const identityResolved = resolvedIdentityKey === identityKey;
+  const visibleSkills = identityResolved ? skills : [];
+  const visibleRoots = identityResolved ? roots : [];
+  const visibleFailure = identityResolved ? failure : null;
+  const visibleCatalogErrors = identityResolved ? catalogErrors : [];
 
   const filteredSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return skills;
-    return skills.filter((skill) => [skill.name, skill.skillId, skill.description, sourceKindLabel(skill.sourceKind), scopeLabel(skill.scope)].some((value) => value.toLowerCase().includes(normalized)));
-  }, [query, skills]);
+    if (!normalized) return visibleSkills;
+    return visibleSkills.filter((skill) => [skill.name, skill.skillId, skill.description, sourceKindLabel(skill.sourceKind), scopeLabel(skill.scope)].some((value) => value.toLowerCase().includes(normalized)));
+  }, [query, visibleSkills]);
   const groupedSkills = useMemo(() => groupOrder.map((id) => ({ id, items: filteredSkills.filter((skill) => skillGroup(skill, conversationId) === id) })).filter((group) => group.items.length > 0), [filteredSkills, conversationId]);
   const selectedSkill = filteredSkills.find((skill) => skill.skillId === selectedSkillId) ?? null;
   const selectedTarget = selectedSkill?.providerBindings[0];
@@ -55,6 +61,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
     if (!projectId) {
       if (generation === requestGenerationRef.current && requestIdentityKey === identityKeyRef.current) {
         setSkills([]); setRoots([]); setSelectedSkillId(null); setCatalogErrors([]);
+        setResolvedIdentityKey(requestIdentityKey);
       }
       return;
     }
@@ -66,6 +73,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
     setSkills(nextSkills);
     setCatalogErrors(Array.isArray(payload.errors) ? payload.errors : []);
     setSelectedSkillId((current) => current && nextSkills.some((skill) => skill.skillId === current) ? current : null);
+    setResolvedIdentityKey(requestIdentityKey);
   }
 
   useEffect(() => {
@@ -79,6 +87,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
       if (requestGeneration === requestGenerationRef.current && requestIdentityKey === identityKeyRef.current) {
         setLoading(false);
         setFailure(toUserFacingFailure(cause, "load"));
+        setResolvedIdentityKey(requestIdentityKey);
       }
     });
     return () => { requestGenerationRef.current += 1; actionGenerationRef.current += 1; };
@@ -115,14 +124,15 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
       if (requestGeneration === requestGenerationRef.current && requestIdentityKey === identityKeyRef.current) {
         setLoading(false);
         setFailure(toUserFacingFailure(cause, "load"));
+        setResolvedIdentityKey(requestIdentityKey);
       }
     });
   }
 
-  const listState: AsyncSurfaceState<typeof groupedSkills> = loading
+  const listState: AsyncSurfaceState<typeof groupedSkills> = !identityResolved || loading
     ? { status: "loading" }
-    : failure && groupedSkills.length === 0
-      ? { status: "error", failure, actions: [{ id: "retry", label: "重新加载", emphasis: "primary" }] }
+    : visibleFailure && groupedSkills.length === 0
+      ? { status: "error", failure: visibleFailure, actions: [{ id: "retry", label: "重新加载", emphasis: "primary" }] }
       : groupedSkills.length === 0
         ? {
             status: "empty",
@@ -142,8 +152,8 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
         <button ref={sourceTriggerRef} className="icon-button" aria-label="技能来源设置" title="技能来源设置" onClick={() => setSourceManagerOpen(true)}><Settings2 size={16} /></button>
       </header>
 
-      {catalogErrors.length > 0 && listState.status !== "loading" && listState.status !== "error" ? <div className="skills-catalog-warning" role="status"><CircleAlert size={16} /><span>有 {catalogErrors.length} 个技能无法读取。</span><button ref={diagnosticsTriggerRef} type="button" onClick={() => setCatalogDiagnosticsOpen(true)}>查看诊断</button></div> : null}
-      {failure && groupedSkills.length > 0 ? <div className="skills-state-notice" role="alert"><CircleAlert size={16} /><div><strong>{failure.summary}</strong>{failure.recoveryAction ? <span>{failure.recoveryAction}</span> : null}</div></div> : null}
+      {visibleCatalogErrors.length > 0 && listState.status !== "loading" && listState.status !== "error" ? <div className="skills-catalog-warning" role="status"><CircleAlert size={16} /><span>有 {visibleCatalogErrors.length} 个技能无法读取。</span><button ref={diagnosticsTriggerRef} type="button" onClick={() => setCatalogDiagnosticsOpen(true)}>查看诊断</button></div> : null}
+      {visibleFailure && groupedSkills.length > 0 ? <div className="skills-state-notice" role="alert"><CircleAlert size={16} /><div><strong>{visibleFailure.summary}</strong>{visibleFailure.recoveryAction ? <span>{visibleFailure.recoveryAction}</span> : null}</div></div> : null}
 
       <div className="skills-settings-list" role="list" aria-label="技能列表">
         {listState.status === "loading" ? <div className="skills-empty-results" role="status"><RefreshCw size={22} className="spin" /><strong>正在加载技能…</strong></div> : listState.status === "error" ? <div className="skills-empty-results" role="alert"><CircleAlert size={22} /><strong>{listState.failure.summary}</strong>{listState.failure.recoveryAction ? <span>{listState.failure.recoveryAction}</span> : null}<button className="primary-button" onClick={retryLoad}>重新加载</button></div> : listState.status === "empty" ? <div className="skills-empty-results"><Sparkles size={22} /><strong>{listState.title}</strong>{listState.description ? <span>{listState.description}</span> : null}<button className={listState.actions[0]?.emphasis === "primary" ? "primary-button" : "outline-button"} onClick={() => listState.actions[0]?.id === "clear-search" ? setQuery("") : retryLoad()}>{listState.actions[0]?.label}</button></div> : listState.data.map((group) => <section className="skills-group" key={group.id} aria-labelledby={`skill-group-${group.id}`}><header><h3 id={`skill-group-${group.id}`}>{skillGroupLabel(group.id)}</h3><span>{group.items.length}</span></header><div className="skills-group-grid">{group.items.map((skill) => {
@@ -154,7 +164,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
         })}</div></section>)}
       </div>
 
-      <DialogSurface open={Boolean(selectedSkill)} onClose={() => setSelectedSkillId(null)} ariaLabel={selectedSkill ? `${selectedSkill.name} 详情` : "技能详情"} panelClassName="settings-panel skill-detail-drawer" returnFocusRef={detailTriggerRef}>
+      <DialogSurface open={identityResolved && Boolean(selectedSkill)} onClose={() => setSelectedSkillId(null)} ariaLabel={selectedSkill ? `${selectedSkill.name} 详情` : "技能详情"} panelClassName="settings-panel skill-detail-drawer" returnFocusRef={detailTriggerRef}>
         {selectedSkill ? <>
         <header className="settings-panel-header"><div className="skill-detail-title"><span className="skill-list-icon"><Sparkles size={18} /></span><div><p className="eyebrow">{sourceKindLabel(selectedSkill.sourceKind)}</p><h2>{selectedSkill.name}</h2></div></div><button className="icon-button" aria-label="关闭技能详情" onClick={() => setSelectedSkillId(null)}><X size={16} /></button></header>
         <p className="skill-detail-description">{selectedSkill.description || "当前技能没有提供说明。"}</p>
@@ -163,14 +173,14 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
         </> : null}
       </DialogSurface>
 
-      <DialogSurface open={sourceManagerOpen} onClose={() => setSourceManagerOpen(false)} ariaLabel="技能来源设置" panelClassName="settings-panel skill-source-drawer" returnFocusRef={sourceTriggerRef}>
+      <DialogSurface open={identityResolved && sourceManagerOpen} onClose={() => setSourceManagerOpen(false)} ariaLabel="技能来源设置" panelClassName="settings-panel skill-source-drawer" returnFocusRef={sourceTriggerRef}>
         <header className="settings-panel-header"><div><p className="eyebrow">高级</p><h2>技能来源</h2></div><button className="icon-button" aria-label="关闭技能来源设置" onClick={() => setSourceManagerOpen(false)}><X size={16} /></button></header>
         <p className="muted-copy">添加受信任的本机目录，让当前项目发现其中的技能。</p>
         <div className="skill-root-form compact"><label className="skill-root-field"><span>技能目录</span><input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="输入受信任的本机目录" /></label><button className="primary-button" disabled={busy || !rootPath.trim()} onClick={async () => { const added = await run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom", ...skillRequestBody(productMode, conversationId, providerId) }); }); if (added) setRootPath(""); }}>添加</button></div>
-        <div className="skill-root-list" aria-label="已添加技能目录">{roots.length === 0 ? <span>尚未添加自定义来源。</span> : roots.map((root) => <div key={root.rootPath}><Folder size={14} /><span title={root.rootPath}>{root.rootPath}</span></div>)}</div>
+        <div className="skill-root-list" aria-label="已添加技能目录">{visibleRoots.length === 0 ? <span>尚未添加自定义来源。</span> : visibleRoots.map((root) => <div key={root.rootPath}><Folder size={14} /><span title={root.rootPath}>{root.rootPath}</span></div>)}</div>
       </DialogSurface>
 
-      <DialogSurface open={catalogDiagnosticsOpen} onClose={() => setCatalogDiagnosticsOpen(false)} ariaLabel="技能扫描诊断" panelClassName="settings-panel skill-diagnostics-drawer" returnFocusRef={diagnosticsTriggerRef}><div data-diagnostic-raw-evidence><header className="settings-panel-header"><div><p className="eyebrow">诊断</p><h2>无法读取的技能</h2></div><button className="icon-button" aria-label="关闭技能扫描诊断" onClick={() => setCatalogDiagnosticsOpen(false)}><X size={16} /></button></header>{catalogErrors.map((error) => <div className="skill-diagnostic-item" key={`${error.path}:${error.message}`}><strong>{safePathLabel(error.path)}</strong><p>{sanitizeTechnicalDetail(error.message)}</p></div>)}</div></DialogSurface>
+      <DialogSurface open={identityResolved && catalogDiagnosticsOpen} onClose={() => setCatalogDiagnosticsOpen(false)} ariaLabel="技能扫描诊断" panelClassName="settings-panel skill-diagnostics-drawer" returnFocusRef={diagnosticsTriggerRef}><div data-diagnostic-raw-evidence><header className="settings-panel-header"><div><p className="eyebrow">诊断</p><h2>无法读取的技能</h2></div><button className="icon-button" aria-label="关闭技能扫描诊断" onClick={() => setCatalogDiagnosticsOpen(false)}><X size={16} /></button></header>{visibleCatalogErrors.map((error) => <div className="skill-diagnostic-item" key={`${error.path}:${error.message}`}><strong>{safePathLabel(error.path)}</strong><p>{sanitizeTechnicalDetail(error.message)}</p></div>)}</div></DialogSurface>
     </section>
   );
 }

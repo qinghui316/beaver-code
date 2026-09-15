@@ -162,38 +162,44 @@ function isSafeFailureProjection(node) {
 
 function containsRawErrorValue(node) {
   if (!node) return false;
-  let found = false;
-  const visit = (current) => {
-    if (ts.isCallExpression(current)
-      && ts.isPropertyAccessExpression(current.expression)
-      && ts.isIdentifier(current.expression.expression)
-      && current.expression.expression.text === "response"
-      && current.expression.name.text === "text") {
-      found = true;
-      return;
-    }
-    if (ts.isPropertyAccessExpression(current)
-      && current.name.text === "message"
-      && ts.isIdentifier(current.expression)
-      && /^(?:cause|error|err|data|response)$/i.test(current.expression.text)) {
-      found = true;
-      return;
-    }
-    if (ts.isCallExpression(current)
-      && ts.isIdentifier(current.expression)
-      && current.expression.text === "String"
-      && current.arguments.some((argument) => ts.isIdentifier(argument) && /^(?:cause|error|err)$/i.test(argument.text))) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(current, visit);
-  };
-  visit(node);
-  return found;
+  if (ts.isParenthesizedExpression(node)
+    || ts.isAsExpression(node)
+    || ts.isTypeAssertionExpression(node)
+    || ts.isNonNullExpression(node)) return containsRawErrorValue(node.expression);
+  if (ts.isIdentifier(node) && /^(?:cause|error|err|response)$/i.test(node.text)) {
+    return !isExplicitUserFacingStringBinding(node);
+  }
+  if (ts.isCallExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === "response"
+    && node.expression.name.text === "text") return true;
+  if (ts.isPropertyAccessExpression(node)
+    && node.name.text === "message"
+    && ts.isIdentifier(node.expression)
+    && /^(?:cause|error|err|data|response)$/i.test(node.expression.text)) return true;
+  if (ts.isCallExpression(node)
+    && ts.isIdentifier(node.expression)
+    && node.expression.text === "String"
+    && node.arguments.some((argument) => ts.isIdentifier(argument) && /^(?:cause|error|err)$/i.test(argument.text))) return true;
+  if (ts.isConditionalExpression(node)) {
+    return containsRawErrorValue(node.whenTrue) || containsRawErrorValue(node.whenFalse);
+  }
+  if (ts.isBinaryExpression(node)
+    && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.PlusToken].includes(node.operatorToken.kind)) {
+    return containsRawErrorValue(node.left) || containsRawErrorValue(node.right);
+  }
+  if (ts.isTemplateExpression(node)) return node.templateSpans.some((span) => containsRawErrorValue(span.expression));
+  return false;
 }
 
 function rawStateNames(expression) {
   if (!expression) return [];
+  if (ts.isIdentifier(expression) && isRawStateExpression(expression)) {
+    return isMappedPresentationBinding(expression)
+      ? []
+      : [expression.getText()];
+  }
   const isCompositeOutput = ts.isConditionalExpression(expression)
     || ts.isTemplateExpression(expression)
     || (ts.isBinaryExpression(expression)
@@ -226,6 +232,99 @@ function rawStateNames(expression) {
   };
   visitOutput(expression);
   return [...names];
+}
+
+function isExplicitUserFacingStringBinding(identifier) {
+  const declaration = findBindingDeclaration(identifier);
+  if (!declaration) return false;
+  if (ts.isParameter(declaration)) return typeContainsOnlyDisplayString(declaration.type, identifier.text);
+  if (ts.isBindingElement(declaration)) {
+    const bindingOwner = declaration.parent.parent;
+    if (ts.isParameter(bindingOwner)) return typeContainsOnlyDisplayString(bindingOwner.type, identifier.text);
+    const variable = declaration.parent.parent;
+    if (ts.isVariableDeclaration(variable)
+      && ts.isCallExpression(variable.initializer)
+      && ts.isIdentifier(variable.initializer.expression)
+      && variable.initializer.expression.text === "useState") {
+      return typeContainsOnlyDisplayString(variable.initializer.typeArguments?.[0], identifier.text);
+    }
+  }
+  return false;
+}
+
+function isMappedPresentationBinding(identifier) {
+  const declaration = findBindingDeclaration(identifier);
+  return Boolean(declaration
+    && ts.isVariableDeclaration(declaration)
+    && declaration.initializer
+    && expressionIsMappedDisplayCopy(declaration.initializer));
+}
+
+function findBindingDeclaration(identifier) {
+  let scope = identifier.parent;
+  while (scope && !ts.isSourceFile(scope)) {
+    if (ts.isFunctionLike(scope)) {
+      for (const parameter of scope.parameters) {
+        const match = findBindingName(parameter.name, identifier.text);
+        if (match) return match === parameter.name ? parameter : match.parent;
+      }
+    }
+    if (ts.isBlock(scope) || ts.isSourceFile(scope)) {
+      for (const statement of scope.statements ?? []) {
+        if (!ts.isVariableStatement(statement)) continue;
+        for (const declaration of statement.declarationList.declarations) {
+          const match = findBindingName(declaration.name, identifier.text);
+          if (match) return match === declaration.name ? declaration : match.parent;
+        }
+      }
+    }
+    scope = scope.parent;
+  }
+  return null;
+}
+
+function findBindingName(name, target) {
+  if (ts.isIdentifier(name)) return name.text === target ? name : null;
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (!ts.isBindingElement(element)) continue;
+      const match = findBindingName(element.name, target);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+function typeContainsOnlyDisplayString(type, propertyName) {
+  if (!type) return false;
+  if (ts.isUnionTypeNode(type)) {
+    return type.types.every((part) => part.kind === ts.SyntaxKind.StringKeyword
+      || (ts.isLiteralTypeNode(part) && part.literal.kind === ts.SyntaxKind.NullKeyword)
+      || part.kind === ts.SyntaxKind.UndefinedKeyword);
+  }
+  if (type.kind === ts.SyntaxKind.StringKeyword) return true;
+  if (ts.isTypeLiteralNode(type)) {
+    const property = type.members.find((member) => ts.isPropertySignature(member) && propertyNameText(member.name) === propertyName);
+    return Boolean(property && ts.isPropertySignature(property) && typeContainsOnlyDisplayString(property.type, propertyName));
+  }
+  return false;
+}
+
+function propertyNameText(name) {
+  return name && (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) ? name.text : null;
+}
+
+function expressionIsMappedDisplayCopy(expression) {
+  if (ts.isParenthesizedExpression(expression)) return expressionIsMappedDisplayCopy(expression.expression);
+  if (ts.isStringLiteralLike(expression) || expression.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isConditionalExpression(expression)) {
+    return expressionIsMappedDisplayCopy(expression.whenTrue) && expressionIsMappedDisplayCopy(expression.whenFalse);
+  }
+  if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)) {
+    return /(?:Label|Message|Summary)$/.test(expression.expression.text)
+      || expression.expression.text === "humanStatus";
+  }
+  return false;
 }
 
 function isRawStateExpression(node) {
