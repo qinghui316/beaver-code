@@ -14,6 +14,7 @@ import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
+import { resetCodexRuntimeForTests } from "../../src/codex/executable.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import {
@@ -108,6 +109,7 @@ beforeEach(async () => {
   process.exitCode = undefined;
   process.env.AHO_HOME = homeDir;
   process.env.CODEX_HOME = join(tempDir, "codex-home");
+  resetCodexRuntimeForTests();
   await initializeGitRepository();
 });
 
@@ -118,6 +120,7 @@ afterEach(async () => {
   else process.env.CODEX_HOME = originalCodexHome;
   if (originalCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
   else process.env.AHO_CODEX_BIN = originalCodexBin;
+  resetCodexRuntimeForTests();
   process.exitCode = originalExitCode;
   await rm(tempDir, { recursive: true, force: true });
 });
@@ -204,6 +207,7 @@ describe("Skill-native CLI flow", () => {
   it("keeps ordinary Skill selection Host-native without copying packages", async () => {
     await createReadyProject();
     process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
+    resetCodexRuntimeForTests();
     const skillRoot = join(tempDir, "ordinary-skills");
     const skillDir = join(skillRoot, "pricing-helper");
     await mkdir(skillDir, { recursive: true });
@@ -228,6 +232,7 @@ describe("Skill-native CLI flow", () => {
   it("uses the stored Conversation Provider for explicit Skill overrides and rejects the retired Topic option", async () => {
     const fixture = await createReadyProject();
     process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
+    resetCodexRuntimeForTests();
     const skillRoot = join(tempDir, "conversation-skills");
     const skillDir = join(skillRoot, "conversation-helper");
     await mkdir(skillDir, { recursive: true });

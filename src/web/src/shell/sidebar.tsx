@@ -2,6 +2,7 @@ import { useRef, useState, type ReactElement } from "react";
 import {
   Archive,
   ArchiveRestore,
+  CircleAlert,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -167,7 +168,7 @@ export function ProjectConversationSidebar({
             const hasConversationSnapshot = Boolean(projectSnapshot?.left.workpads?.length || projectSnapshot?.left.topics?.length);
             const harnessReady = projectSnapshot?.harness.harnessReady ?? item.harness.readiness === "ready";
             const harnessIssue = harnessStatusIssue(item, projectSnapshot);
-            const secondary = duplicateName ? shortProjectContext(item.path) : harnessIssue?.short ?? shortProjectContext(item.path);
+            const duplicateContext = duplicateName ? projectParentContext(item.path) : null;
             const projectUnavailable = item.runtimeAvailability?.state === "unavailable";
             const canStartConversation = Boolean(
               item.project
@@ -191,22 +192,25 @@ export function ProjectConversationSidebar({
                     <Folder size={16} />
                     <span className="project-folder-text">
                       <strong>{projectName}</strong>
-                      <small title={secondary}>{secondary}</small>
+                      {duplicateContext ? <small aria-hidden="true">· {duplicateContext}</small> : null}
                     </span>
                   </button>
-                  {canStartConversation ? (
-                    <button
-                      className="project-folder-new"
-                      aria-label={`在 ${projectName} 中开始新对话`}
-                      title={`在 ${projectName} 中开始新对话`}
-                      onClick={() => void onNewConversation(item.project?.id)}
-                    >
-                      <FileText size={15} />
+                  {harnessIssue ? <span className="project-folder-status" role="img" aria-label={harnessIssue.detail} title={harnessIssue.detail}><CircleAlert size={14} /></span> : null}
+                  <span className="project-folder-actions">
+                    {canStartConversation ? (
+                      <button
+                        className="project-folder-new"
+                        aria-label={`在 ${projectName} 中开始新对话`}
+                        title={`在 ${projectName} 中开始新对话`}
+                        onClick={() => void onNewConversation(item.project?.id)}
+                      >
+                        <FileText size={15} />
+                      </button>
+                    ) : null}
+                    <button className="project-folder-more" aria-label="更多项目操作" onClick={() => onProjectDetails(projectDetailsId === projectId ? null : projectId)}>
+                      <MoreHorizontal size={15} />
                     </button>
-                  ) : null}
-                  <button className="project-folder-more" aria-label="更多项目操作" onClick={() => onProjectDetails(projectDetailsId === projectId ? null : projectId)}>
-                    <MoreHorizontal size={15} />
-                  </button>
+                  </span>
                 </div>
                 {projectDetailsId === projectId ? (
                   <div className="project-row-menu-popover" role="menu" aria-label={`${projectName} 项目菜单`}>
@@ -520,15 +524,15 @@ function harnessStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind
       detail: project.runtimeAvailability?.summary ?? "这个项目的协作配置无法读取。你仍然可以打开其他项目。",
     };
   }
-  return {
+  if (project.harness.readiness === "partial") return {
     kind: "uninitialized",
-    short: project.harness.readiness === "partial" ? "项目需要处理" : "可以开始使用",
-    detail: project.harness.readiness === "partial" ? "这个项目需要处理后才能继续使用。" : "这个项目可以开始使用。",
+    short: "项目需要处理",
+    detail: "这个项目需要处理后才能继续使用。",
   };
+  return null;
 }
 
-function shortProjectContext(path: string): string {
+function projectParentContext(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
-  if (parts.length >= 2) return `${parts.at(-1)} · ${parts.at(-2)}`;
-  return parts[0] ?? path;
+  return parts.length >= 2 ? parts.at(-2) ?? path : path;
 }

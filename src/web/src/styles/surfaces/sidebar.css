@@ -108,10 +108,9 @@
 }
 
 .project-folder-row {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
+  display: flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 36px;
   border-radius: var(--radius-sm);
   column-gap: 3px;
   padding: 0 3px;
@@ -178,7 +177,8 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 6px 2px;
+  flex: 1 1 auto;
+  padding: 5px 2px;
   color: var(--text);
   font-size: 14px;
   text-align: left;
@@ -189,8 +189,9 @@
 }
 
 .project-folder-text {
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -204,11 +205,12 @@
 }
 
 .project-folder-text small {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text-faint);
   font-size: 11px;
-  line-height: 1.25;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -672,6 +674,40 @@
     align-items: flex-end;
     min-height: 104px;
     padding: 62px 12px 7px;
+  }
+}
+
+.project-folder-status {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.project-folder-actions {
+  display: inline-flex;
+  max-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 0.16s ease, opacity 0.16s ease;
+}
+
+.project-folder-row:hover .project-folder-actions,
+.project-folder-row:focus-within .project-folder-actions,
+.project-folder-row.selected .project-folder-actions {
+  max-width: 56px;
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .project-folder-actions {
+    max-width: 56px;
+    opacity: 1;
   }
 }
 

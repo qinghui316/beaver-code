@@ -6,14 +6,21 @@ import { PassThrough, Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const spawnMock = vi.hoisted(() => vi.fn());
+const spawnMock = vi.hoisted(() => Object.assign(vi.fn(), {
+  sync: vi.fn((_: string, args: string[]) => args[0] === "--version"
+    ? { status: 0, stdout: "codex-cli 0.154.0\n", stderr: "", error: undefined }
+    : { status: 0, stdout: "--listen stdio://\n", stderr: "", error: undefined }),
+}));
 vi.mock("cross-spawn", () => ({ default: spawnMock }));
 
 import { getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerThreadGoal } from "../../src/codex/app-server.js";
 
 const tempDirs: string[] = [];
 
-beforeEach(() => spawnMock.mockReset());
+beforeEach(() => {
+  spawnMock.mockReset();
+  spawnMock.sync.mockClear();
+});
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });

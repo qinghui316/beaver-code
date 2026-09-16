@@ -1,5 +1,5 @@
 import { detectCodexCapabilities } from "../codex/capabilities.js";
-import { getCodexConfigPath, readCodexProjectTrust, trustCodexProject } from "../codex/trust.js";
+import { readCodexProjectTrust, trustCodexProject } from "../codex/trust.js";
 import { getCodexModelSettingsSnapshot } from "../codex/model-settings.js";
 import type { ManagedProject } from "../types/index.js";
 import type { ProviderDiagnosticsSnapshot, ProviderProjectAction } from "./types.js";
@@ -22,7 +22,7 @@ export async function getCodexDiagnostics(project: ManagedProject | null, projec
   return {
     providerId: "codex",
     displayName: "Codex",
-    installation: { available: runtime.available, version: runtime.version, path: getCodexConfigPath() },
+    installation: { available: runtime.available, version: runtime.version, ...(runtime.executablePath ? { path: runtime.executablePath } : {}) },
     adapter: CODEX_PROVIDER_ADAPTER,
     capabilities,
     models,
@@ -32,6 +32,7 @@ export async function getCodexDiagnostics(project: ManagedProject | null, projec
     projectActions: projectPath ? projectActionsFromTrust(trust) : [],
     details: {
       approvalFlagPlacement: runtime.approvalFlagPlacement,
+      runtimeSource: runtime.runtimeSource,
       configModel: rawModels.configModel,
       configPath: rawModels.configPath,
       projectTrust: trust,

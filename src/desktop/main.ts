@@ -121,6 +121,14 @@ async function createWindow(): Promise<void> {
     show: false,
     backgroundColor: "#ecf4f6",
     title: productName,
+    ...(process.platform === "win32" ? {
+      titleBarStyle: "hidden" as const,
+      titleBarOverlay: {
+        height: 48,
+        color: "#ecf4f6",
+        symbolColor: "#182126",
+      },
+    } : {}),
     webPreferences: {
       session: browserSession,
       contextIsolation: true,

@@ -2,6 +2,26 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Workbench shell layout contract", () => {
+  it("uses the native Windows title-bar overlay and an icon-only product navigation row", async () => {
+    const [desktopMain, app, shellCss] = await Promise.all([
+      readFile("src/desktop/main.ts", "utf8"),
+      readFile("src/web/src/App.tsx", "utf8"),
+      readFile("src/web/src/styles/surfaces/shell.css", "utf8"),
+    ]);
+    expect(desktopMain).toContain('titleBarStyle: "hidden"');
+    expect(desktopMain).toContain("titleBarOverlay:");
+    expect(desktopMain).toContain("Menu.setApplicationMenu(buildMenu())");
+    expect(desktopMain).not.toMatch(/ipcRenderer|contextBridge|nodeIntegration\s*:\s*true/);
+    expect(app).toContain('className={`product-mode-navigation-button');
+    expect(app).toContain("<Bot size={17}");
+    expect(app).toContain("<Workflow size={17}");
+    expect(app).not.toContain("ModeExperienceGuide");
+    expect(shellCss).toContain("padding-top: env(titlebar-area-height, 0px)");
+    expect(shellCss).toContain("-webkit-app-region: drag");
+    expect(shellCss).toContain("-webkit-app-region: no-drag");
+    expect(shellCss).toMatch(/\.product-mode-navigation-spacer\s*\{[\s\S]*?z-index: auto;/);
+  });
+
   it("passes the selected Conversation mode to child workspace resources", async () => {
     const [appSource, handoffSource] = await Promise.all([
       readFile("src/web/src/App.tsx", "utf8"),

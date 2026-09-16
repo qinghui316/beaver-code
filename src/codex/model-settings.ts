@@ -42,6 +42,8 @@ export interface CodexModelSettingsSnapshot {
   effectiveModelSource: CodexEffectiveModelSource;
 }
 
+const successfulRuntimeModels = new Map<string, CodexModelCandidate[]>();
+
 const CustomModelSchema = z.object({
   id: z.string(),
   label: z.string().optional(),
@@ -148,16 +150,24 @@ export async function getCodexModelSettingsSnapshot(projectPath?: string): Promi
 }
 
 export async function listCodexRuntimeModels(projectPath = process.cwd()): Promise<CodexModelListStatus> {
+  const cacheKey = projectPath.toLowerCase();
   try {
     const response = await withTimeout(
       defaultCodexAppServerHostRegistry.hostFor(projectPath).requestMetadata("model/list", {}),
       3000,
       "Codex model_list timed out.",
     );
-    return { available: true, degraded: false, candidates: candidatesFromModelListResponse(response) };
+    const candidates = candidatesFromModelListResponse(response);
+    successfulRuntimeModels.set(cacheKey, candidates);
+    return { available: true, degraded: false, candidates };
   } catch (error) {
-    return { available: false, degraded: true, degradedReason: sanitizeModelListFailure(error), candidates: [] };
+    const cached = successfulRuntimeModels.get(cacheKey) ?? [];
+    return { available: cached.length > 0, degraded: true, degradedReason: sanitizeModelListFailure(error), candidates: cached };
   }
+}
+
+export function resetCodexModelListCacheForTests(): void {
+  successfulRuntimeModels.clear();
 }
 
 function findCandidate(candidates: CodexModelCandidate[], model: string): CodexModelCandidate | null {

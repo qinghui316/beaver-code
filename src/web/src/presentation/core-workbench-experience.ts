@@ -75,6 +75,7 @@ export function productModeControlTitle(
   state: ProductModeActivityState | undefined,
 ): string {
   const experience = MODE_EXPERIENCE[mode];
-  if (active || !state || state === "idle" || state === "unavailable") return `${experience.label} · ${experience.compactDescription}`;
-  return productModeControlLabel(mode, false, state);
+  const description = `${experience.title}。${experience.description}`;
+  if (active || !state || state === "idle" || state === "unavailable") return `${experience.label} · ${description}`;
+  return `${productModeControlLabel(mode, false, state)}。${description}`;
 }

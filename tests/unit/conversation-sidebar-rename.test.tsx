@@ -15,6 +15,7 @@ describe("Conversation sidebar rename", () => {
     const projectButton = screen.getByRole("button", { name: "Repo" });
     expect(projectButton.getAttribute("title")).toBe("Repo");
     expect(document.body.innerHTML).not.toContain("C:/repo");
+    expect(screen.queryByRole("img", { name: /可以开始使用/ })).toBeNull();
   });
 
   it("falls back to topics when an Agent snapshot has no Harness workpads", () => {

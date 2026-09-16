@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type PointerEvent as ReactPointerEvent } from "react";
-import { CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, XCircle } from "lucide-react";
+import { Bot, CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, Workflow, XCircle } from "lucide-react";
 import { fetchJson } from "./api.js";
 import { MainConversationView,
   AgentOfficePanel,
@@ -82,7 +82,6 @@ import {
 import { emptySnapshotForMode, removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
 import { useAppModeController } from "./controllers/AppModeController.js";
 import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
-import { ModeExperienceGuide } from "./presentation/ModeExperienceGuide.js";
 import {
   projectConversationWorkspaceChrome,
   projectReadinessComposerSurface,
@@ -1263,11 +1262,10 @@ export function App(): ReactElement {
       className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarModalOpen ? " mobile-sidebar-open" : ""}`}
       style={appShellStyle}
     >
-      {!settingsOpen ? <div className="product-mode-shell-control">
-        <div className="product-mode-segment" role="group" aria-label="工作模式" data-testid="product-mode-control">
+      {!settingsOpen ? <nav className="product-mode-navigation" aria-label="工作模式" data-testid="product-mode-control">
           <button
             type="button"
-            className={appMode.productMode === "agent" ? "active" : ""}
+            className={`product-mode-navigation-button ${appMode.productMode === "agent" ? "active" : ""}`}
             aria-pressed={appMode.productMode === "agent"}
             aria-label={productModeControlLabel("agent", appMode.productMode === "agent", agentModeActivityState)}
             title={productModeControlTitle("agent", appMode.productMode === "agent", agentModeActivityState)}
@@ -1275,10 +1273,10 @@ export function App(): ReactElement {
               setMobileSidebarOpen(false);
               appMode.selectMode("agent");
             }}
-          ><span>Agent</span><ProductModeActivityIcon active={appMode.productMode === "agent"} state={agentModeActivityState} /></button>
+          ><Bot size={17} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "agent"} state={agentModeActivityState} /></button>
           <button
             type="button"
-            className={appMode.productMode === "harness" ? "active" : ""}
+            className={`product-mode-navigation-button ${appMode.productMode === "harness" ? "active" : ""}`}
             aria-pressed={appMode.productMode === "harness"}
             aria-label={productModeControlLabel("harness", appMode.productMode === "harness", harnessModeActivityState)}
             title={productModeControlTitle("harness", appMode.productMode === "harness", harnessModeActivityState)}
@@ -1286,10 +1284,8 @@ export function App(): ReactElement {
               setMobileSidebarOpen(false);
               appMode.selectMode("harness");
             }}
-          ><span>AHO</span><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></button>
-        </div>
-        <ModeExperienceGuide mode={appMode.productMode} />
-      </div> : null}
+          ><Workflow size={17} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></button>
+      </nav> : null}
       {!settingsOpen ? (
         <button
           ref={mobileSidebarToggleRef}
@@ -1322,7 +1318,7 @@ export function App(): ReactElement {
           aria-modal={mobileSidebarModalOpen || undefined}
           tabIndex={mobileSidebarModalOpen ? -1 : undefined}
         >
-          <div className="brand compact-brand" aria-hidden="true" />
+          <div className="product-mode-navigation-spacer" aria-hidden="true" />
               <ProjectConversationSidebarFeature surface={projectNavigation} />
           <div
             className="shell-resize-grip sidebar-resizer"

@@ -30,6 +30,7 @@ import type { ConversationLifecycleOwner } from "../../src/workbench/conversatio
 import type { ConversationReviewLifecycleOwner } from "../../src/workbench/conversation-review-lifecycle.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
+import { resetCodexRuntimeForTests } from "../../src/codex/executable.js";
 import { sameTestPhysicalPath } from "../helpers/windows-short-path.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
@@ -81,6 +82,7 @@ describe("workbench server", () => {
     process.env.CODEX_HOME = join(tempDir, "codex-home");
     process.env.AHO_HOME = registryRoot;
     process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
+    resetCodexRuntimeForTests();
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await createReadyProjectHarnessFixture({
       projectRoot: tempDir,
@@ -103,6 +105,7 @@ describe("workbench server", () => {
     else process.env.CODEX_HOME = originalCodexHome;
     if (originalCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
     else process.env.AHO_CODEX_BIN = originalCodexBin;
+    resetCodexRuntimeForTests();
     if (originalAhoHome === undefined) delete process.env.AHO_HOME;
     else process.env.AHO_HOME = originalAhoHome;
     const cleanupOptions = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 } as const;
@@ -1804,13 +1807,14 @@ describe("workbench server", () => {
       expect(projects.projects[0].project.id).toBe(addedBody.project.id);
       expect(projects.projects[0].path).toContain("aho-server-");
 
-      const diagnostics = await getJson<{ providerId: string; installation: { path?: string }; details: { projectTrust?: { trusted: boolean } }; projectActions: Array<{ id: string; status: string }>; rawEvidenceRefs: string[] }>(`${appHandle.url}/api/projects/${addedBody.project.id}/providers/codex/diagnostics`);
+      const diagnostics = await getJson<{ providerId: string; installation: { path?: string }; details: { configPath?: string; projectTrust?: { trusted: boolean } }; projectActions: Array<{ id: string; status: string }>; rawEvidenceRefs: string[] }>(`${appHandle.url}/api/projects/${addedBody.project.id}/providers/codex/diagnostics`);
       expect(diagnostics.providerId).toBe("codex");
-      expect(diagnostics.installation.path).toContain("codex-home");
+      expect(diagnostics.installation.path).toContain("fake-codex-runtime");
+      expect(diagnostics.details.configPath).toContain("codex-home");
       expect(diagnostics.details.projectTrust?.trusted).toBe(false);
       expect(Array.isArray(diagnostics.rawEvidenceRefs)).toBe(true);
       expect(diagnostics.projectActions).toContainEqual(expect.objectContaining({ id: "project.trust", status: "available" }));
-      expect(existsSync(diagnostics.installation.path ?? "")).toBe(false);
+      expect(existsSync(diagnostics.installation.path ?? "")).toBe(true);
 
       const trustResponse = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/providers/codex/actions/project.trust`, {
         method: "POST",

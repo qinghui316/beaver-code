@@ -53,7 +53,7 @@ export function ConversationModelSelectors({
                   {group.status === "loading" ? <div className="agent-model-menu-empty">正在检测…</div> : null}
                   {group.snapshot ? <>
                     <ModelItem value={modelSelectionValue(group.providerId, null)} label="使用该服务默认模型" description={group.snapshot.effectiveModel?.modelId ?? "由服务决定"} />
-                    {group.snapshot.candidates.map((item) => <ModelItem key={`${group.providerId}:${item.modelId}`} value={modelSelectionValue(group.providerId, item.modelId)} label={item.label} description={item.modelId === item.label ? item.source : `${item.modelId} · ${item.source}`} />)}
+                    {group.snapshot.candidates.map((item) => <ModelItem key={`${group.providerId}:${item.modelId}`} value={modelSelectionValue(group.providerId, item.modelId)} label={item.label} description={item.modelId === item.label ? undefined : item.modelId} />)}
                   </> : null}
                 </div>
               ))}

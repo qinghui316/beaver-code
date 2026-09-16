@@ -21,7 +21,9 @@ describe("core Workbench experience projection", () => {
   it("keeps inactive activity bounded and mode specific", () => {
     expect(productModeControlLabel("agent", false, "running")).toBe("Agent，正在执行");
     expect(productModeControlLabel("harness", false, "attention")).toBe("AHO，需要你处理");
-    expect(productModeControlTitle("harness", true, "failed")).toBe("AHO · 多 Agent 协作");
+    expect(productModeControlTitle("harness", true, "failed")).toBe(
+      "AHO · 让多个 Agent 按流程协作。先规划，再开发、测试和审查；关键步骤由你确认。",
+    );
   });
 
   it("provides one shared vocabulary for workspace tools", () => {

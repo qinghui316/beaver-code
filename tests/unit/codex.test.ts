@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
-import { codexExecutableEnvironmentKey, resolveCodexExecutable } from "../../src/codex/executable.js";
+import { codexExecutableEnvironmentKey, resetCodexRuntimeForTests, resolveCodexExecutable, resolveCodexRuntime } from "../../src/codex/executable.js";
+import { defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
@@ -31,10 +32,53 @@ const execHelp = [
 ].join("\n");
 
 describe("codex capabilities", () => {
-  it("resolves one explicit Codex executable without depending on an AHO CLI", () => {
-    expect(resolveCodexExecutable({})).toBe("codex");
-    expect(resolveCodexExecutable({ AHO_CODEX_BIN: " C:\\Tools\\codex.cmd " })).toBe("C:\\Tools\\codex.cmd");
+  it("uses one explicit environment key for Codex runtime selection", () => {
     expect(codexExecutableEnvironmentKey()).toBe("AHO_CODEX_BIN");
+  });
+
+  it.runIf(process.platform === "win32")("selects the newest compatible Codex runtime from PATH", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho codex runtime "));
+    const oldDir = join(temp, "old");
+    const newDir = join(temp, "new");
+    await mkdir(oldDir, { recursive: true });
+    await mkdir(newDir, { recursive: true });
+    await writeCompatibleCodexCmd(join(oldDir, "codex.cmd"), "0.144.0");
+    await writeCompatibleCodexCmd(join(newDir, "codex.cmd"), "0.154.0-alpha.6.2");
+    await writeFile(join(temp, "codex.cmd"), "@echo off\r\necho broken\r\n", "utf8");
+    try {
+      const runtime = resolveCodexRuntime({ PATH: `${temp};${oldDir};${newDir}`, PATHEXT: ".CMD" });
+      expect(runtime.command).toBe(join(newDir, "codex.cmd"));
+      expect(runtime.version).toContain("0.154.0-alpha.6.2");
+      expect(runtime.source).toBe("path");
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("prefers a stable release over a prerelease with the same core version", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho codex stable "));
+    const prereleaseDir = join(temp, "prerelease");
+    const stableDir = join(temp, "stable");
+    await mkdir(prereleaseDir, { recursive: true });
+    await mkdir(stableDir, { recursive: true });
+    await writeCompatibleCodexCmd(join(prereleaseDir, "codex.cmd"), "0.154.0-alpha.9");
+    await writeCompatibleCodexCmd(join(stableDir, "codex.cmd"), "0.154.0");
+    try {
+      expect(resolveCodexRuntime({ PATH: `${prereleaseDir};${stableDir}`, PATHEXT: ".CMD" }).command).toBe(join(stableDir, "codex.cmd"));
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("honors a compatible explicit Codex runtime override", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho codex override "));
+    const executable = join(temp, "explicit codex.cmd");
+    await writeCompatibleCodexCmd(executable, "0.140.0");
+    try {
+      expect(resolveCodexExecutable({ AHO_CODEX_BIN: ` ${executable} ` })).toBe(executable);
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 
   it.runIf(process.platform === "win32")("starts an explicitly configured Windows .cmd executable during capability probing", async () => {
@@ -45,9 +89,10 @@ describe("codex capabilities", () => {
       await writeFile(executable, [
         "@echo off",
         "echo codex-cli fixture",
-        "echo --json --sandbox --cd --add-dir --color --output-last-message",
+        "echo app server --listen stdio:// --json --sandbox --cd --add-dir --color --output-last-message",
       ].join("\r\n"), "utf8");
       process.env.AHO_CODEX_BIN = executable;
+      resetCodexRuntimeForTests();
 
       const capabilities = await detectCodexCapabilities();
 
@@ -59,6 +104,7 @@ describe("codex capabilities", () => {
     } finally {
       if (previous === undefined) delete process.env.AHO_CODEX_BIN;
       else process.env.AHO_CODEX_BIN = previous;
+      resetCodexRuntimeForTests();
       await rm(temp, { recursive: true, force: true });
     }
   });
@@ -625,6 +671,7 @@ describe("codex model settings", () => {
       expect(snapshot.effectiveModelSource).toBe("config");
       expect(await readFile(join(process.env.AHO_HOME, "settings.json"), "utf8")).toContain("custom-model");
     } finally {
+      await defaultCodexAppServerHostRegistry.dispose(temp, "Codex model settings test completed.");
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
       if (previousAhoHome === undefined) delete process.env.AHO_HOME;
@@ -635,3 +682,11 @@ describe("codex model settings", () => {
     }
   });
 });
+
+async function writeCompatibleCodexCmd(path: string, version: string): Promise<void> {
+  await writeFile(path, [
+    "@echo off",
+    `echo codex-cli ${version}`,
+    "echo app server --listen stdio:// --json --sandbox --cd --add-dir --color --output-last-message",
+  ].join("\r\n"), "utf8");
+}

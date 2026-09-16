@@ -2,13 +2,15 @@ import { executeProcessStreaming } from "../run/process.js";
 import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolveCodexExecutable } from "./executable.js";
+import { resolveCodexExecutable, resolveCodexRuntime, type CodexRuntimeSource } from "./executable.js";
 
 export type ApprovalFlagPlacement = "root" | "exec" | "unsupported";
 
 export interface CodexCapabilities {
   available: boolean;
   version: string | null;
+  executablePath?: string;
+  runtimeSource?: CodexRuntimeSource;
   approvalFlagPlacement: ApprovalFlagPlacement;
   supportsJson: boolean;
   supportsSandbox: boolean;
@@ -84,8 +86,13 @@ export async function detectCodexCapabilities(): Promise<CodexCapabilities> {
   let execHelp: string | null = null;
   let resumeHelp: string | null = null;
   let spawnError: string | undefined;
+  let executablePath: string | undefined;
+  let runtimeSource: CodexRuntimeSource | undefined;
 
   try {
+    const runtime = resolveCodexRuntime();
+    executablePath = runtime.command;
+    runtimeSource = runtime.source;
     version = await captureCodexHelp(["--version"]);
     rootHelp = await captureCodexHelp(["--help"]);
     execHelp = await captureCodexHelp(["exec", "--help"]);
@@ -98,7 +105,11 @@ export async function detectCodexCapabilities(): Promise<CodexCapabilities> {
     spawnError = `Failed to inspect Codex CLI: ${(error as Error).message}`;
   }
 
-  return evaluateCodexCapabilities(version, rootHelp, execHelp, spawnError, resumeHelp);
+  return {
+    ...evaluateCodexCapabilities(version, rootHelp, execHelp, spawnError, resumeHelp),
+    ...(executablePath ? { executablePath } : {}),
+    ...(runtimeSource ? { runtimeSource } : {}),
+  };
 }
 
 export function assertCodexSafeToRun(capabilities: CodexCapabilities): void {
