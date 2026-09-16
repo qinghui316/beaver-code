@@ -10,9 +10,10 @@ exact draft exists and gates only final publication. Existing tags and Release a
 replaced.
 
 The unpublished `v0.1.3` tag is retained as immutable failed-run evidence and is not a Release.
-Beaver Code 0.1.4 is the bootstrap release for this channel and must be installed manually. A later
-patch release is the first end-to-end automatic-update proof. Windows Authenticode is a later,
-independent gate; the 0.1.4 channel already requires the Ed25519 release signature described below.
+Beaver Code 0.1.6 is the first stable GitHub Release and the manual-install bootstrap for this
+channel. A later patch release is the first end-to-end automatic-update proof. Windows Authenticode
+is a later, independent gate; the 0.1.6 channel already requires the Ed25519 release signature
+described below.
 
 ## One-time repository setup
 
