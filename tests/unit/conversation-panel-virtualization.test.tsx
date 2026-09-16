@@ -44,7 +44,7 @@ describe("main conversation virtualization", () => {
           text: "",
           realtime: true,
           timestamp: new Date().toISOString(),
-          status: "running",
+          status: "thinking",
         }}
         expanded={false}
         onToggleExpanded={() => {}}
@@ -55,6 +55,8 @@ describe("main conversation virtualization", () => {
     const visualTitle = container.querySelector(".transcript-activity-title");
     expect(visualTitle?.getAttribute("aria-hidden")).toBe("true");
     expect(visualTitle?.textContent).toMatch(/^正在思考 · \d+ 秒$/);
+    expect(visualTitle?.classList.contains("is-thinking")).toBe(true);
+    expect(container.querySelector(".transcript-activity-spinner")).toBeNull();
   });
 
   it("offers Retry only on the latest failed Turn boundary and submits its exact target once", async () => {

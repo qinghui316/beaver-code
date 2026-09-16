@@ -154,6 +154,66 @@ describe("Agent conversation surfaces", () => {
     expect(screen.getByText("后文")).toBeTruthy();
   });
 
+  it("renders realtime reasoning, streaming caret, code copy, and deterministic tables from canonical cells", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { rerender } = render(<ParentAgentTranscriptCellView
+      cell={{ id: "reasoning-live", kind: "process-row", source: "provider-runtime", text: "", detailText: "公开摘要", activityKind: "reasoning", realtime: true }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    expect(screen.getByText("公开摘要")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /思考摘要/ }).getAttribute("aria-expanded")).toBe("true");
+
+    rerender(<ParentAgentTranscriptCellView
+      cell={{ id: "reasoning-done", kind: "process-row", source: "provider-runtime", text: "", detailText: "公开摘要", activityKind: "reasoning" }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    expect(screen.queryByText("公开摘要")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /思考摘要/ }));
+
+    rerender(<ParentAgentTranscriptCellView
+      cell={{ id: "answer-live", kind: "assistant-message", source: "provider-runtime", realtime: true, text: "结果\n\n```ts\nconst value = 1;\n```\n\n| 名称 | 状态 |\n| --- | --- |\n| 构建 | 通过 |" }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    expect(document.querySelector(".transcript-streaming-caret")).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "复制代码" }));
+    await screen.findByText("已复制");
+    expect(writeText).toHaveBeenCalledWith("const value = 1;");
+
+    rerender(<ParentAgentTranscriptCellView
+      cell={{ id: "answer-complete", kind: "assistant-message", source: "provider-runtime", text: "完成" }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    expect(document.querySelector(".transcript-streaming-caret")).toBeNull();
+  });
+
+  it("falls back to literal text for an unclosed fence after streaming completes", () => {
+    render(<ParentAgentTranscriptCellView
+      cell={{ id: "answer-unclosed", kind: "assistant-message", source: "provider-runtime", text: "```ts\nconst value = 1;" }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    expect(document.querySelector("pre.markdown-lite-code")).toBeNull();
+    expect(document.body.textContent).toContain("```ts");
+  });
+
+  it("announces clipboard failure without changing the source code", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => { throw new Error("denied"); }) } });
+    render(<ParentAgentTranscriptCellView
+      cell={{ id: "answer-copy-failure", kind: "assistant-message", source: "provider-runtime", text: "```\nraw code\n```" }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "复制代码" }));
+    expect(await screen.findByText("复制失败，请手动选择代码。")).toBeTruthy();
+    expect(document.querySelector("pre.markdown-lite-code")?.textContent).toBe("raw code");
+  });
+
   it("keeps failed command emphasis deterministic and opens child lifecycle rows by canonical target", () => {
     const onOpenAgent = vi.fn();
     const { rerender } = render(<ParentAgentTranscriptCellView

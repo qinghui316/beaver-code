@@ -388,7 +388,7 @@ function DockShell({
   children: ReactNode;
 }): ReactElement {
   return (
-    <section className="conversation-interaction-dock" data-testid="conversation-interaction-dock" aria-label="对话交互">
+    <section className="conversation-interaction-dock" data-testid="conversation-interaction-dock" aria-label="对话交互" aria-busy={disabled}>
       <header className="interaction-dock-header">
         <strong>{title}</strong>
         <div className="interaction-dock-header-actions">

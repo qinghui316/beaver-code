@@ -95,7 +95,7 @@ describe("canonical parent agent transcript cells", () => {
 
     expect(cells).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "cell:turn:codex:attempt-turn-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 21 秒", status: "completed" }),
-      expect.objectContaining({ kind: "process-row", title: "思考摘要 · Checked the implementation boundary.", text: "", detailText: "Checked the implementation boundary." }),
+      expect.objectContaining({ kind: "process-row", title: "思考摘要", text: "", detailText: "Checked the implementation boundary." }),
     ]));
     expect(cells[0]?.id).toBe("cell:reasoning:codex:attempt-turn-1:thread-1:turn-1:reasoning-1");
     expect(cells.at(-1)?.id).toBe("cell:turn:codex:attempt-turn-1:thread-1:turn-1");
@@ -155,6 +155,30 @@ describe("canonical parent agent transcript cells", () => {
       activityKind: "turn",
     })]);
     expect(completed[0]).not.toHaveProperty("realtime");
+  });
+
+  it("marks public prose and reasoning summaries realtime only while their canonical Turn is active", () => {
+    const item = {
+      id: "assistant-streaming",
+      kind: "assistant-turn",
+      label: "AI",
+      providerId: "codex",
+      attemptId: "attempt-streaming",
+      threadId: "thread-streaming",
+      turnId: "turn-streaming",
+      blocks: [
+        { id: "summary", ...providerBlockIdentity("summary", { attemptId: "attempt-streaming", threadId: "thread-streaming", turnId: "turn-streaming" }), sequence: 1, kind: "reasoning-summary" as const, source: "provider" as const, text: "Public summary" },
+        { id: "answer", ...providerBlockIdentity("answer", { attemptId: "attempt-streaming", threadId: "thread-streaming", turnId: "turn-streaming" }), sequence: 2, kind: "prose" as const, source: "provider" as const, text: "Visible answer" },
+      ],
+    } satisfies ThreadItem;
+    const active = renderThreadItems([{ ...item, activity: [{ kind: "status", label: "thinking", timestamp: "2026-09-16T00:00:00.000Z" }, { kind: "status", label: "replying", timestamp: "2026-09-16T00:00:01.000Z" }] }]);
+    const terminal = renderThreadItems([{ ...item, status: "completed", activity: [{ kind: "status", label: "thinking", timestamp: "2026-09-16T00:00:00.000Z" }, { kind: "status", label: "completed", timestamp: "2026-09-16T00:00:02.000Z" }] }]);
+
+    expect(active.filter((cell) => ["reasoning", "status"].includes(cell.activityKind ?? ""))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ activityKind: "reasoning", realtime: true }),
+      expect.objectContaining({ activityKind: "status", realtime: true }),
+    ]));
+    expect(terminal.filter((cell) => ["reasoning", "status"].includes(cell.activityKind ?? "")).every((cell) => cell.realtime === undefined)).toBe(true);
   });
 
   it("does not preserve unrelated empty process rows", () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileSearch2, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Undo2, Wrench } from "lucide-react";
+import { ArrowUpRight, Bot, Brain, Check, CheckCircle2, Code2, Copy, FilePenLine, FileSearch2, FileText, GitFork, LoaderCircle, RotateCcw, Search, Terminal, Undo2, Wrench } from "lucide-react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
@@ -76,6 +76,8 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
             onEnsure={() => onEnsureDocument?.(cell.documentRef!)}
             onOpen={() => onOpenDocument?.(cell.documentRef!)}
           />
+        ) : cell.activityKind === "reasoning" ? (
+          <TranscriptReasoningSummary cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : (
           <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} onRetry={onRetry} onFork={onFork} />
         )}
@@ -178,7 +180,7 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
   return (
     <div className={`parent-agent-prose transcript-message-prose ${className} ${cell.isError ? "danger" : ""}`}>
       {title ? <strong className="transcript-message-title">{title}</strong> : null}
-      <TranscriptMarkdownLite text={text} idPrefix={cell.id} />
+      <TranscriptMarkdownLite text={text} idPrefix={cell.id} streaming={cell.kind === "assistant-message" && Boolean(cell.realtime)} />
       {cell.kind === "user-message" ? (
         <SentMessageContextSummary
           contextRefs={cell.contextRefs}
@@ -191,6 +193,54 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
         </button>
       ) : null}
     </div>
+  );
+}
+
+export function TranscriptReasoningSummary({ cell, expanded, onToggleExpanded }: {
+  cell: ParentAgentTranscriptCell;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}): ReactElement {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const pinnedRef = useRef(true);
+  const open = Boolean(cell.realtime) || expanded;
+  const text = normalizeProviderTranscriptText(cleanTranscriptText(cell.detailText));
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (open && cell.realtime && node && pinnedRef.current) node.scrollTop = node.scrollHeight;
+  }, [cell.realtime, open, text]);
+
+  return (
+    <section className={`transcript-reasoning-summary ${cell.realtime ? "realtime" : "terminal"} ${open ? "expanded" : "collapsed"}`} aria-label="思考摘要">
+      <button
+        type="button"
+        className="transcript-reasoning-trigger"
+        aria-expanded={open}
+        aria-controls={`${cell.id}:reasoning`}
+        disabled={Boolean(cell.realtime)}
+        onClick={cell.realtime ? undefined : onToggleExpanded}
+      >
+        <Brain size={14} aria-hidden="true" />
+        <span>思考摘要</span>
+        <span className="transcript-activity-disclosure" aria-hidden="true">{cell.realtime ? "进行中" : open ? "收起" : "展开"}</span>
+      </button>
+      {open ? (
+        <div className="transcript-reasoning-viewport">
+          <div
+            ref={contentRef}
+            id={`${cell.id}:reasoning`}
+            className="transcript-reasoning-content"
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+            }}
+          >
+            <TranscriptMarkdownLite text={text} idPrefix={`${cell.id}:reasoning`} compact />
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -237,7 +287,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
         >
           <ActivityGlyph cell={cell} />
           <span className="tool-result-heading transcript-activity-heading">
-            <span className="transcript-activity-title" aria-hidden={announceTurnPhase ? "true" : undefined}>{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
+            <span className={`transcript-activity-title ${cell.realtime && cell.activityKind === "turn" && cell.status === "thinking" ? "is-thinking" : ""}`} aria-hidden={announceTurnPhase ? "true" : undefined}>{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
             {visibleStatusLabel ? <span>{visibleStatusLabel}</span> : null}
           </span>
           {opensAgent ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
@@ -281,11 +331,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
           }}
         >
           {detailText ? <pre>{detailText}</pre> : null}
-          {evidenceRefs.length ? (
-            <div className="tool-result-evidence">
-              {evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>材料：{artifactName(ref.ref)}</span>)}
-            </div>
-          ) : null}
+          {evidenceRefs.length ? <TranscriptEvidenceFooter refs={evidenceRefs} /> : null}
         </div>
       ) : null}
     </div>
@@ -347,7 +393,9 @@ function ActivityGlyph({ cell }: { cell: ParentAgentTranscriptCell }): ReactElem
           : cell.activityKind === "reasoning"
             ? <Brain size={size} />
             : cell.activityKind === "turn"
-              ? cell.realtime ? <LoaderCircle className="transcript-activity-spinner" size={size} /> : <CheckCircle2 size={size} />
+              ? cell.realtime
+                ? cell.status === "thinking" ? <Brain size={size} /> : cell.status === "replying" || cell.status === "streaming" ? <Bot size={size} /> : <Wrench size={size} />
+                : <CheckCircle2 size={size} />
               : <Wrench size={size} />;
   return <span className="transcript-activity-icon" aria-hidden="true">{icon}</span>;
 }
@@ -415,23 +463,42 @@ function normalizeProviderTranscriptText(value: string): string {
   return value.trim();
 }
 
-export function TranscriptMarkdownLite({ text, idPrefix, compact = false, onOpenProjectFile }: {
+export function TranscriptMarkdownLite({ text, idPrefix, compact = false, streaming = false, onOpenProjectFile }: {
   text: string;
   idPrefix: string;
   compact?: boolean;
+  streaming?: boolean;
   onOpenProjectFile?: (relativePath: string) => void;
 }): ReactElement {
   const blocks = splitMarkdownBlocks(text);
   return (
     <>
-      {blocks.map((block, index) => renderMarkdownBlock(block, `${idPrefix}:block:${index}`, compact, onOpenProjectFile))}
+      {blocks.map((block, index) => renderMarkdownBlock(block, `${idPrefix}:block:${index}`, compact, streaming, onOpenProjectFile))}
+      {streaming ? <span className="transcript-streaming-caret" aria-hidden="true" /> : null}
     </>
   );
 }
 
-function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean, onOpenProjectFile?: (relativePath: string) => void): ReactElement {
+function TranscriptEvidenceFooter({ refs }: { refs: NonNullable<ParentAgentTranscriptCell["evidenceRefs"]> }): ReactElement {
+  return (
+    <footer className="transcript-evidence-footer" aria-label="相关材料">
+      {refs.map((ref) => (
+        <span key={`${ref.kind}:${ref.ref}`} className="transcript-evidence-item">
+          <FileText size={12} aria-hidden="true" />
+          <span>{ref.kind === "artifact" ? artifactName(ref.ref) : ref.label}</span>
+        </span>
+      ))}
+    </footer>
+  );
+}
+
+function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean, streaming: boolean, onOpenProjectFile?: (relativePath: string) => void): ReactElement {
   const lines = block.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
   const firstLine = lines[0] ?? "";
+  const fence = parseFencedCodeBlock(block, streaming);
+  if (fence) return <TranscriptCodeBlock key={keyPrefix} language={fence.language} code={fence.code} />;
+  const table = parseMarkdownTable(block);
+  if (table) return <TranscriptTable key={keyPrefix} table={table} keyPrefix={keyPrefix} onOpenProjectFile={onOpenProjectFile} />;
   const heading = /^(#{1,3})\s+(.+)$/.exec(firstLine);
   if (!compact && heading && lines.length === 1) {
     const level = heading[1]?.length ?? 1;
@@ -468,16 +535,6 @@ function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean,
       </div>
     );
   }
-  const fence = parseFencedCodeBlock(block);
-  if (fence) {
-    const { language, code } = fence;
-    return (
-      <div key={keyPrefix} className="markdown-lite-code-block">
-        {language ? <span className="markdown-lite-code-label">{language}</span> : null}
-        <pre className="markdown-lite-code">{code}</pre>
-      </div>
-    );
-  }
   if (!compact && lines.length === 1 && /^[^。.!?]{2,32}:$/.test(lines[0] ?? "")) {
     return <strong key={keyPrefix} className="markdown-lite-heading">{(lines[0] ?? "").replace(/:$/, "")}</strong>;
   }
@@ -509,15 +566,96 @@ function pushProseBlocks(blocks: string[], value: string): void {
   }
 }
 
-function parseFencedCodeBlock(block: string): { language: string; code: string } | null {
+function parseFencedCodeBlock(block: string, allowUnclosed: boolean): { language: string; code: string } | null {
   const opening = /^```([^\r\n`]*)[ \t]*(?:\r\n|\n|\r|$)/.exec(block);
   if (!opening) return null;
   const rest = block.slice(opening[0].length);
   const closing = /(?:\r\n|\n|\r)```[ \t]*(?:\r\n|\n|\r)?$/.exec(rest);
+  if (!closing && !allowUnclosed) return null;
   return {
     language: opening[1]?.trim() ?? "",
     code: closing ? rest.slice(0, closing.index) : rest,
   };
+}
+
+function TranscriptCodeBlock({ language, code }: { language: string; code: string }): ReactElement {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const resetTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+  }, []);
+  const lines = code.split("\n");
+  if (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  return (
+    <div className="markdown-lite-code-block">
+      <div className="markdown-lite-code-header">
+        <span className="markdown-lite-code-label"><Code2 size={13} aria-hidden="true" />{language || "代码"}</span>
+        <button
+          type="button"
+          className="markdown-lite-copy-button"
+          aria-label="复制代码"
+          onClick={() => {
+            if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+            let write: Promise<void>;
+            try {
+              write = navigator.clipboard?.writeText(code) ?? Promise.reject(new Error("Clipboard is unavailable"));
+            } catch (error) {
+              write = Promise.reject(error);
+            }
+            void write.then(() => setCopyState("copied"), () => setCopyState("failed")).finally(() => {
+              resetTimerRef.current = window.setTimeout(() => setCopyState("idle"), 1800);
+            });
+          }}
+        >
+          {copyState === "copied" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+          <span>{copyState === "copied" ? "已复制" : "复制"}</span>
+        </button>
+      </div>
+      <pre className="markdown-lite-code"><code>{lines.map((line, index) => (
+        <span className="markdown-lite-code-line" key={index}>
+          <span className="markdown-lite-line-number" aria-hidden="true" data-line-number={index + 1} />
+          <span className="markdown-lite-line-text">{line}{index < lines.length - 1 ? "\n" : ""}</span>
+        </span>
+      ))}</code></pre>
+      <span className="sr-only" role="status" aria-live="polite">{copyState === "failed" ? "复制失败，请手动选择代码。" : copyState === "copied" ? "代码已复制。" : ""}</span>
+    </div>
+  );
+}
+
+interface MarkdownTableData {
+  headers: string[];
+  rows: string[][];
+}
+
+function TranscriptTable({ table, keyPrefix, onOpenProjectFile }: {
+  table: MarkdownTableData;
+  keyPrefix: string;
+  onOpenProjectFile?: (relativePath: string) => void;
+}): ReactElement {
+  return (
+    <div className="markdown-lite-table-scroll">
+      <table className="markdown-lite-table">
+        <thead><tr>{table.headers.map((cell, index) => <th key={`${keyPrefix}:th:${index}`} scope="col">{renderInlineMarkdown(cell, `${keyPrefix}:th:${index}`, onOpenProjectFile)}</th>)}</tr></thead>
+        <tbody>{table.rows.map((row, rowIndex) => <tr key={`${keyPrefix}:tr:${rowIndex}`}>{row.map((cell, cellIndex) => <td key={`${keyPrefix}:td:${rowIndex}:${cellIndex}`}>{renderInlineMarkdown(cell, `${keyPrefix}:td:${rowIndex}:${cellIndex}`, onOpenProjectFile)}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function parseMarkdownTable(block: string): MarkdownTableData | null {
+  const lines = block.split(/\r\n|\n|\r/).filter((line) => line.trim());
+  if (lines.length < 3) return null;
+  const headers = splitMarkdownTableRow(lines[0] ?? "");
+  const delimiters = splitMarkdownTableRow(lines[1] ?? "");
+  if (headers.length < 2 || headers.length !== delimiters.length || !delimiters.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+  const rows = lines.slice(2).map(splitMarkdownTableRow);
+  if (rows.some((row) => row.length !== headers.length)) return null;
+  return { headers, rows };
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((cell) => cell.trim());
 }
 
 function renderInlineMarkdown(text: string, keyPrefix: string, onOpenProjectFile?: (relativePath: string) => void): ReactNode[] {

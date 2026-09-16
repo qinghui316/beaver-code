@@ -335,11 +335,12 @@ function transcriptCellFromAssistantBlock(
       kind: "process-row",
       source,
       timestamp,
-      title: `思考摘要 · ${reasoningHeadline(text)}`,
+      title: "思考摘要",
       text: "",
       detailText: text,
       status: block.status,
       isError: block.isError,
+      ...(isActiveAssistantTurn(item) ? { realtime: true } : {}),
       activityKind: "reasoning",
     };
   }
@@ -355,6 +356,7 @@ function transcriptCellFromAssistantBlock(
       text,
       status: block.status,
       isError: block.isError,
+      ...(isActiveAssistantTurn(item) ? { realtime: true } : {}),
       activityKind: "status",
     };
   }
@@ -479,9 +481,11 @@ function transcriptCellIdForBlock(block: AssistantTurnBlock, kind: string): stri
   return `cell:${kind}:${identity}`;
 }
 
-function reasoningHeadline(text: string): string {
-  const normalized = cleanPrimaryText(text).replace(/\s+/g, " ");
-  return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized;
+function isActiveAssistantTurn(item: TranscriptThreadItemInput): boolean {
+  if (["completed", "failed", "blocked", "cancelled", "interrupted", "stopped"].includes(item.status ?? "")) return false;
+  const statuses = (item.activity ?? []).filter((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> => activity.kind === "status");
+  if (statuses.some((activity) => ["completed", "failed", "blocked", "cancelled", "interrupted", "stopped"].includes(activity.label))) return false;
+  return statuses.some((activity) => ["started", "connecting", "thinking", "replying", "streaming", "tool", "tool-running", "waiting-user"].includes(activity.label));
 }
 
 function normalizeCellEvidenceRefs(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptCell[] {
