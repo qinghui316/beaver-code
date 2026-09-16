@@ -5,7 +5,7 @@ import type {
   ProductMode,
   ProjectGitReviewOptions,
   ProjectStatus,
-  ProviderModelSettingsSnapshot,
+  ProviderModelCatalogGroup,
   ProviderReviewTarget,
   SkillListItem,
   TopicAttachment,
@@ -17,14 +17,14 @@ import type { FeatureSurface } from "./feature-surface.js";
 interface ComposerConfigurationViewModel {
   providerDisplayName?: string;
   modelLabel: string;
-  providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
   productMode?: ProductMode;
   agentTurnMode?: AgentTurnMode;
   agentTurnModeDisabledReason?: string | null;
   agentModelId?: string | null;
   agentReasoningEffort?: string | null;
-  providerModelSettings?: ProviderModelSettingsSnapshot | null;
+  providerModelCatalogs?: ProviderModelCatalogGroup[];
+  providerModelCatalogsBusy?: boolean;
   skills?: SkillListItem[];
   activeSkillIds?: string[];
   reviewOpen?: boolean;
@@ -34,11 +34,10 @@ interface ComposerConfigurationViewModel {
 }
 
 interface ComposerConfigurationActions {
-  onOpenModelSettings?: () => void;
-  onSelectProvider?: (providerId: string) => void;
   onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
-  onSelectAgentModel?: (modelId: string | null) => void | Promise<void>;
+  onSelectAgentProviderModel?: (providerId: string, modelId: string | null) => void | Promise<void>;
   onSelectAgentReasoningEffort?: (effort: string | null) => void | Promise<void>;
+  onRefreshProviderModels?: () => void | Promise<void>;
   onToggleSkill?: (skillId: string) => void | Promise<void>;
   onOpenReview?: (capturedCommand?: string) => void | Promise<void>;
   onCloseReview?: () => void;
@@ -60,7 +59,6 @@ export interface ProjectReadinessComposerViewModel extends ComposerConfiguration
   agentTurnMode: AgentTurnMode;
   agentModelId: string | null;
   agentReasoningEffort: string | null;
-  providerModelSettings: ProviderModelSettingsSnapshot | null;
 }
 
 export interface ProjectReadinessComposerActions extends ComposerConfigurationActions {
@@ -70,7 +68,7 @@ export interface ProjectReadinessComposerActions extends ComposerConfigurationAc
   onAttachFiles: (files: File[]) => Promise<TopicAttachment[]>;
   onRemoveAttachment: (attachmentId: string) => Promise<void>;
   onSelectAgentTurnMode: (mode: AgentTurnMode) => void | Promise<void>;
-  onSelectAgentModel: (modelId: string | null) => void | Promise<void>;
+  onSelectAgentProviderModel: (providerId: string, modelId: string | null) => void | Promise<void>;
   onSelectAgentReasoningEffort: (effort: string | null) => void | Promise<void>;
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;

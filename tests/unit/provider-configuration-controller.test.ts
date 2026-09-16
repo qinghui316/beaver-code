@@ -164,6 +164,32 @@ describe("provider configuration controller", () => {
     expect(result.current.diagnostics?.providerId).toBe("harness-provider");
     expect(result.current.modelSettings?.providerId).toBe("harness-provider");
   });
+
+  it("loads every provider model catalog and keeps a partial failure inside its group", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("capabilities")) return json({ providers: [provider("codex", "agent"), provider("claude", "agent")] });
+      if (url.includes("codex/models")) return json(models("codex"));
+      if (url.includes("claude/models")) return new Response("unavailable", { status: 503 });
+      return json({});
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo",
+      productMode: "agent",
+      projectDefaultProviderId: null,
+      conversationProviderId: null,
+      onError: vi.fn(),
+    }));
+
+    await waitFor(() => expect(result.current.modelCatalogs).toHaveLength(2));
+    expect(result.current.selectedProviderId).toBeNull();
+    expect(result.current.modelCatalogs.map((group) => [group.providerId, group.status])).toEqual([
+      ["codex", "ready"],
+      ["claude", "error"],
+    ]);
+    expect(result.current.modelCatalogs[0]?.snapshot?.providerId).toBe("codex");
+    expect(result.current.modelCatalogs[1]?.message).toBeTruthy();
+  });
 });
 
 function diagnostics(providerId: string) {

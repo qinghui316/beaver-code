@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
-import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelSettingsSnapshot, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelCatalogGroup, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
+import { AgentModelSelectors } from "./AgentModelSelectors.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 import { ComposerFrame } from "./ComposerFrame.js";
@@ -26,7 +27,6 @@ export function TopicComposer({
   onChange,
   providerDisplayName,
   modelLabel,
-  onOpenModelSettings,
   projectId,
   skills,
   activeSkillIds,
@@ -42,8 +42,10 @@ export function TopicComposer({
   agentTurnModeDisabledReason,
   agentModelId,
   agentReasoningEffort,
-  providerModelSettings,
-  onSelectAgentModel,
+  providerModelCatalogs,
+  providerModelCatalogsBusy,
+  onRefreshProviderModels,
+  onSelectAgentProviderModel,
   onSelectAgentReasoningEffort,
   productMode,
   onSend,
@@ -51,9 +53,7 @@ export function TopicComposer({
   actionRunning,
   currentWorkpadStatus,
   runControlState,
-  providerOptions,
   selectedProviderId,
-  onSelectProvider,
   conversationContext,
   contextSubmitting,
   onCompactContext,
@@ -79,7 +79,6 @@ export function TopicComposer({
   onChange: (value: string) => void;
   providerDisplayName?: string;
   modelLabel: string;
-  onOpenModelSettings?: () => void;
   enabledSkillCount?: number;
   projectId: string | null;
   skills?: SkillListItem[];
@@ -97,8 +96,10 @@ export function TopicComposer({
   agentTurnModeDisabledReason?: string | null;
   agentModelId?: string | null;
   agentReasoningEffort?: string | null;
-  providerModelSettings?: ProviderModelSettingsSnapshot | null;
-  onSelectAgentModel?: (modelId: string | null) => void | Promise<void>;
+  providerModelCatalogs?: ProviderModelCatalogGroup[];
+  providerModelCatalogsBusy?: boolean;
+  onRefreshProviderModels?: () => void | Promise<void>;
+  onSelectAgentProviderModel?: (providerId: string, modelId: string | null) => void | Promise<void>;
   onSelectAgentReasoningEffort?: (effort: string | null) => void | Promise<void>;
   onSend: () => Promise<void>;
   onStopAndContinue?: () => Promise<void>;
@@ -113,9 +114,7 @@ export function TopicComposer({
     attemptId?: string;
     runId?: string;
   };
-  providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
-  onSelectProvider?: (providerId: string) => void;
   conversationContext?: ConversationContextSnapshot | null;
   contextSubmitting?: boolean;
   onCompactContext?: () => void | Promise<void>;
@@ -210,14 +209,13 @@ export function TopicComposer({
       agentTurnModeDisabledReason={agentTurnModeDisabledReason}
       providerDisplayName={providerDisplayName}
       modelLabel={modelLabel}
-      onOpenModelSettings={onOpenModelSettings}
-      providerOptions={providerOptions}
       selectedProviderId={selectedProviderId}
-      onSelectProvider={onSelectProvider}
       agentModelId={agentModelId}
       agentReasoningEffort={agentReasoningEffort}
-      providerModelSettings={providerModelSettings}
-      onSelectAgentModel={onSelectAgentModel}
+      providerModelCatalogs={providerModelCatalogs}
+      providerModelCatalogsBusy={providerModelCatalogsBusy}
+      onRefreshProviderModels={onRefreshProviderModels}
+      onSelectAgentProviderModel={onSelectAgentProviderModel}
       onSelectAgentReasoningEffort={onSelectAgentReasoningEffort}
       reviewOpen={reviewOpen}
       reviewOptions={reviewOptions}
@@ -280,14 +278,13 @@ export function ConversationComposerSurface({
   agentTurnModeDisabledReason,
   providerDisplayName,
   modelLabel,
-  onOpenModelSettings,
-  providerOptions,
   selectedProviderId,
-  onSelectProvider,
   agentModelId,
   agentReasoningEffort,
-  providerModelSettings,
-  onSelectAgentModel,
+  providerModelCatalogs,
+  providerModelCatalogsBusy,
+  onRefreshProviderModels,
+  onSelectAgentProviderModel,
   onSelectAgentReasoningEffort,
   reviewOpen,
   reviewOptions,
@@ -324,14 +321,13 @@ export function ConversationComposerSurface({
   agentTurnModeDisabledReason?: string | null;
   providerDisplayName?: string;
   modelLabel: string;
-  onOpenModelSettings?: () => void;
-  providerOptions?: Array<{ id: string; label: string }>;
   selectedProviderId?: string;
-  onSelectProvider?: (providerId: string) => void;
   agentModelId?: string | null;
   agentReasoningEffort?: string | null;
-  providerModelSettings?: ProviderModelSettingsSnapshot | null;
-  onSelectAgentModel?: (modelId: string | null) => void | Promise<void>;
+  providerModelCatalogs?: ProviderModelCatalogGroup[];
+  providerModelCatalogsBusy?: boolean;
+  onRefreshProviderModels?: () => void | Promise<void>;
+  onSelectAgentProviderModel?: (providerId: string, modelId: string | null) => void | Promise<void>;
   onSelectAgentReasoningEffort?: (effort: string | null) => void | Promise<void>;
   reviewOpen?: boolean;
   reviewOptions?: ProjectGitReviewOptions | null;
@@ -429,18 +425,16 @@ export function ConversationComposerSurface({
         <AgentTurnModeControl productMode={productMode} value={agentTurnMode} onChange={onSelectAgentTurnMode} planDisabledReason={agentTurnModeDisabledReason} />
         <span className="composer-spacer" />
         {contextControl}
-        <ComposerControls
-          providerDisplayName={providerDisplayName}
-          modelLabel={modelLabel}
-          onOpenModelSettings={onOpenModelSettings}
-          providerOptions={providerOptions}
-          selectedProviderId={selectedProviderId}
-          onSelectProvider={onSelectProvider}
-          requestDescription={productMode === "harness" ? "查看当前 AHO 服务配置" : undefined}
-          readOnly={productMode === "harness"}
-        >
-          <AgentTurnModelControls productMode={productMode} modelId={agentModelId} reasoningEffort={agentReasoningEffort} modelSettings={providerModelSettings} onSelectModel={onSelectAgentModel} onSelectReasoningEffort={onSelectAgentReasoningEffort} />
-        </ComposerControls>
+        {productMode === "agent" && onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <AgentModelSelectors
+          catalogs={providerModelCatalogs ?? []}
+          selectedProviderId={selectedProviderId ?? null}
+          modelId={agentModelId ?? null}
+          reasoningEffort={agentReasoningEffort ?? null}
+          loading={providerModelCatalogsBusy}
+          onRefresh={onRefreshProviderModels}
+          onSelectProviderModel={onSelectAgentProviderModel}
+          onSelectReasoningEffort={onSelectAgentReasoningEffort}
+        /> : <ComposerControls providerDisplayName={providerDisplayName} modelLabel={modelLabel} />}
         {trailingControls}
       </>}
     >
@@ -815,60 +809,6 @@ function formatContextTime(value: string | null | undefined): string {
   if (!value) return "尚未压缩";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString();
-}
-
-export function AgentTurnModelControls({
-  productMode,
-  modelId,
-  reasoningEffort,
-  modelSettings,
-  onSelectModel,
-  onSelectReasoningEffort,
-}: {
-  productMode?: ProductMode;
-  modelId?: string | null;
-  reasoningEffort?: string | null;
-  modelSettings?: ProviderModelSettingsSnapshot | null;
-  onSelectModel?: (modelId: string | null) => void | Promise<void>;
-  onSelectReasoningEffort?: (effort: string | null) => void | Promise<void>;
-}): ReactElement | null {
-  if (productMode !== "agent" || !onSelectModel || !onSelectReasoningEffort) return null;
-  const candidates = modelSettings?.candidates ?? [];
-  const resolvedModelId = modelId ?? modelSettings?.effectiveModel?.modelId ?? null;
-  const candidate = resolvedModelId
-    ? candidates.find((item) => item.modelId.toLowerCase() === resolvedModelId.toLowerCase()) ?? null
-    : null;
-  const efforts = candidate?.supportedReasoningEfforts ?? [];
-  const modelIsUnavailable = Boolean(modelId && !candidates.some((item) => item.modelId.toLowerCase() === modelId.toLowerCase()));
-  const effortIsUnavailable = Boolean(reasoningEffort && !efforts.some((option) => option.value === reasoningEffort));
-  return (
-    <div className="agent-turn-model-controls" data-testid="agent-turn-model-controls">
-      <label>
-        <span className="sr-only">下一次发送的模型</span>
-        <select
-          aria-label="下一次发送的模型"
-          value={modelId ?? ""}
-          onChange={(event) => void onSelectModel(event.target.value || null)}
-        >
-          <option value="">跟随当前 Agent 配置</option>
-          {modelIsUnavailable ? <option value={modelId!}>不可用：{modelId}</option> : null}
-          {candidates.map((item) => <option key={`${item.source}:${item.modelId}`} value={item.modelId}>{item.label}</option>)}
-        </select>
-      </label>
-      <label>
-        <span className="sr-only">下一次发送的推理强度</span>
-        <select
-          aria-label="下一次发送的推理强度"
-          value={reasoningEffort ?? ""}
-          onChange={(event) => void onSelectReasoningEffort(event.target.value || null)}
-        >
-          <option value="">使用模型默认值</option>
-          {effortIsUnavailable ? <option value={reasoningEffort!}>不可用：{reasoningEffort}</option> : null}
-          {efforts.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      </label>
-    </div>
-  );
 }
 
 export function AgentTurnModeControl({

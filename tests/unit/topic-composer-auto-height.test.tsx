@@ -83,37 +83,31 @@ describe("Topic Composer height", () => {
       agentTurnMode="default"
       agentModelId="gpt-test"
       agentReasoningEffort="high"
-      providerModelSettings={{
-        providerId: "codex",
-        selectedModel: null,
-        effectiveModel: { providerId: "codex", modelId: "gpt-test" },
-        effectiveModelSource: "provider-default",
-        candidates: [{
-          providerId: "codex",
-          modelId: "gpt-test",
-          label: "GPT Test",
-          source: "runtime",
-          supportedReasoningEfforts: [{ value: "high", label: "高" }],
-          defaultReasoningEffort: "high",
-        }],
-        available: true,
-      }}
+      selectedProviderId="codex"
+      providerModelCatalogs={[{ providerId: "codex", displayName: "Codex", status: "ready", snapshot: {
+        providerId: "codex", selectedModel: null, effectiveModel: { providerId: "codex", modelId: "gpt-test" },
+        effectiveModelSource: "provider-default", candidates: [{ providerId: "codex", modelId: "gpt-test",
+          label: "GPT Test", source: "runtime", supportedReasoningEfforts: [{ value: "high", label: "高" }],
+          defaultReasoningEffort: "high" }], available: true,
+      } }]}
       onSelectAgentTurnMode={vi.fn()}
-      onSelectAgentModel={onSelectModel}
+      onSelectAgentProviderModel={onSelectModel}
       onSelectAgentReasoningEffort={onSelectEffort}
       onSend={async () => undefined}
       actionRunning={null}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "模型与推理设置，当前模型：gpt-test" }));
-    expect(screen.getByTestId("agent-turn-model-controls")).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox", { name: "下一次发送的模型" }), { target: { value: "" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "下一次发送的推理强度" }), { target: { value: "" } });
-    expect(onSelectModel).toHaveBeenCalledWith(null);
+    expect(screen.getByTestId("agent-model-selectors")).toBeTruthy();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "模型：GPT Test" }), { key: "Enter" });
+    fireEvent.click(screen.getByText("使用该服务默认模型"));
+    expect(onSelectModel).toHaveBeenCalledWith("codex", null);
+    fireEvent.keyDown(screen.getByRole("button", { name: "思考强度：高" }), { key: "Enter" });
+    fireEvent.click(screen.getByText("模型默认值"));
     expect(onSelectEffort).toHaveBeenCalledWith(null);
 
     view.rerender(composer("draft"));
-    expect(screen.queryByTestId("agent-turn-model-controls")).toBeNull();
+    expect(screen.queryByTestId("agent-model-selectors")).toBeNull();
   });
 
   it("remeasures unchanged text when the composer width changes", () => {

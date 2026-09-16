@@ -9,11 +9,11 @@ export type SettingsSection = "basic" | "project" | "provider" | "skills";
 type VisibleSettingsSection = "provider" | "skills";
 
 const sections: Array<{ id: VisibleSettingsSection; label: string; icon: typeof Bot }> = [
-  { id: "provider", label: "模型与服务", icon: Bot },
+  { id: "provider", label: "AI 服务", icon: Bot },
   { id: "skills", label: "技能", icon: Sparkles },
 ];
 
-export function SettingsSurface({ section, onSectionChange, project, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, modelSettingsMessage, onOpenModelSettings, onClose, onRefresh }: {
+export function SettingsSurface({ section, onSectionChange, project, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, onClose, onRefresh }: {
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
   project: ProjectStatus | null;
@@ -24,8 +24,6 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   modelSettings: ProviderModelSettingsSnapshot | null;
   providerCapabilities?: ProviderCapabilitySnapshot[];
   modelSettingsBusy?: boolean;
-  modelSettingsMessage?: string | null;
-  onOpenModelSettings?: () => void;
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }): ReactElement {
@@ -52,12 +50,12 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
 
       <div className="settings-surface-content">
         <header className="settings-surface-header">
-          <div><h1>{visibleSection === "provider" ? "模型与服务" : "技能"}</h1><p>{settingsDescription(visibleSection)}</p></div>
+          <div><h1>{visibleSection === "provider" ? "AI 服务" : "技能"}</h1><p>{settingsDescription(visibleSection)}</p></div>
           <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
         </header>
 
         {visibleSection === "provider" ? (
-          <section className="provider-settings-section" aria-label="模型与服务">
+          <section className="provider-settings-section" aria-label="AI 服务">
             <div className="provider-settings-summary">
               <span className={`provider-connection-mark ${status}`}><Bot size={19} aria-hidden="true" /></span>
               <div><h3>{providerLabel}</h3><p>{providerSummary(capabilitySnapshot, diagnostics)}</p></div>
@@ -68,24 +66,22 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
               <div><dt>模型来源</dt><dd>{modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)}</dd></div>
             </dl>
             <div className="settings-inline-actions">
-              {onOpenModelSettings ? <button className="primary-button" onClick={onOpenModelSettings} disabled={modelSettingsBusy}>选择默认模型</button> : null}
               <button className="outline-button" onClick={() => void refresh()} disabled={modelSettingsBusy}><RefreshCw size={14} className={modelSettingsBusy ? "spin" : undefined} />重新检测</button>
-              {(capabilitySnapshot?.status !== "ready" || modelSettingsMessage || diagnostics?.lastError) ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
+              {(capabilitySnapshot?.status !== "ready" || diagnostics?.lastError) ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
             </div>
-            {modelSettingsMessage ? <p className="settings-problem-summary" role="status">模型配置需要处理。打开诊断可查看详情。</p> : null}
           </section>
         ) : <SkillsSettingsView projectId={selectedProjectId} productMode={productMode} conversationId={conversationId} providerId={selectedProviderId} onRefresh={onRefresh} />}
         {message ? <p className="diagnostic-errors" role="alert">{message}</p> : null}
       </div>
 
-      {diagnosticsOpen ? <ProviderDiagnosticsDrawer snapshot={capabilitySnapshot} diagnostics={diagnostics} modelMessage={modelSettingsMessage} onClose={() => setDiagnosticsOpen(false)} /> : null}
+      {diagnosticsOpen ? <ProviderDiagnosticsDrawer snapshot={capabilitySnapshot} diagnostics={diagnostics} onClose={() => setDiagnosticsOpen(false)} /> : null}
     </section>
   );
 }
 
-function ProviderDiagnosticsDrawer({ snapshot, diagnostics, modelMessage, onClose }: { snapshot: ProviderCapabilitySnapshot | null; diagnostics: ProviderDiagnostics | null; modelMessage?: string | null; onClose: () => void }): ReactElement {
+function ProviderDiagnosticsDrawer({ snapshot, diagnostics, onClose }: { snapshot: ProviderCapabilitySnapshot | null; diagnostics: ProviderDiagnostics | null; onClose: () => void }): ReactElement {
   const capabilities = snapshot?.capabilities ?? [];
-  const reasons = [modelMessage, diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
+  const reasons = [diagnostics?.lastError, ...(snapshot?.degradedReasons ?? [])].filter((value): value is string => Boolean(value));
   return <DialogSurface open onClose={onClose} ariaLabel="服务诊断" panelClassName="settings-panel provider-diagnostics-drawer">
     <div data-diagnostic-raw-evidence>
       <header className="settings-panel-header"><div><h2>服务诊断</h2><p>{snapshot?.displayName ?? diagnostics?.displayName ?? "AI 服务"}</p></div><button className="icon-button" aria-label="关闭服务诊断" onClick={onClose}><X size={16} /></button></header>
@@ -104,7 +100,7 @@ function ProviderCapabilityRow({ item }: { item: ProviderCapabilityItem }): Reac
   return <div className="provider-capability-row"><div><strong>{item.label}</strong><small>{item.summary}</small>{item.reason ? <small className="provider-capability-reason">{item.reason}</small> : null}<code>{item.key}</code></div><div className="provider-capability-states"><span className={`provider-state-pill spec ${item.spec}`}>{specStateLabel(item.spec)}</span><span className={`provider-state-pill runtime ${item.runtime}`}>{runtimeStateLabel(item.runtime)}</span></div></div>;
 }
 
-function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "管理当前 Agent 的连接和默认模型。" : "查找、了解并管理当前项目可用的技能。"; }
+function settingsDescription(section: VisibleSettingsSection): string { return section === "provider" ? "查看当前 Agent 的连接、模型检测和诊断。" : "查找、了解并管理当前项目可用的技能。"; }
 function providerConnectionStatus(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): ProviderCapabilitySnapshot["status"] { return snapshot?.status ?? (diagnostics?.installation.available ? "ready" : "unavailable"); }
 function providerSummary(snapshot: ProviderCapabilitySnapshot | null, diagnostics: ProviderDiagnostics | null): string {
   if (!diagnostics?.installation.available) return "尚未检测到可用的 Agent。";

@@ -25,7 +25,6 @@ export function ResourceWorkspacePanel({
   onLoadEarlierAgentTranscript,
   providerDisplayName,
   modelLabel,
-  onOpenModelSettings,
 }: {
   agents: AgentSurfaceProjectionItem[];
   agentTranscripts: Record<string, ParentAgentTranscript>;
@@ -45,7 +44,6 @@ export function ResourceWorkspacePanel({
   onLoadEarlierAgentTranscript: (agentSurfaceId: string, cursor: string) => Promise<void>;
   providerDisplayName?: string;
   modelLabel: string;
-  onOpenModelSettings?: () => void;
 }): ReactElement {
   const availableTabs = tabs;
   const selectedTab = availableTabs.find((tab) => tab.resourceId === selectedResourceId) ?? availableTabs[0] ?? null;
@@ -110,7 +108,6 @@ export function ResourceWorkspacePanel({
           onSubmit={() => onSubmitAgentMessage(mountedAgent)}
           providerDisplayName={providerDisplayName}
           modelLabel={modelLabel}
-          onOpenModelSettings={onOpenModelSettings}
         />}
       </section> : null}
       {selectedTab?.target.kind === "agent" && !selectedAgent ? (
@@ -151,7 +148,7 @@ function DocumentReadingSurface({ resource, loading, failureMessage }: { resourc
   );
 }
 
-function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onSubmit, providerDisplayName, modelLabel, onOpenModelSettings }: {
+function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onSubmit, providerDisplayName, modelLabel }: {
   agent: AgentSurfaceProjectionItem;
   value: string;
   pending: string | null;
@@ -159,7 +156,6 @@ function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onSubmit
   onSubmit: () => Promise<void>;
   providerDisplayName?: string;
   modelLabel: string;
-  onOpenModelSettings?: () => void;
 }): ReactElement {
   const text = value.trim();
   const canInteract = agent.status !== "queued" && agent.status !== "running" && agent.status !== "terminated";
@@ -173,7 +169,7 @@ function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onSubmit
       className="agent-workspace-composer"
       data-testid="agent-workspace-composer"
       aria-label={`${agent.label} 输入框`}
-      controls={<ComposerControls providerDisplayName={providerDisplayName} modelLabel={modelLabel} onOpenModelSettings={onOpenModelSettings} />}
+      controls={<ComposerControls providerDisplayName={providerDisplayName} modelLabel={modelLabel} />}
       toolbar={<>
         <span className="composer-spacer" />
         <button type="button" className={`composer-send ${pending ? "running" : ""}`} disabled={submitDisabled} title="发送给当前 Agent" onClick={() => void submit()}><Send size={16} /></button>

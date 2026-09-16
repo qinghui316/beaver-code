@@ -6,6 +6,7 @@ import type {
   ConversationTurnQueueSnapshot,
   ProductMode,
   ProviderCapabilitySnapshot,
+  ProviderModelCatalogGroup,
   ProviderModelSettingsSnapshot,
   SkillListItem,
   TopicAttachment,
@@ -61,6 +62,7 @@ export interface ConversationComposerScope {
   providerCapabilitiesLoading?: boolean;
   providerCapabilitiesError?: string | null;
   providerModelSettings?: ProviderModelSettingsSnapshot | null;
+  providerModelCatalogs?: ProviderModelCatalogGroup[];
 }
 
 export interface PreparedComposerInput {

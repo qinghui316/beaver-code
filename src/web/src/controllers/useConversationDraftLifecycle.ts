@@ -50,6 +50,7 @@ export interface ConversationDraftLifecycle {
   setDiagnosticsRaw(next: ComposerDraftDiagnostic[] | ((current: ComposerDraftDiagnostic[]) => ComposerDraftDiagnostic[])): void;
   selectAgentTurnMode(nextMode: AgentTurnMode): Promise<void>;
   selectAgentModel(nextModelId: string | null): void;
+  selectAgentProviderModel(providerId: string, nextModelId: string | null): Promise<void>;
   selectAgentReasoningEffort(nextEffort: string | null): void;
   selectProvider(providerId: string): Promise<void>;
   cleanupTransition(transition: ComposerTransition): void;
@@ -95,6 +96,8 @@ export function useConversationDraftLifecycle(
   const draftObservedProvidersRef = useRef(new Map<string, string | null>());
   const draftRestoredModesRef = useRef(new Map<string, AgentTurnMode>());
   const draftRestoredModelSelectionsRef = useRef(new Map<string, { modelId: string | null; reasoningEffort: string | null }>());
+  const invalidModelNoticeRef = useRef(new Set<string>());
+  const pendingProviderSelectionRef = useRef<string | null>(null);
   const stateRef = useRef<ConversationDraftViewModel>({
     text: composerText,
     contextRefs: fileRefs,
@@ -295,6 +298,35 @@ export function useConversationDraftLifecycle(
   }, [scope.conversation?.agentModelId, scope.conversation?.agentReasoningEffort, scope.conversation?.id, scope.productMode, scope.projectId]);
 
   useEffect(() => {
+    if (composerProductMode(scope) !== "agent") return;
+    const providerId = effectiveComposerProviderId(scope);
+    if (pendingProviderSelectionRef.current && pendingProviderSelectionRef.current !== providerId) return;
+    if (pendingProviderSelectionRef.current === providerId) pendingProviderSelectionRef.current = null;
+    const group = scope.providerModelCatalogs?.find((item) => item.providerId === providerId);
+    if (!providerId || group?.status !== "ready" || !group.snapshot) return;
+    const currentModelId = stateRef.current.modelId;
+    const candidate = resolveSelectedModelCandidate(group.snapshot, currentModelId);
+    const invalidModel = Boolean(currentModelId && !candidate);
+    const invalidEffort = Boolean(stateRef.current.reasoningEffort
+      && (!candidate || !candidate.supportedReasoningEfforts.some((option) => option.value === stateRef.current.reasoningEffort)));
+    if (!invalidModel && !invalidEffort) return;
+    const key = draftScopeIdentity(scope.projectId, composerProductMode(scope));
+    const nextModelId = invalidModel ? null : currentModelId;
+    const nextEffort = invalidModel || invalidEffort ? null : stateRef.current.reasoningEffort;
+    writeAgentModelId(nextModelId);
+    writeAgentReasoningEffort(nextEffort);
+    draftRestoredModelSelectionsRef.current.set(key, { modelId: nextModelId, reasoningEffort: nextEffort });
+    markDirty();
+    const noticeKey = `${key}\0${providerId}\0${currentModelId ?? ""}\0${stateRef.current.reasoningEffort ?? ""}`;
+    if (!invalidModelNoticeRef.current.has(noticeKey)) {
+      invalidModelNoticeRef.current.add(noticeKey);
+      portsRef.current.onError(invalidModel
+        ? "之前选择的模型已不可用，已恢复为该服务的默认模型。"
+        : "之前选择的思考强度已不受支持，已恢复为模型默认值。");
+    }
+  }, [scope.productMode, scope.projectId, scope.selectedProviderId, scope.conversation?.selectedProviderId, scope.providerModelCatalogs]);
+
+  useEffect(() => {
     if (!scope.projectId || !scope.projectRegistered || !draftLoadedScopeKey) return;
     const productMode = composerProductMode(scope);
     const key = draftScopeIdentity(scope.projectId, productMode);
@@ -362,6 +394,31 @@ export function useConversationDraftLifecycle(
       { modelId: stateRef.current.modelId, reasoningEffort: normalized },
     );
     markDirty();
+  }, []);
+
+  const selectAgentProviderModel = useCallback(async (providerId: string, nextModelId: string | null): Promise<void> => {
+    const currentScope = scopeRef.current;
+    if (composerProductMode(currentScope) !== "agent") return;
+    const normalized = normalizeNullableSelection(nextModelId);
+    const group = currentScope.providerModelCatalogs?.find((item) => item.providerId === providerId);
+    const nextCandidate = resolveSelectedModelCandidate(group?.snapshot, normalized);
+    const currentEffort = stateRef.current.reasoningEffort;
+    const nextEffort = currentEffort && nextCandidate?.supportedReasoningEfforts.some((option) => option.value === currentEffort)
+      ? currentEffort : null;
+    const providerChanged = providerId !== effectiveComposerProviderId(currentScope);
+    if (!providerChanged && stateRef.current.modelId === normalized && stateRef.current.reasoningEffort === nextEffort) return;
+    scopeGenerationRef.current += providerChanged ? 1 : 0;
+    writeAgentModelId(normalized);
+    writeAgentReasoningEffort(nextEffort);
+    draftRestoredModelSelectionsRef.current.set(
+      draftScopeIdentity(currentScope.projectId, composerProductMode(currentScope)),
+      { modelId: normalized, reasoningEffort: nextEffort },
+    );
+    markDirty();
+    if (providerChanged) {
+      pendingProviderSelectionRef.current = providerId;
+      await portsRef.current.session.selectProvider?.(providerId);
+    }
   }, []);
 
   const selectProvider = useCallback(async (providerId: string): Promise<void> => {
@@ -498,7 +555,7 @@ export function useConversationDraftLifecycle(
       typeof next === "function" ? next : () => next,
     ),
     setDiagnosticsRaw: setDraftDiagnostics,
-    selectAgentTurnMode, selectAgentModel, selectAgentReasoningEffort, selectProvider, cleanupTransition,
+    selectAgentTurnMode, selectAgentModel, selectAgentProviderModel, selectAgentReasoningEffort, selectProvider, cleanupTransition,
     flushDraft, captureDraftMutationToken, settleAcceptedDraft, clearAcceptedReviewCommand, applyRestoredSnapshot,
   };
 }

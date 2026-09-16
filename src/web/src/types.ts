@@ -54,6 +54,14 @@ export type ProviderModelSettingsSnapshot = {
   available: boolean;
   degradedReason?: string;
 };
+
+export type ProviderModelCatalogGroup = {
+  providerId: string;
+  displayName: string;
+  status: "loading" | "ready" | "error";
+  snapshot: ProviderModelSettingsSnapshot | null;
+  message?: string;
+};
 export type ProviderCapabilityKey =
   | "streaming.text"
   | "streaming.reasoning"

@@ -12,12 +12,12 @@ describe("SettingsSurface clarity", () => {
     render(<SettingsSurface section="basic" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     const navigation = screen.getByRole("navigation");
     expect(navigation.querySelectorAll("button")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "模型与服务" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "AI 服务" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "技能" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "基础" })).toBeNull();
     expect(screen.queryByRole("button", { name: "项目" })).toBeNull();
     expect(screen.getAllByText("设置")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "模型与服务" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "AI 服务" }).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByText("工作台设置")).toBeNull();
     expect(screen.queryByRole("button", { name: "选择默认模型" })).toBeNull();
   });

@@ -32,7 +32,6 @@ import {
 import {
   ProjectHomeView,
   ProjectReadinessHomeFeature,
-  ProviderModelPicker,
 } from "./panels/ProjectHome.js";
 import { SettingsSurface, type SettingsSection } from "./panels/SettingsSurface.js";
 import {
@@ -463,14 +462,6 @@ export function App(): ReactElement {
     }
   }
 
-  async function openProviderModelPicker(): Promise<void> {
-    await providerConfiguration.openModelPicker();
-  }
-
-  async function updateProviderModelSettings(body: unknown): Promise<void> {
-    await providerConfiguration.updateModelSettings(body);
-  }
-
   async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
     await conversationActions.requestDecisionFeedback(context, action, feedback);
   }
@@ -661,10 +652,8 @@ export function App(): ReactElement {
   const providerDiagnostics = providerConfiguration.diagnostics;
   const providerModelSettings = providerConfiguration.modelSettings;
   const providerCapabilities = providerConfiguration.capabilities;
+  const providerModelCatalogs = providerConfiguration.modelCatalogs;
   const composerProviderId = providerConfiguration.selectedProviderId;
-  const providerModelPickerOpen = providerConfiguration.modelPickerOpen;
-  const providerModelSettingsBusy = providerConfiguration.modelSettingsBusy;
-  const providerModelSettingsMessage = providerConfiguration.modelSettingsMessage;
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : activeModeSnapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
@@ -709,6 +698,7 @@ export function App(): ReactElement {
     providerCapabilitiesLoading: providerConfiguration.capabilitiesLoading,
     providerCapabilitiesError: providerConfiguration.capabilitiesError,
     providerModelSettings: providerModelSettings ?? providerDiagnostics?.models ?? null,
+    providerModelCatalogs,
   }, {
     operation: operationGate,
     session: {
@@ -1174,14 +1164,14 @@ export function App(): ReactElement {
         draft: composerText,
         draftFileRefs: composerFileRefs,
         draftAttachments: composerAttachments,
-        providerOptions: composerProviderOptions,
         selectedProviderId: composerProviderId ?? undefined,
         productMode: appMode.productMode,
         agentTurnMode: composer.agentTurnMode,
         agentTurnModeDisabledReason: composer.agentTurnModeDisabledReason,
         agentModelId: composer.agentModelId,
         agentReasoningEffort: composer.agentReasoningEffort,
-        providerModelSettings,
+        providerModelCatalogs,
+        providerModelCatalogsBusy: providerConfiguration.modelCatalogsBusy,
         enabledSkillCount,
         skills: skillItems,
         activeSkillIds: selectedComposerSkillIds,
@@ -1191,16 +1181,15 @@ export function App(): ReactElement {
         reviewLoading: conversationReview.loading,
         reviewSubmitting: conversationReview.submitting,
       }, {
-        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
         onCreateDemand: createTopicFromText,
         onDraftChange: setComposerText,
         onDraftFileRefsChange: setComposerFileRefs,
         onAttachFiles: appendComposerAttachments,
         onRemoveAttachment: removeComposerAttachment,
-        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
         onSelectAgentTurnMode: composer.selectAgentTurnMode,
-        onSelectAgentModel: composer.selectAgentModel,
+        onSelectAgentProviderModel: composer.selectAgentProviderModel,
         onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
+        onRefreshProviderModels: providerConfiguration.reload,
         onToggleSkill: toggleComposerSkill,
         onOpenProject: openProject,
         onRefresh: loadApp,
@@ -1228,11 +1217,11 @@ export function App(): ReactElement {
         agentTurnModeDisabledReason: composer.agentTurnModeDisabledReason,
         agentModelId: composer.agentModelId,
         agentReasoningEffort: composer.agentReasoningEffort,
-        providerModelSettings,
+        providerModelCatalogs,
+        providerModelCatalogsBusy: providerConfiguration.modelCatalogsBusy,
         actionRunning,
         currentWorkpadStatus: composerRunning ? "running" : currentWorkpadSummary(activeModeSnapshot, activeTopic)?.runtimeStatus,
         runControlState: activeWorkpad.runControlState,
-        providerOptions: composerProviderOptions,
         selectedProviderId: composerProviderId ?? activeTopic.selectedProviderId,
         conversationContext: conversationContext.snapshot,
         contextSubmitting: conversationContext.submitting,
@@ -1245,17 +1234,16 @@ export function App(): ReactElement {
         reviewSubmitting: conversationReview.submitting,
       }, {
         onChange: setComposerText,
-        onOpenModelSettings: appMode.productMode === "agent" ? () => openSettings("provider") : undefined,
         onAttachFiles: (files) => { void appendComposerAttachments(files); },
         onRemoveAttachment: removeComposerAttachment,
         onToggleSkill: toggleComposerSkill,
         onSelectedFileRefsChange: setComposerFileRefs,
         onSelectAgentTurnMode: composer.selectAgentTurnMode,
-        onSelectAgentModel: composer.selectAgentModel,
+        onSelectAgentProviderModel: composer.selectAgentProviderModel,
         onSelectAgentReasoningEffort: composer.selectAgentReasoningEffort,
+        onRefreshProviderModels: providerConfiguration.reload,
         onSend: sendTopicMessage,
         onStopAndContinue: stopAndContinueCurrentRun,
-        onSelectProvider: (providerId) => { void composer.selectProvider(providerId); },
         onCompactContext: conversationContext.compact,
         onEnqueue: composer.enqueue,
         onReclaimQueuedTurn: composer.reclaimQueuedTurn,
@@ -1369,9 +1357,7 @@ export function App(): ReactElement {
             diagnostics={providerDiagnostics}
             modelSettings={providerModelSettings}
             providerCapabilities={providerCapabilities}
-            modelSettingsBusy={providerModelSettingsBusy}
-            modelSettingsMessage={providerModelSettingsMessage}
-            onOpenModelSettings={() => void openProviderModelPicker()}
+            modelSettingsBusy={providerConfiguration.modelCatalogsBusy}
             onClose={closeSettings}
             onRefresh={() => loadApp().then(() => providerConfiguration.reload()).then(() => loadSkillSummary())}
           />
@@ -1584,7 +1570,6 @@ export function App(): ReactElement {
             }}
             providerDisplayName={providerDisplayName}
             modelLabel={providerModelLabel}
-            onOpenModelSettings={() => void openProviderModelPicker()}
           />
         }
         confirmPanel={
@@ -1644,15 +1629,6 @@ export function App(): ReactElement {
         onResizeKeyDown={(event) => resizeShellColumnWithKeyboard(event, "right")}
       /> : null}
 
-      <ProviderModelPicker
-        open={providerModelPickerOpen}
-        snapshot={providerModelSettings}
-        busy={providerModelSettingsBusy}
-        message={providerModelSettingsMessage}
-        onClose={providerConfiguration.closeModelPicker}
-        onRefresh={() => providerConfiguration.reload()}
-        onSelect={(selectedModel) => updateProviderModelSettings({ selectedModel })}
-      />
     </div>
   );
 }

@@ -3,52 +3,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProviderModelPicker } from "../../src/web/src/panels/ProjectHome.js";
 import { ProjectAddForm, ProjectCreateForm } from "../../src/web/src/panels/ProjectPanels.js";
 import { DialogSurface } from "../../src/web/src/presentation/DialogSurface.js";
 import { ComposerAttachButton } from "../../src/web/src/shell/ComposerAttachments.js";
 import { UnmanagedProjectView } from "../../src/web/src/shell/sidebar.js";
-import type { ProjectStatus, ProviderModelSettingsSnapshot } from "../../src/web/src/types.js";
+import type { ProjectStatus } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
 describe("product language and recovery clarity", () => {
-  it("contains model-dialog focus, closes with Escape, and restores the trigger", async () => {
-    function Harness() {
-      const [open, setOpen] = useState(false);
-      return <>
-        <button type="button" onClick={() => setOpen(true)}>打开模型</button>
-        <ProviderModelPicker
-          open={open}
-          snapshot={modelSnapshot()}
-          onClose={() => setOpen(false)}
-          onRefresh={vi.fn()}
-          onSelect={vi.fn()}
-        />
-      </>;
-    }
-    render(<Harness />);
-    const trigger = screen.getByRole("button", { name: "打开模型" });
-    trigger.focus();
-    fireEvent.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "选择 Agent 模型" });
-    expect(dialog.getAttribute("aria-modal")).toBe("true");
-    const close = screen.getByRole("button", { name: "关闭模型选择" });
-    await waitFor(() => expect(document.activeElement).toBe(close));
-
-    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "选择" }));
-    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "选择 Agent 模型" })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-
-    fireEvent.click(trigger);
-    const overlay = screen.getByRole("dialog", { name: "选择 Agent 模型" }).parentElement!;
-    fireEvent.mouseDown(overlay);
-    expect(screen.queryByRole("dialog", { name: "选择 Agent 模型" })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
-  });
-
   it("recaptures focus when the currently focused dialog action becomes unavailable", async () => {
     function Harness() {
       const [busy, setBusy] = useState(false);
@@ -67,13 +30,6 @@ describe("product language and recovery clarity", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "关闭" }));
   });
 
-  it("shows model loading failures without also showing the empty state", () => {
-    render(<ProviderModelPicker open snapshot={null} message="模型配置暂时无法读取。" onClose={vi.fn()} onRefresh={vi.fn()} onSelect={vi.fn()} />);
-    expect(screen.getByRole("alert")).toBeTruthy();
-    expect(screen.getByText("模型列表暂时无法加载。")).toBeTruthy();
-    expect(screen.queryByText("没有读取到模型列表")).toBeNull();
-    expect(screen.getByRole("button", { name: "重新检测" })).toBeTruthy();
-  });
 
   it("provides persistent labels and one focusable attachment picker", () => {
     const view = render(<><ProjectAddForm onDone={vi.fn()} /><ProjectCreateForm onDone={vi.fn()} /><ComposerAttachButton /></>);
@@ -129,25 +85,6 @@ describe("product language and recovery clarity", () => {
     expect((screen.getByRole("button", { name: "重新检测" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
-
-function modelSnapshot(): ProviderModelSettingsSnapshot {
-  return {
-    providerId: "codex",
-    selectedModel: null,
-    effectiveModel: { providerId: "codex", modelId: "gpt-test" },
-    effectiveModelSource: "provider-default",
-    candidates: [{
-      providerId: "codex",
-      modelId: "gpt-test",
-      label: "GPT Test",
-      source: "runtime",
-      isDefault: true,
-      supportedReasoningEfforts: [],
-      defaultReasoningEffort: null,
-    }],
-    available: true,
-  };
-}
 
 function unavailableProject(id = "repo"): ProjectStatus {
   return {

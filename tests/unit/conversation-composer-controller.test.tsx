@@ -2262,7 +2262,35 @@ describe("Conversation composer controller", () => {
     expect(ports.session.selectProvider).toHaveBeenCalledWith("other");
   });
 
-  it("shows the effective Agent model after explicitly returning the next Turn to automatic selection", () => {
+  it("switches Provider and model as one draft selection while preserving a supported effort", async () => {
+    const ports = composerPorts();
+    const otherModels: ProviderModelSettingsSnapshot = {
+      ...providerModelSettings("other"),
+      effectiveModel: { providerId: "other", modelId: "other-default" },
+      candidates: [{
+        providerId: "other", modelId: "other-fast", label: "Other Fast", source: "runtime",
+        supportedReasoningEfforts: [{ value: "high", label: "高" }], defaultReasoningEffort: "high",
+      }],
+    };
+    const { result } = renderHook(() => useConversationComposerController(homeScope({
+      productMode: "agent",
+      providerCount: 2,
+      providerCapabilities: [providerCapability("codex", true), providerCapability("other", true)],
+      providerModelCatalogs: [
+        { providerId: "codex", displayName: "Codex", status: "ready", snapshot: providerModelSettings("codex") },
+        { providerId: "other", displayName: "Other", status: "ready", snapshot: otherModels },
+      ],
+    }), ports));
+    act(() => result.current.selectAgentReasoningEffort("high"));
+
+    await act(async () => { await result.current.selectAgentProviderModel("other", "other-fast"); });
+
+    expect(result.current.agentModelId).toBe("other-fast");
+    expect(result.current.agentReasoningEffort).toBe("high");
+    expect(ports.session.selectProvider).toHaveBeenCalledWith("other");
+  });
+
+  it("restores the effective Agent model when a saved explicit model is no longer available", () => {
     const ports = composerPorts();
     const { result } = renderHook(() => useConversationComposerController(conversationScope({
       productMode: "agent",
@@ -2278,15 +2306,12 @@ describe("Conversation composer controller", () => {
         agentReasoningEffort: null,
       },
     }), ports));
-    expect(result.current.modelLabel).toBe("removed-model");
-
-    act(() => result.current.selectAgentModel(null));
-
     expect(result.current.agentModelId).toBeNull();
     expect(result.current.modelLabel).toBe("GPT Test");
+    expect(ports.onError).toHaveBeenCalledWith("之前选择的模型已不可用，已恢复为该服务的默认模型。");
   });
 
-  it("preserves an unavailable explicit model and blocks the Turn", async () => {
+  it("clears an unavailable explicit model before sending with the service default", async () => {
     const ports = composerPorts();
     const { result } = renderHook(() => useConversationComposerController(conversationScope({
       productMode: "agent",
@@ -2306,9 +2331,10 @@ describe("Conversation composer controller", () => {
 
     await act(async () => { await result.current.send(); });
 
-    expect(result.current.agentModelId).toBe("removed-model");
-    expect(result.current.agentTurnModeDisabledReason).toContain("模型当前不可用");
-    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(result.current.agentModelId).toBeNull();
+    expect(result.current.agentReasoningEffort).toBeNull();
+    expect(ports.onError).toHaveBeenCalledWith("之前选择的模型已不可用，已恢复为该服务的默认模型。");
+    expect(ports.actions.sendMessage).toHaveBeenCalledOnce();
   });
 });
 
@@ -2423,6 +2449,11 @@ function homeScope(overrides: Partial<ConversationComposerScope> = {}): Conversa
   if (!Object.prototype.hasOwnProperty.call(overrides, "providerModelSettings")) {
     const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? "codex";
     scope.providerModelSettings = providerModelSettings(providerId);
+  }
+  if (!Object.prototype.hasOwnProperty.call(overrides, "providerModelCatalogs")) {
+    const snapshot = scope.providerModelSettings ?? null;
+    const providerId = scope.selectedProviderId ?? scope.conversation?.selectedProviderId ?? snapshot?.providerId ?? "codex";
+    scope.providerModelCatalogs = [{ providerId, displayName: providerId, status: "ready", snapshot }];
   }
   return scope;
 }

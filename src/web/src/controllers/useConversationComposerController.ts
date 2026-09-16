@@ -136,6 +136,7 @@ export function useConversationComposerController(
     modelLabel,
     selectAgentTurnMode: draft.selectAgentTurnMode,
     selectAgentModel: draft.selectAgentModel,
+    selectAgentProviderModel: draft.selectAgentProviderModel,
     selectAgentReasoningEffort: draft.selectAgentReasoningEffort,
     selectProvider: draft.selectProvider,
     agentTurnModeDisabledReason,
