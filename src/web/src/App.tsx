@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type PointerEvent as ReactPointerEvent } from "react";
-import { Bot, CircleAlert, LoaderCircle, PanelLeftClose, PanelLeftOpen, Workflow, XCircle } from "lucide-react";
+import { MessageSquareCode, PanelLeftClose, PanelLeftOpen, Workflow } from "lucide-react";
 import { fetchJson } from "./api.js";
 import { MainConversationView,
   AgentOfficePanel,
@@ -90,6 +90,8 @@ import {
 import { productModeControlLabel, productModeControlTitle } from "./presentation/core-workbench-experience.js";
 import { projectNavigationSurface } from "./presentation/project-navigation.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "./presentation/user-facing-language.js";
+import { DesktopTitleBar } from "./shell/DesktopTitleBar.js";
+import { ToolbarIconButton } from "./shell/ToolbarIconButton.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
 const LEFT_SIDEBAR_MIN_WIDTH = 220;
@@ -1262,10 +1264,11 @@ export function App(): ReactElement {
       className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarModalOpen ? " mobile-sidebar-open" : ""}`}
       style={appShellStyle}
     >
+      <DesktopTitleBar onError={setError} />
       {!settingsOpen ? <nav className="product-mode-navigation" aria-label="工作模式" data-testid="product-mode-control">
-          <button
-            type="button"
-            className={`product-mode-navigation-button ${appMode.productMode === "agent" ? "active" : ""}`}
+          <ToolbarIconButton
+            active={appMode.productMode === "agent"}
+            className="product-mode-navigation-button"
             aria-pressed={appMode.productMode === "agent"}
             aria-label={productModeControlLabel("agent", appMode.productMode === "agent", agentModeActivityState)}
             title={productModeControlTitle("agent", appMode.productMode === "agent", agentModeActivityState)}
@@ -1273,10 +1276,10 @@ export function App(): ReactElement {
               setMobileSidebarOpen(false);
               appMode.selectMode("agent");
             }}
-          ><Bot size={17} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "agent"} state={agentModeActivityState} /></button>
-          <button
-            type="button"
-            className={`product-mode-navigation-button ${appMode.productMode === "harness" ? "active" : ""}`}
+          ><MessageSquareCode size={16} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "agent"} state={agentModeActivityState} /></ToolbarIconButton>
+          <ToolbarIconButton
+            active={appMode.productMode === "harness"}
+            className="product-mode-navigation-button"
             aria-pressed={appMode.productMode === "harness"}
             aria-label={productModeControlLabel("harness", appMode.productMode === "harness", harnessModeActivityState)}
             title={productModeControlTitle("harness", appMode.productMode === "harness", harnessModeActivityState)}
@@ -1284,7 +1287,7 @@ export function App(): ReactElement {
               setMobileSidebarOpen(false);
               appMode.selectMode("harness");
             }}
-          ><Workflow size={17} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></button>
+          ><Workflow size={16} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></ToolbarIconButton>
       </nav> : null}
       {!settingsOpen ? (
         <button
@@ -1628,13 +1631,9 @@ export function App(): ReactElement {
   );
 }
 
-function ProductModeActivityIcon({ active, state }: { active: boolean; state: ProductModeActivityState | undefined }): ReactElement {
-  const visibleState = active ? undefined : state;
-  return <span className="product-mode-activity-icon" aria-hidden="true">
-    {visibleState === "running" ? <LoaderCircle className="spin" size={13} /> : null}
-    {visibleState === "attention" ? <CircleAlert size={13} /> : null}
-    {visibleState === "failed" ? <XCircle size={13} /> : null}
-  </span>;
+function ProductModeActivityIcon({ active, state }: { active: boolean; state: ProductModeActivityState | undefined }): ReactElement | null {
+  const visibleState = active || state === "idle" || state === "unavailable" ? undefined : state;
+  return visibleState ? <span className={`product-mode-activity-icon ${visibleState}`} aria-hidden="true" /> : null;
 }
 
 function isOrchestrationTabParam(value: string | null): boolean {

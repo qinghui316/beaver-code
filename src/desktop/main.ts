@@ -31,6 +31,7 @@ import { readDesktopBuildInfo } from "./build-info.js";
 import { DesktopUpdateCoordinator, type DesktopUpdateState } from "./update-coordinator.js";
 import { DesktopUpdateHostBridge } from "./update-host-bridge.js";
 import { createNsisUpdateAdapter } from "./nsis-update-adapter.js";
+import type { DesktopMenuId, DesktopMenuOpenResult } from "../types/desktop-shell.js";
 
 const buildInfo = readDesktopBuildInfo();
 const productName = buildInfo.channel === "test" ? "Beaver Code 更新测试" : "Beaver Code";
@@ -103,7 +104,7 @@ async function startApplication(): Promise<void> {
     updateCoordinator = new DesktopUpdateCoordinator(buildInfo.version, adapter, bridge, onUpdateState);
   }
   await log("build", `version=${buildInfo.version} commit=${buildInfo.commit} channel=${buildInfo.channel} platform=${process.platform} arch=${process.arch}`);
-  Menu.setApplicationMenu(buildMenu());
+  installApplicationMenu();
   await createWindow();
   spawnWorkbench();
 }
@@ -262,6 +263,17 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
     } satisfies DesktopHostMessage);
     return;
   }
+  if (message.type === "open-menu-request") {
+    const result = await openDesktopMenu(message.menuId, message.anchor);
+    source.postMessage({
+      type: "open-menu-result",
+      generation: message.generation,
+      requestId: message.requestId,
+      menuId: message.menuId,
+      ...result,
+    } satisfies DesktopHostMessage);
+    return;
+  }
   if (message.type === "update-choice" && message.offerId === activeUpdateOfferId) {
     if (message.action === "install") void updateCoordinator?.installReady();
     else void updateCoordinator?.dismissReady();
@@ -344,7 +356,7 @@ async function showRecovery(diagnostic: DesktopSafeDiagnostic): Promise<void> {
     updateRuntimeActive = false;
     updateCoordinator?.endSession();
     updatesPausedForRecovery = Boolean(updateCoordinator);
-    Menu.setApplicationMenu(buildMenu());
+    installApplicationMenu();
     utility?.kill();
     spawnWorkbench();
   } else if (choice.response === 1) {
@@ -358,6 +370,7 @@ async function showRecovery(diagnostic: DesktopSafeDiagnostic): Promise<void> {
 function buildMenu(): Menu {
   const template: MenuItemConstructorOptions[] = [
     {
+      id: "desktop-menu-file",
       label: "文件",
       submenu: [
         { label: "打开项目…", accelerator: "CmdOrCtrl+O", enabled: !updateRuntimeActive, click: () => void requestOpenFolder() },
@@ -366,9 +379,9 @@ function buildMenu(): Menu {
         { label: "退出 Beaver Code", click: () => void requestShutdown("app-quit") },
       ],
     },
-    { label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
-    { label: "视图", submenu: [{ role: "reload", enabled: !updateRuntimeActive }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
-    { label: "帮助", submenu: [
+    { id: "desktop-menu-edit", label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
+    { id: "desktop-menu-view", label: "视图", submenu: [{ role: "reload", enabled: !updateRuntimeActive }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }, ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : [])] },
+    { id: "desktop-menu-help", label: "帮助", submenu: [
       { label: `${productName} ${buildInfo.version} · ${buildInfo.commit.slice(0, 8)}`, enabled: false },
       { label: updateMenuLabel(), enabled: Boolean(updateCoordinator && !updatesPausedForRecovery && ["idle", "failed", "ready-to-install"].includes(updateState)),
         click: () => { if (!ready) return; if (updateState === "ready-to-install") void updateCoordinator?.installReady(); else void updateCoordinator?.check(true); } },
@@ -376,6 +389,36 @@ function buildMenu(): Menu {
     ] },
   ];
   return Menu.buildFromTemplate(template);
+}
+
+function installApplicationMenu(): void {
+  Menu.setApplicationMenu(buildMenu());
+}
+
+async function openDesktopMenu(menuId: DesktopMenuId, anchor: { x: number; y: number }): Promise<DesktopMenuOpenResult> {
+  const currentWindow = window;
+  const menu = Menu.getApplicationMenu()?.getMenuItemById(`desktop-menu-${menuId}`)?.submenu;
+  if (!currentWindow || currentWindow.isDestroyed() || !menu) return { opened: false, error: "菜单当前不可用。" };
+  const bounds = currentWindow.getContentBounds();
+  if (anchor.x > bounds.width || anchor.y > bounds.height) return { opened: false, error: "菜单位置无效。" };
+  return new Promise<DesktopMenuOpenResult>((resolvePromise) => {
+    let settled = false;
+    const settle = (result: DesktopMenuOpenResult): void => {
+      if (settled) return;
+      settled = true;
+      resolvePromise(result);
+    };
+    try {
+      menu.popup({
+        window: currentWindow,
+        x: anchor.x,
+        y: anchor.y,
+        callback: () => settle({ opened: true }),
+      });
+    } catch {
+      settle({ opened: false, error: "菜单未能打开。" });
+    }
+  });
 }
 
 function updateMenuLabel(): string {
@@ -422,7 +465,7 @@ async function onUpdateState(state: DesktopUpdateState): Promise<void> {
       updateRuntimeActive = false;
     }
   }
-  Menu.setApplicationMenu(buildMenu());
+  installApplicationMenu();
 }
 
 async function requestOpenFolder(): Promise<void> {

@@ -19,6 +19,7 @@ import type { ConversationLifecycleAction, ConversationLifecycleOwner } from "..
 import type { ConversationReviewLifecycleOwner } from "../../workbench/conversation-review-lifecycle.js";
 import type { WorkbenchUpdateLifecycle } from "../../workbench/update-lifecycle.js";
 import type { DesktopUpdateChoice, DesktopUpdateOffer } from "../../types/workbench-update.js";
+import type { DesktopMenuOpenRequest, DesktopMenuOpenResult } from "../../types/desktop-shell.js";
 import type { WorkbenchUpdateRendererChannel } from "./update-renderer-channel.js";
 import type { WorkbenchUpdateRequestGate } from "./update-request-gate.js";
 
@@ -58,6 +59,7 @@ export interface WorkbenchDesktopHostPort {
   cookieName?: string;
   beginOperation?: () => Promise<() => void>;
   openFolder?: () => Promise<FolderDialogResult>;
+  openMenu?: (request: DesktopMenuOpenRequest) => Promise<DesktopMenuOpenResult>;
   updateGeneration?: string;
   chooseUpdate?: (offerId: string, action: DesktopUpdateChoice) => void;
 }

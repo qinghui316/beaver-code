@@ -2,6 +2,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { GitBranch, MoreHorizontal, PanelRightOpen, SquareTerminal } from "lucide-react";
 import type { ReactElement } from "react";
 import { WORKSPACE_TOOLS } from "../../presentation/core-workbench-experience.js";
+import { ToolbarIconButton } from "../../shell/ToolbarIconButton.js";
 
 export function WorkspaceDockToggleBar({
   orchestrationActive,
@@ -29,9 +30,9 @@ export function WorkspaceDockToggleBar({
   return (
     <div className="workspace-dock-toggle-bar" aria-label="工作区工具">
       <div className="workspace-dock-direct">
-        <button
-        type="button"
-        className={`top-tool-button workspace-orchestration-toggle${orchestrationActive ? " active" : ""}${orchestrationNeedsAttention ? " attention" : ""}`}
+        <ToolbarIconButton
+        active={orchestrationActive}
+        className={`top-tool-button workspace-orchestration-toggle${orchestrationNeedsAttention ? " attention" : ""}`}
         data-testid="orchestration-overlay-toggle"
         disabled={orchestrationDisabled}
         aria-pressed={orchestrationActive}
@@ -40,10 +41,10 @@ export function WorkspaceDockToggleBar({
         onClick={onToggleOrchestration}
       >
         <GitBranch size={16} aria-hidden="true" />
-        </button>
-        <button
-        type="button"
-        className={`top-tool-button workspace-dock-toggle${terminalActive ? " active" : ""}`}
+        </ToolbarIconButton>
+        <ToolbarIconButton
+        active={terminalActive}
+        className="top-tool-button workspace-dock-toggle"
         data-testid="terminal-dock-toggle"
         disabled={terminalDisabled}
         aria-pressed={terminalActive}
@@ -52,10 +53,10 @@ export function WorkspaceDockToggleBar({
         onClick={onToggleTerminal}
       >
         <SquareTerminal size={16} aria-hidden="true" />
-        </button>
-        <button
-        type="button"
-        className={`top-tool-button workspace-right-rail-toggle${rightRailOpen ? " active" : ""}`}
+        </ToolbarIconButton>
+        <ToolbarIconButton
+        active={rightRailOpen}
+        className="top-tool-button workspace-right-rail-toggle"
         data-testid="right-tool-rail-toggle"
         aria-expanded={rightRailOpen}
         aria-label={rightRailOpen
@@ -68,12 +69,11 @@ export function WorkspaceDockToggleBar({
       >
         <PanelRightOpen size={16} aria-hidden="true" />
         {rightRailPendingCount > 0 ? <span className="decision-pane-badge">{rightRailPendingCount}</span> : null}
-        </button>
+        </ToolbarIconButton>
       </div>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button
-            type="button"
+          <ToolbarIconButton
             className="top-tool-button workspace-dock-overflow"
             aria-label="更多工作区工具"
             title="更多工作区工具"
@@ -82,7 +82,7 @@ export function WorkspaceDockToggleBar({
             {orchestrationNeedsAttention || rightRailPendingCount > 0
               ? <span className="decision-pane-badge">{rightRailPendingCount > 0 ? rightRailPendingCount : ""}</span>
               : null}
-          </button>
+          </ToolbarIconButton>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="workspace-dock-overflow-menu" side="bottom" align="end" sideOffset={6} collisionPadding={8}>

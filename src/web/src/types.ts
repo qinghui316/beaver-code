@@ -7,11 +7,12 @@ export type { ConversationQueuedTurn, ConversationQueuedTurnInput, ConversationT
 export type { ConversationDeleteConfirmation, ConversationLifecycleReceipt, ConversationLifecycleSnapshot } from "../../workbench/conversation-lifecycle.js";
 export type { ProviderReviewTarget } from "../../provider-runtime/index.js";
 import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
+import type { DesktopShellCapability } from "../../types/desktop-shell.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
 export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";
 
-export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
+export type AppStatus = { mode: "app" | "project"; directProjectId: string | null; desktopShell?: DesktopShellCapability };
 export type ProjectGitReviewOptions = {
   isGitRepository: boolean;
   branch: string | null;

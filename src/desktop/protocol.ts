@@ -1,6 +1,7 @@
 import { isDesktopUpdateOffer, isWorkbenchUpdateIdentity, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../types/workbench-update.js";
+import { isDesktopMenuId, isDesktopMenuOpenRequest, type DesktopMenuId, type DesktopMenuOpenRequest } from "../types/desktop-shell.js";
 
-export const DESKTOP_PROTOCOL_VERSION = 3 as const;
+export const DESKTOP_PROTOCOL_VERSION = 4 as const;
 export const DESKTOP_SESSION_COOKIE = "beaver_code_session";
 
 export interface DesktopSafeDiagnostic {
@@ -17,13 +18,15 @@ export interface DesktopRuntimeSnapshot {
 }
 
 export type DesktopHostMessage =
-  | { type: "bootstrap"; protocolVersion: 3; sessionToken: string; generation: string }
-  | { type: "ready"; protocolVersion: 3; origin: string; generation: string }
+  | { type: "bootstrap"; protocolVersion: 4; sessionToken: string; generation: string }
+  | { type: "ready"; protocolVersion: 4; origin: string; generation: string }
   | { type: "startup-failed"; generation: string; diagnostic: DesktopSafeDiagnostic }
   | { type: "read-quit-snapshot"; requestId: string; generation: string }
   | ({ type: "quit-snapshot"; requestId: string; generation: string } & DesktopRuntimeSnapshot)
   | { type: "open-folder-request"; requestId: string; generation: string; title: string }
   | { type: "open-folder-result"; requestId: string; generation: string; path: string | null; canceled: boolean; error?: string }
+  | ({ type: "open-menu-request"; requestId: string; generation: string } & DesktopMenuOpenRequest)
+  | { type: "open-menu-result"; requestId: string; generation: string; menuId: DesktopMenuId; opened: boolean; error?: string }
   | { type: "idle-lease-granted"; generation: string; leaseId: string }
   | { type: "idle-lease-revoked"; generation: string; leaseId: string; requestId: string }
   | { type: "idle-lease-revoke-ack"; generation: string; leaseId: string; requestId: string }
@@ -55,6 +58,8 @@ export function isDesktopHostMessage(value: unknown): value is DesktopHostMessag
     case "quit-snapshot": return isNonEmpty(value.requestId) && isSnapshot(value);
     case "open-folder-request": return isNonEmpty(value.requestId) && typeof value.title === "string";
     case "open-folder-result": return isNonEmpty(value.requestId) && (value.path === null || typeof value.path === "string") && typeof value.canceled === "boolean" && (value.error === undefined || typeof value.error === "string");
+    case "open-menu-request": return isNonEmpty(value.requestId) && isDesktopMenuOpenRequest(value);
+    case "open-menu-result": return isNonEmpty(value.requestId) && isDesktopMenuId(value.menuId) && typeof value.opened === "boolean" && (value.error === undefined || typeof value.error === "string");
     case "idle-lease-granted": return isNonEmpty(value.leaseId);
     case "idle-lease-revoked": return isNonEmpty(value.leaseId) && isNonEmpty(value.requestId);
     case "idle-lease-revoke-ack": return isNonEmpty(value.leaseId) && isNonEmpty(value.requestId);

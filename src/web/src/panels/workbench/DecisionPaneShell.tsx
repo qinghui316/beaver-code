@@ -1,5 +1,6 @@
 import { Activity, Bot, ChevronLeft, FileText, GitBranch, ListChecks, PanelRightClose } from "lucide-react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from "react";
+import { ToolbarIconButton } from "../../shell/ToolbarIconButton.js";
 
 export type RightToolRailTab = "agent" | "confirm" | "files" | "git" | "diagnostics";
 export type RightToolRailState =
@@ -87,20 +88,18 @@ export function RightToolRailShell({
       {activeView !== "agent" ? <div className="decision-pane-toolbar">
         <div className="decision-pane-toolbar-left">
           {activeView !== "launcher" ? (
-            <button
-              type="button"
+            <ToolbarIconButton
               className="top-tool-button decision-pane-back"
               data-testid="right-tool-back"
               aria-label="返回工具列表"
               onClick={onBackToLauncher}
             >
               <ChevronLeft size={16} aria-hidden="true" />
-            </button>
+            </ToolbarIconButton>
           ) : null}
           <span className="decision-pane-title">{panelTitle}</span>
         </div>
-        <button
-          type="button"
+        <ToolbarIconButton
           className="top-tool-button decision-pane-collapse"
           data-testid="decision-pane-collapse"
           aria-label="折叠右侧面板"
@@ -108,7 +107,7 @@ export function RightToolRailShell({
           onClick={onCollapse}
         >
           <PanelRightClose size={18} aria-hidden="true" />
-        </button>
+        </ToolbarIconButton>
       </div> : null}
       <div className={`decision-pane-content${activeView === "agent" ? " agent-content" : ""}`}>{panelContent}</div>
     </aside>

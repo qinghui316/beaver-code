@@ -88,8 +88,10 @@ describe("Workbench App owner composition", () => {
     expect(harnessButton.textContent).toBe("");
     expect(harnessButton.getAttribute("title")).toContain("让多个 Agent 按流程协作");
     expect(screen.queryByText("让多个 Agent 按流程协作")).toBeNull();
-    expect(harnessButton.querySelector(".product-mode-activity-icon svg")).toBeNull();
-    expect(view.container.querySelectorAll(".product-mode-activity-icon")).toHaveLength(2);
+    expect(agentButton.querySelector(".product-mode-activity-icon.running")).toBeTruthy();
+    expect(agentButton.querySelector(".product-mode-activity-icon svg")).toBeNull();
+    expect(harnessButton.querySelector(".product-mode-activity-icon")).toBeNull();
+    expect(view.container.querySelectorAll(".product-mode-activity-icon")).toHaveLength(1);
   });
 
   it("keeps the office as a pure center view and opens a canonical child surface", async () => {

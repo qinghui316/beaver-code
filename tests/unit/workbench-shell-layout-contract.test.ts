@@ -3,22 +3,31 @@ import { describe, expect, it } from "vitest";
 
 describe("Workbench shell layout contract", () => {
   it("uses the native Windows title-bar overlay and an icon-only product navigation row", async () => {
-    const [desktopMain, app, shellCss] = await Promise.all([
+    const [desktopMain, app, titleBar, toolbar, shellCss] = await Promise.all([
       readFile("src/desktop/main.ts", "utf8"),
       readFile("src/web/src/App.tsx", "utf8"),
+      readFile("src/web/src/shell/DesktopTitleBar.tsx", "utf8"),
+      readFile("src/web/src/shell/ToolbarIconButton.tsx", "utf8"),
       readFile("src/web/src/styles/surfaces/shell.css", "utf8"),
     ]);
     expect(desktopMain).toContain('titleBarStyle: "hidden"');
     expect(desktopMain).toContain("titleBarOverlay:");
     expect(desktopMain).toContain("Menu.setApplicationMenu(buildMenu())");
+    expect(desktopMain).toContain("menu.popup({");
     expect(desktopMain).not.toMatch(/ipcRenderer|contextBridge|nodeIntegration\s*:\s*true/);
-    expect(app).toContain('className={`product-mode-navigation-button');
-    expect(app).toContain("<Bot size={17}");
-    expect(app).toContain("<Workflow size={17}");
+    expect(app).toContain("<DesktopTitleBar onError={setError} />");
+    expect(app).toContain('<ToolbarIconButton\n            active={appMode.productMode === "agent"}');
+    expect(app).toContain("<MessageSquareCode size={16}");
+    expect(app).toContain("<Workflow size={16}");
     expect(app).not.toContain("ModeExperienceGuide");
+    expect(titleBar).toContain("文件");
+    expect(titleBar).toContain("/api/desktop/menu/open");
+    expect(toolbar).toContain('"toolbar-icon-button"');
     expect(shellCss).toContain("padding-top: env(titlebar-area-height, 0px)");
+    expect(shellCss).toContain(".desktop-title-bar");
     expect(shellCss).toContain("-webkit-app-region: drag");
     expect(shellCss).toContain("-webkit-app-region: no-drag");
+    expect(shellCss).not.toContain("inset 0 -2px 0 var(--text-strong)");
     expect(shellCss).toMatch(/\.product-mode-navigation-spacer\s*\{[\s\S]*?z-index: auto;/);
   });
 

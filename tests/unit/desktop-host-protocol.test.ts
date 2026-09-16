@@ -54,6 +54,27 @@ describe("desktop host protocol", () => {
     })).toBe(false);
   });
 
+  it("accepts only fixed desktop menus and bounded integer anchors", () => {
+    const request = {
+      type: "open-menu-request",
+      requestId: "menu-1",
+      generation: "generation-1",
+      menuId: "file",
+      anchor: { x: 18, y: 46 },
+    };
+    expect(isDesktopHostMessage(request)).toBe(true);
+    expect(isDesktopHostMessage({ ...request, menuId: "system" })).toBe(false);
+    expect(isDesktopHostMessage({ ...request, anchor: { x: -1, y: 46 } })).toBe(false);
+    expect(isDesktopHostMessage({ ...request, anchor: { x: 18.5, y: 46 } })).toBe(false);
+    expect(isDesktopHostMessage({
+      type: "open-menu-result",
+      requestId: "menu-1",
+      generation: "generation-1",
+      menuId: "file",
+      opened: true,
+    })).toBe(true);
+  });
+
   it("binds update messages to bounded identity and exact generation", () => {
     const identity = {
       updateId: "update-1", generation: "generation-1", targetVersion: "0.1.3",

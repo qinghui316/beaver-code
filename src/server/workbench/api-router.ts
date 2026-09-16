@@ -24,6 +24,7 @@ import type { AddExistingProjectRequest, CreateNewProjectRequest, RemoveProjectR
 import type { ProviderSkillInput } from "../../project-harness/contracts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
 import type { ProjectRuntimePaths } from "../../project-runtime/paths.js";
+import { DESKTOP_MENU_IDS, isDesktopMenuOpenRequest } from "../../types/desktop-shell.js";
 
 const AGENT_HIDDEN_SKILL_NAMES = new Set([
   "aho-main-orchestration",
@@ -71,7 +72,22 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
 
   if (request.method === "GET" && url.pathname === "/api/app/status") {
     sendJson(response, 200, { mode: context.input ? "project" : "app", directProjectId: context.input?.project?.id ?? null,
-      ...(context.updateChannel ? { desktopUpdates: true } : {}) });
+      ...(context.updateChannel ? { desktopUpdates: true } : {}),
+      ...(context.desktopHost?.openMenu ? { desktopShell: { available: true, menus: [...DESKTOP_MENU_IDS] } } : {}) });
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/desktop/menu/open") {
+    const body = await readJsonBody<unknown>(request);
+    if (!context.desktopHost?.openMenu) {
+      sendJson(response, 404, { error: "Desktop menu is unavailable." });
+      return;
+    }
+    if (!isDesktopMenuOpenRequest(body)) {
+      const error = new Error("Desktop menu request is invalid.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    sendJson(response, 200, await context.desktopHost.openMenu(body));
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/runtime/diagnostics") {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { startWorkbenchServer, type WorkbenchServerHandle } from "../server/workbench-server.js";
 import type { FolderDialogResult } from "../server/workbench/types.js";
+import type { DesktopMenuOpenRequest, DesktopMenuOpenResult } from "../types/desktop-shell.js";
 import { DesktopHostOperationGate } from "./lifecycle.js";
 import {
   DESKTOP_PROTOCOL_VERSION,
@@ -19,6 +20,7 @@ let idleLeaseId: string | null = null;
 let idleTimer: NodeJS.Timeout | null = null;
 const operationGate = new DesktopHostOperationGate();
 const folderRequests = new Map<string, (result: FolderDialogResult) => void>();
+const menuRequests = new Map<string, (result: DesktopMenuOpenResult) => void>();
 const leaseAcks = new Map<string, () => void>();
 
 hostPort.on("message", (event) => {
@@ -40,6 +42,7 @@ async function receive(message: DesktopHostMessage): Promise<void> {
           cookieName: DESKTOP_SESSION_COOKIE,
           beginOperation: beginHostOperation,
           openFolder: requestFolder,
+          openMenu: requestMenu,
           updateGeneration: generation,
           chooseUpdate: (offerId, action) => post({ type: "update-choice", generation: generation!, offerId, action }),
         },
@@ -109,6 +112,13 @@ async function receive(message: DesktopHostMessage): Promise<void> {
     });
     return;
   }
+  if (message.type === "open-menu-result") {
+    const resolve = menuRequests.get(message.requestId);
+    if (!resolve) return;
+    menuRequests.delete(message.requestId);
+    resolve({ opened: message.opened, ...(message.error ? { error: message.error } : {}) });
+    return;
+  }
   if (message.type === "idle-lease-revoke-ack") {
     const resolve = leaseAcks.get(message.requestId);
     if (!resolve || message.leaseId !== idleLeaseId) return;
@@ -176,6 +186,28 @@ async function requestFolder(): Promise<FolderDialogResult> {
       resolve(result);
     });
     post({ type: "open-folder-request", generation: generation!, requestId, title: "选择项目文件夹" });
+  });
+}
+
+async function requestMenu(request: DesktopMenuOpenRequest): Promise<DesktopMenuOpenResult> {
+  if (!generation) return { opened: false, error: "桌面宿主尚未准备好。" };
+  const requestId = randomUUID();
+  return new Promise<DesktopMenuOpenResult>((resolve) => {
+    const timer = setTimeout(() => {
+      menuRequests.delete(requestId);
+      resolve({ opened: false, error: "菜单响应超时，请重试。" });
+    }, 120_000);
+    menuRequests.set(requestId, (result) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+    post({
+      type: "open-menu-request",
+      generation: generation!,
+      requestId,
+      menuId: request.menuId,
+      anchor: request.anchor,
+    });
   });
 }
 

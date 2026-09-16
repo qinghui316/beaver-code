@@ -181,6 +181,47 @@ describe("workbench server", () => {
     }
   });
 
+  it("advertises and opens only authenticated desktop menus", async () => {
+    const openMenu = vi.fn(async () => ({ opened: true }));
+    const desktopHandle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      desktopHost: { sessionToken: "desktop-menu-secret", cookieName: "beaver_code_session", openMenu },
+    });
+    const cookie = { Cookie: "beaver_code_session=desktop-menu-secret" };
+    try {
+      const status = await fetch(`${desktopHandle.url}/api/app/status`, { headers: cookie });
+      expect(await status.json()).toMatchObject({
+        desktopShell: { available: true, menus: ["file", "edit", "view", "help"] },
+      });
+
+      const opened = await fetch(`${desktopHandle.url}/api/desktop/menu/open`, {
+        method: "POST",
+        headers: { ...cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ menuId: "view", anchor: { x: 92, y: 48 } }),
+      });
+      expect(opened.status).toBe(200);
+      expect(openMenu).toHaveBeenCalledWith({ menuId: "view", anchor: { x: 92, y: 48 } });
+
+      const anonymous = await fetch(`${desktopHandle.url}/api/desktop/menu/open`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menuId: "file", anchor: { x: 0, y: 48 } }),
+      });
+      expect(anonymous.status).toBe(403);
+
+      const invalid = await fetch(`${desktopHandle.url}/api/desktop/menu/open`, {
+        method: "POST",
+        headers: { ...cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ menuId: "system", anchor: { x: 0, y: 48 } }),
+      });
+      expect(invalid.status).toBe(400);
+      expect(openMenu).toHaveBeenCalledTimes(1);
+    } finally {
+      await desktopHandle.close();
+    }
+  });
+
   it("does not report idle after a model request starts a persistent Provider Host", async () => {
     const desktopHandle = await startWorkbenchServer({ project: project(), path: tempDir }, {
       port: 0,
