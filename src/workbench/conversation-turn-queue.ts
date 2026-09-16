@@ -455,11 +455,9 @@ export class ConversationTurnQueueOwner {
           .map(([skillId, enabled]) => ({ skillId, enabled })),
         providerId: item.providerId,
         productMode: item.productMode,
-        ...(item.productMode === "agent" ? {
-          agentTurnMode: item.agentTurnMode ?? "default",
-          modelId: item.agentModelId,
-          reasoningEffort: item.agentReasoningEffort,
-        } : {}),
+        ...(item.productMode === "agent" ? { agentTurnMode: item.agentTurnMode ?? "default" } : {}),
+        modelId: item.agentModelId,
+        reasoningEffort: item.agentReasoningEffort,
         queuedTurnDispatch: {
           queueItemId: item.queueItemId,
           dispatchRequestId: item.dispatchRequestId,
@@ -468,9 +466,7 @@ export class ConversationTurnQueueOwner {
       };
       const prepare = this.options.prepareConversationMessage ?? prepareConversationMessage;
       const post = this.options.postConversationMessage ?? postConversationMessage;
-      const prepared = productMode === "agent"
-        ? await prepare(project, conversationId, message, { turnRouter: this.options.turnRouter })
-        : undefined;
+      const prepared = await prepare(project, conversationId, message, { turnRouter: this.options.turnRouter });
       await post(project, conversationId, message, undefined, { turnRouter: this.options.turnRouter, prepared });
       await this.settleDispatch(project, item, "dispatched");
     } catch (cause) {
@@ -770,7 +766,7 @@ function normalizeRequest(request: ConversationTurnEnqueueRequest): Conversation
   decodeRevision(request.expectedRevision);
   if (itemKind === "conversation-turn" && request.productMode === "agent" && request.agentTurnMode !== "default" && request.agentTurnMode !== "plan") throw conflict("Agent queued Turn requires Default or Plan mode.");
   if (itemKind === "review" && (request.agentTurnMode !== null || request.modelId !== null || request.reasoningEffort !== null)) throw conflict("Queued Review cannot carry Agent Turn settings.");
-  if (request.productMode === "harness" && (request.agentTurnMode !== null || request.modelId !== null || request.reasoningEffort !== null)) throw conflict("Harness queued Turn cannot carry Agent settings.");
+  if (request.productMode === "harness" && request.agentTurnMode !== null) throw conflict("Harness queued Turn cannot carry Agent Turn mode.");
   const modelId = normalizeNullableValue(request.modelId, "modelId");
   const reasoningEffort = normalizeNullableValue(request.reasoningEffort, "reasoningEffort");
   return {

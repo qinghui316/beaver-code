@@ -650,9 +650,9 @@
 
 .transcript-activity-title.is-thinking {
   color: var(--text-strong);
-  -webkit-mask-image: linear-gradient(90deg, rgb(0 0 0 / 48%) 0%, #000 46%, rgb(0 0 0 / 48%) 74%);
+  -webkit-mask-image: linear-gradient(90deg, var(--mask-muted) 0%, var(--mask-solid) 46%, var(--mask-muted) 74%);
   -webkit-mask-size: 220% 100%;
-  mask-image: linear-gradient(90deg, rgb(0 0 0 / 48%) 0%, #000 46%, rgb(0 0 0 / 48%) 74%);
+  mask-image: linear-gradient(90deg, var(--mask-muted) 0%, var(--mask-solid) 46%, var(--mask-muted) 74%);
   mask-size: 220% 100%;
   animation: transcript-thinking-shimmer 1.8s linear infinite;
 }
@@ -734,9 +734,9 @@
 
 .transcript-reasoning-summary.realtime .transcript-reasoning-trigger > span:first-of-type {
   color: var(--text-strong);
-  -webkit-mask-image: linear-gradient(90deg, rgb(0 0 0 / 48%) 0%, #000 46%, rgb(0 0 0 / 48%) 74%);
+  -webkit-mask-image: linear-gradient(90deg, var(--mask-muted) 0%, var(--mask-solid) 46%, var(--mask-muted) 74%);
   -webkit-mask-size: 220% 100%;
-  mask-image: linear-gradient(90deg, rgb(0 0 0 / 48%) 0%, #000 46%, rgb(0 0 0 / 48%) 74%);
+  mask-image: linear-gradient(90deg, var(--mask-muted) 0%, var(--mask-solid) 46%, var(--mask-muted) 74%);
   mask-size: 220% 100%;
   animation: transcript-thinking-shimmer 1.8s linear infinite;
 }

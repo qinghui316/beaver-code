@@ -331,11 +331,11 @@ export function initialAgentTurnMode(scope: ConversationComposerScope): AgentTur
 }
 
 export function initialAgentModelId(scope: ConversationComposerScope): string | null {
-  return composerProductMode(scope) === "agent" ? scope.conversation?.agentModelId ?? null : null;
+  return scope.conversation?.agentModelId ?? null;
 }
 
 export function initialAgentReasoningEffort(scope: ConversationComposerScope): string | null {
-  return composerProductMode(scope) === "agent" ? scope.conversation?.agentReasoningEffort ?? null : null;
+  return scope.conversation?.agentReasoningEffort ?? null;
 }
 
 export function resolveAgentTurnModeDisabledReason(
@@ -359,9 +359,9 @@ export function resolveAgentTurnModelDisabledReason(
   modelId: string | null,
   reasoningEffort: string | null,
 ): string | null {
-  if (composerProductMode(scope) !== "agent" || scope.running) return null;
+  if (scope.running) return null;
   const providerId = effectiveComposerProviderId(scope);
-  if (!providerId) return agentTurnMode === "plan" || modelId || reasoningEffort
+  if (!providerId) return (composerProductMode(scope) === "agent" && agentTurnMode === "plan") || modelId || reasoningEffort
     ? "请先选择本次 Turn 使用的 Agent。"
     : null;
   const snapshot = scope.providerModelSettings;
@@ -369,7 +369,7 @@ export function resolveAgentTurnModelDisabledReason(
   const candidate = resolveSelectedModelCandidate(snapshot, modelId);
   if (modelId && !candidate) return "已选择的模型当前不可用，请重新选择后再发送。";
   const resolvedModelId = modelId ?? snapshot.effectiveModel?.modelId ?? null;
-  if (agentTurnMode === "plan" && !resolvedModelId) return "计划模式需要先选择可用模型。";
+  if (composerProductMode(scope) === "agent" && agentTurnMode === "plan" && !resolvedModelId) return "计划模式需要先选择可用模型。";
   if (reasoningEffort) {
     if (!candidate) return "显式推理强度需要先解析出可验证的模型。";
     if (candidate.supportedReasoningEfforts.length === 0) return "当前模型没有可验证的推理强度选项，请使用模型默认值。";
@@ -536,8 +536,8 @@ export function composerDraftContent(input: {
     projectId: input.projectId,
     productMode: input.productMode,
     agentTurnMode: input.productMode === "agent" ? input.agentTurnMode : null,
-    agentModelId: input.productMode === "agent" ? input.agentModelId : null,
-    agentReasoningEffort: input.productMode === "agent" ? input.agentReasoningEffort : null,
+    agentModelId: input.agentModelId,
+    agentReasoningEffort: input.agentReasoningEffort,
     text: input.text,
     contextRefs: normalizeComposerRefs(input.contextRefs),
     attachmentIds: [...new Set(input.attachments.map((attachment) => attachment.id))],

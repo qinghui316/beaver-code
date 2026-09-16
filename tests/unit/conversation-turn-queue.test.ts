@@ -135,6 +135,47 @@ describe("ConversationTurnQueueOwner", () => {
       .rejects.toMatchObject({ name: "Conflict" });
   });
 
+  it("persists an AHO Main model selection without treating it as an Agent turn mode", async () => {
+    const harnessConversationId = "conversation-harness";
+    await seedConversation("harness", harnessConversationId);
+    const owner = createOwner();
+    const initial = await owner.read(project, "harness", harnessConversationId);
+
+    const queued = await owner.enqueue(project, {
+      projectId,
+      productMode: "harness",
+      conversationId: harnessConversationId,
+      clientRequestId: "queue-request-harness",
+      expectedRevision: initial.revision,
+      expectedExecutionRevision: initial.executionRevision!,
+      expectedDraftUpdatedAt: now,
+      text: "queued AHO follow-up",
+      contextRefs: [],
+      attachmentIds: [],
+      skillOverrides: {},
+      providerId: "codex",
+      agentTurnMode: null,
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+    });
+
+    expect(queued.items).toEqual([expect.objectContaining({
+      agentTurnMode: null,
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+    })]);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.drafts.readDraft(projectId, "harness")).toMatchObject({
+        agentTurnMode: null,
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("queues Review without clearing the draft and reclaims only its canonical slash command", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
@@ -1099,16 +1140,16 @@ async function insertRunningAttempt(attemptId: string): Promise<void> {
   }
 }
 
-async function seedConversation(productMode: "agent" | "harness"): Promise<void> {
+async function seedConversation(productMode: "agent" | "harness", selectedConversationId = conversationId): Promise<void> {
   const database = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     database.conversations.createConversation({
       projectId,
-      conversationId,
+      conversationId: selectedConversationId,
       productMode,
       agentTurnMode: productMode === "agent" ? "plan" : null,
-      agentModelId: productMode === "agent" ? "gpt-test" : null,
-      agentReasoningEffort: productMode === "agent" ? "high" : null,
+      agentModelId: "gpt-test",
+      agentReasoningEffort: "high",
       title: "Agent",
       state: "active",
       boundChangeId: null,
@@ -1123,8 +1164,8 @@ async function seedConversation(productMode: "agent" | "harness"): Promise<void>
       projectId,
       productMode,
       agentTurnMode: productMode === "agent" ? "plan" : null,
-      agentModelId: productMode === "agent" ? "gpt-test" : null,
-      agentReasoningEffort: productMode === "agent" ? "high" : null,
+      agentModelId: "gpt-test",
+      agentReasoningEffort: "high",
       text: "queued follow-up",
       contextRefsJson: JSON.stringify([{ relativePath: "src/app.ts", name: "app.ts", kind: "file", source: "composer" }]),
       attachmentIdsJson: JSON.stringify(["attachment-1"]),

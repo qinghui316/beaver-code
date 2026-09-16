@@ -11,11 +11,11 @@ import { resolveStoredExecutionContract } from "../provider-runtime/execution-co
 import type { ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import type { ManagedProject } from "../types/index.js";
-import { AgentTurnModelAdmissionOwner } from "./agent-turn-model-admission.js";
+import { ConversationModelAdmissionOwner } from "./conversation-model-admission.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
 import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
-import type { AgentTurnModelAdmission } from "./conversation-turn-contract.js";
+import type { ConversationModelAdmission } from "./conversation-turn-contract.js";
 import type { ConversationTurnControlOwner, ConversationTurnRegistration } from "./conversation-turn-control.js";
 import { createConversationExecutionRevision } from "./conversation-execution-revision.js";
 import type { ConversationQueuedReviewDispatchPort, QueuedReviewDispatchRequest, QueuedReviewDispatchResult } from "./conversation-queued-review-dispatch.js";
@@ -60,7 +60,7 @@ type PreparedReview = {
 };
 
 export class ConversationReviewLifecycleOwner implements ConversationQueuedReviewDispatchPort {
-  private readonly modelAdmission: AgentTurnModelAdmissionOwner;
+  private readonly modelAdmission: ConversationModelAdmissionOwner;
   private readonly settlementRepairs = new Map<string, () => Promise<void>>();
 
   constructor(private readonly options: {
@@ -69,7 +69,7 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
     turnControl?: ConversationTurnControlOwner;
     contextLifecycle?: ConversationContextLifecycleOwner;
   }) {
-    this.modelAdmission = new AgentTurnModelAdmissionOwner(options.providerRegistry);
+    this.modelAdmission = new ConversationModelAdmissionOwner(options.providerRegistry);
   }
 
   async dispatchQueuedReview(project: ManagedProject, request: QueuedReviewDispatchRequest): Promise<QueuedReviewDispatchResult> {
@@ -113,7 +113,7 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
     const modelAdmission = prepared.existingSessionId ? null : await this.modelAdmission.admit({
       project,
       providerId: request.providerId,
-      requested: { modelId: prepared.modelId, reasoningEffort: prepared.reasoningEffort },
+      requested: { providerId: request.providerId, modelId: prepared.modelId, reasoningEffort: prepared.reasoningEffort },
       requireResolvedModel: false,
     });
     const now = new Date().toISOString();
@@ -251,7 +251,7 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
     request: ConversationReviewRequest,
     requestHash: string,
     prepared: PreparedReview,
-    modelAdmission: AgentTurnModelAdmission | null,
+    modelAdmission: ConversationModelAdmission | null,
     capabilitySnapshot: ProviderCapabilitySnapshot,
     gitAdmission: ProjectGitReviewAdmission,
     operation: StoredConversationReviewOperation,
@@ -360,7 +360,7 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
     gitAdmission: ProjectGitReviewAdmission,
     capabilitySnapshot: ProviderCapabilitySnapshot,
     prepared: PreparedReview,
-    modelAdmission: AgentTurnModelAdmission | null,
+    modelAdmission: ConversationModelAdmission | null,
     runId: string,
     runRoot: string,
   ): Promise<void> {
@@ -839,7 +839,7 @@ function reviewHandoffHash(
   request: ConversationReviewRequest,
   gitAdmission: ProjectGitReviewAdmission,
   prepared: PreparedReview,
-  modelAdmission: AgentTurnModelAdmission | null,
+  modelAdmission: ConversationModelAdmission | null,
 ): string {
   return digest(JSON.stringify({
     version: 1,

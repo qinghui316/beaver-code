@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderModelSettingsSnapshot } from "../../src/provider-runtime/index.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { AgentTurnModelAdmissionOwner } from "../../src/workbench/agent-turn-model-admission.js";
+import { ConversationModelAdmissionOwner } from "../../src/workbench/conversation-model-admission.js";
 
-describe("Agent Turn model admission", () => {
+describe("Conversation model admission", () => {
   it("captures explicit model and effort from one immutable catalog read", async () => {
     const read = vi.fn(async () => modelSnapshot());
     const owner = admissionOwner(read);
@@ -11,7 +11,7 @@ describe("Agent Turn model admission", () => {
     const admission = await owner.admit({
       project: project(),
       providerId: "codex",
-      requested: { modelId: "gpt-test", reasoningEffort: "high" },
+      requested: { providerId: "codex", modelId: "gpt-test", reasoningEffort: "high" },
       requireResolvedModel: true,
     });
 
@@ -44,7 +44,7 @@ describe("Agent Turn model admission", () => {
     await expect(owner.admit({
       project: project(),
       providerId: "codex",
-      requested: { modelId: null, reasoningEffort: null },
+      requested: { providerId: "codex", modelId: null, reasoningEffort: null },
       requireResolvedModel: true,
     })).resolves.toMatchObject({
       resolvedModelId: "config-model",
@@ -54,7 +54,7 @@ describe("Agent Turn model admission", () => {
     await expect(owner.admit({
       project: project(),
       providerId: "codex",
-      requested: { modelId: null, reasoningEffort: "high" },
+      requested: { providerId: "codex", modelId: null, reasoningEffort: "high" },
       requireResolvedModel: false,
     })).rejects.toMatchObject({ name: "Conflict", message: expect.stringContaining("not supported") });
   });
@@ -62,18 +62,18 @@ describe("Agent Turn model admission", () => {
   it("fails closed when the catalog cannot be read or Plan cannot resolve a model", async () => {
     const unavailable = admissionOwner(vi.fn(async () => { throw new Error("offline"); }));
     await expect(unavailable.admit({
-      project: project(), providerId: "codex", requested: { modelId: null, reasoningEffort: null }, requireResolvedModel: false,
+      project: project(), providerId: "codex", requested: { providerId: "codex", modelId: null, reasoningEffort: null }, requireResolvedModel: false,
     })).rejects.toMatchObject({ name: "Conflict", message: expect.stringContaining("unavailable") });
 
     const empty = admissionOwner(vi.fn(async () => modelSnapshot({ effectiveModel: null, candidates: [] })));
     await expect(empty.admit({
-      project: project(), providerId: "codex", requested: { modelId: null, reasoningEffort: null }, requireResolvedModel: true,
+      project: project(), providerId: "codex", requested: { providerId: "codex", modelId: null, reasoningEffort: null }, requireResolvedModel: true,
     })).rejects.toMatchObject({ name: "Conflict", message: expect.stringContaining("requires a model") });
   });
 });
 
-function admissionOwner(read: () => Promise<ProviderModelSettingsSnapshot>): AgentTurnModelAdmissionOwner {
-  return new AgentTurnModelAdmissionOwner({
+function admissionOwner(read: () => Promise<ProviderModelSettingsSnapshot>): ConversationModelAdmissionOwner {
+  return new ConversationModelAdmissionOwner({
     get: () => ({ models: { read } }),
   } as never);
 }

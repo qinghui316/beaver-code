@@ -15,7 +15,13 @@ type HarnessTurnRunner = (
   userMessage: string,
   live: ConversationTurnStrategyInput["live"],
   handoff: ConversationTurnStrategyInput["harnessHandoff"],
-  options: { graphScopeId?: string; runtimeState: ProjectRuntimeState; turnSkillResolution: TurnSkillContextResolution | null },
+  options: {
+    graphScopeId?: string;
+    runtimeState: ProjectRuntimeState;
+    turnSkillResolution: TurnSkillContextResolution | null;
+    model: ConversationTurnStrategyInput["admission"]["model"];
+    reasoningEffort: string | null;
+  },
 ) => Promise<TopicThreadEntry>;
 
 export class HarnessConversationTurnStrategy implements ConversationTurnStrategy {
@@ -56,6 +62,8 @@ export class HarnessConversationTurnStrategy implements ConversationTurnStrategy
         graphScopeId: user.graphScopeId,
         runtimeState: input.runtimeState ?? (() => { throw new Error("Harness Turn runtime state is not composed."); })(),
         turnSkillResolution: input.turnSkillResolution,
+        model: input.admission.model,
+        reasoningEffort: input.admission.modelAdmission?.resolvedReasoningEffort ?? null,
       },
     );
     return {

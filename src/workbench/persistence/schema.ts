@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 19;
+export const WORKBENCH_SCHEMA_VERSION = 20;
 
 export function applyCurrentWorkbenchSchema(db: Database.Database): void {
   db.exec("DROP TABLE IF EXISTS bridge_sync; DROP TABLE IF EXISTS skills;");
@@ -419,8 +419,6 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
     UPDATE provider_attempts SET operation_kind = 'conversation-turn' WHERE operation_kind IS NULL;
     UPDATE conversation_turn_queue_items SET item_kind = 'conversation-turn' WHERE item_kind IS NULL;
     UPDATE composer_drafts SET agent_turn_mode = NULL WHERE product_mode = 'harness';
-    UPDATE conversations SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
-    UPDATE composer_drafts SET agent_model_id = NULL, agent_reasoning_effort = NULL WHERE product_mode = 'harness';
     UPDATE conversations SET archive_origin = CASE product_mode
       WHEN 'agent' THEN 'agent-user' ELSE 'harness-workflow' END,
       archived_at = COALESCE(archived_at, updated_at)
@@ -525,19 +523,7 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
     END;
     DROP TRIGGER IF EXISTS trg_provider_attempt_agent_turn_mode_insert;
     DROP TRIGGER IF EXISTS trg_conversations_agent_model_insert;
-    CREATE TRIGGER trg_conversations_agent_model_insert
-    BEFORE INSERT ON conversations
-    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
-    BEGIN
-      SELECT RAISE(ABORT, 'Harness Conversation cannot store Agent model selection');
-    END;
     DROP TRIGGER IF EXISTS trg_conversations_agent_model_update;
-    CREATE TRIGGER trg_conversations_agent_model_update
-    BEFORE UPDATE OF agent_model_id, agent_reasoning_effort, product_mode ON conversations
-    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
-    BEGIN
-      SELECT RAISE(ABORT, 'Harness Conversation cannot store Agent model selection');
-    END;
     CREATE TRIGGER trg_provider_attempt_agent_turn_mode_insert
     BEFORE INSERT ON provider_attempts
     WHEN (NEW.product_mode = 'agent' AND NEW.operation_kind = 'conversation-turn'
@@ -574,19 +560,7 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
       SELECT RAISE(ABORT, 'ComposerDraft agent_turn_mode must match product_mode');
     END;
     DROP TRIGGER IF EXISTS trg_composer_draft_agent_model_insert;
-    CREATE TRIGGER trg_composer_draft_agent_model_insert
-    BEFORE INSERT ON composer_drafts
-    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
-    BEGIN
-      SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
-    END;
     DROP TRIGGER IF EXISTS trg_composer_draft_agent_model_update;
-    CREATE TRIGGER trg_composer_draft_agent_model_update
-    BEFORE UPDATE OF agent_model_id, agent_reasoning_effort, product_mode ON composer_drafts
-    WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
-    BEGIN
-      SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
-    END;
     DROP TRIGGER IF EXISTS trg_conversation_turn_queue_mode_insert;
     CREATE TRIGGER trg_conversation_turn_queue_mode_insert
     BEFORE INSERT ON conversation_turn_queues
@@ -622,9 +596,7 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
         OR NEW.text <> '' OR NEW.context_refs_json <> '[]' OR NEW.attachment_ids_json <> '[]'
         OR NEW.skill_overrides_json <> '{}' OR NEW.agent_turn_mode IS NOT NULL
         OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL))
-      OR (NEW.product_mode = 'harness' AND (
-        NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
-      ))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
     BEGIN
       SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
     END;
@@ -643,9 +615,7 @@ export function applyCurrentWorkbenchSchema(db: Database.Database): void {
         OR NEW.text <> '' OR NEW.context_refs_json <> '[]' OR NEW.attachment_ids_json <> '[]'
         OR NEW.skill_overrides_json <> '{}' OR NEW.agent_turn_mode IS NOT NULL
         OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL))
-      OR (NEW.product_mode = 'harness' AND (
-        NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
-      ))
+      OR (NEW.product_mode = 'harness' AND NEW.agent_turn_mode IS NOT NULL)
     BEGIN
       SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
     END;

@@ -173,8 +173,8 @@ export class ConversationDraftController {
     if (options.restoreSkillOverrides) {
       this.port.setSkillOverrides((value) => ({ ...snapshot.skillOverrides, ...value }));
     }
-    if (options.restoreConfiguration && snapshot.productMode === "agent" && currentDraftIsEmpty) {
-      this.port.setAgentTurnMode(snapshot.agentTurnMode ?? "default");
+    if (options.restoreConfiguration && currentDraftIsEmpty) {
+      if (snapshot.productMode === "agent") this.port.setAgentTurnMode(snapshot.agentTurnMode ?? "default");
       this.port.setModelId(snapshot.modelId);
       this.port.setReasoningEffort(snapshot.reasoningEffort);
     }

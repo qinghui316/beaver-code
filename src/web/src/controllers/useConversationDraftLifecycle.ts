@@ -202,10 +202,10 @@ export function useConversationDraftLifecycle(
       writeAgentTurnMode(immediate);
       writeAgentModelId(restoredModelSelection
         ? restoredModelSelection.modelId
-        : storedConversationMode ? scope.conversation?.agentModelId ?? null : null);
+        : scope.conversation?.agentModelId ?? null);
       writeAgentReasoningEffort(restoredModelSelection
         ? restoredModelSelection.reasoningEffort
-        : storedConversationMode ? scope.conversation?.agentReasoningEffort ?? null : null);
+        : scope.conversation?.agentReasoningEffort ?? null);
       setDraftLoadedScopeKey(null);
       setDraftDirtyRevision(0);
       setComposerTextState("");
@@ -244,9 +244,7 @@ export function useConversationDraftLifecycle(
         const draftMode = productMode === "agent" ? draft.agentTurnMode ?? immediate : "default";
         draftRestoredModesRef.current.set(ownerIdentity, draftMode);
         confirmedTurnModesRef.current.set(ownerIdentity, draftMode);
-        const draftModelSelection = productMode === "agent"
-          ? { modelId: draft.agentModelId, reasoningEffort: draft.agentReasoningEffort }
-          : { modelId: null, reasoningEffort: null };
+        const draftModelSelection = { modelId: draft.agentModelId, reasoningEffort: draft.agentReasoningEffort };
         draftRestoredModelSelectionsRef.current.set(ownerIdentity, draftModelSelection);
         const currentConversation = scopeRef.current.conversation;
         writeAgentTurnMode(productMode === "agent" && currentConversation
@@ -280,11 +278,6 @@ export function useConversationDraftLifecycle(
 
   useEffect(() => {
     const productMode = composerProductMode(scope);
-    if (productMode !== "agent") {
-      writeAgentModelId(null);
-      writeAgentReasoningEffort(null);
-      return;
-    }
     const restored = draftRestoredModelSelectionsRef.current.get(draftScopeIdentity(scope.projectId, productMode));
     if (restored) {
       writeAgentModelId(restored.modelId);
@@ -298,7 +291,6 @@ export function useConversationDraftLifecycle(
   }, [scope.conversation?.agentModelId, scope.conversation?.agentReasoningEffort, scope.conversation?.id, scope.productMode, scope.projectId]);
 
   useEffect(() => {
-    if (composerProductMode(scope) !== "agent") return;
     const providerId = effectiveComposerProviderId(scope);
     if (pendingProviderSelectionRef.current && pendingProviderSelectionRef.current !== providerId) return;
     if (pendingProviderSelectionRef.current === providerId) pendingProviderSelectionRef.current = null;
@@ -367,7 +359,6 @@ export function useConversationDraftLifecycle(
 
   const selectAgentModel = useCallback((nextModelId: string | null): void => {
     const currentScope = scopeRef.current;
-    if (composerProductMode(currentScope) !== "agent") return;
     const normalized = normalizeNullableSelection(nextModelId);
     if (stateRef.current.modelId === normalized) return;
     const nextCandidate = resolveSelectedModelCandidate(currentScope.providerModelSettings, normalized);
@@ -385,7 +376,6 @@ export function useConversationDraftLifecycle(
 
   const selectAgentReasoningEffort = useCallback((nextEffort: string | null): void => {
     const currentScope = scopeRef.current;
-    if (composerProductMode(currentScope) !== "agent") return;
     const normalized = normalizeNullableSelection(nextEffort);
     if (stateRef.current.reasoningEffort === normalized) return;
     writeAgentReasoningEffort(normalized);
@@ -398,7 +388,6 @@ export function useConversationDraftLifecycle(
 
   const selectAgentProviderModel = useCallback(async (providerId: string, nextModelId: string | null): Promise<void> => {
     const currentScope = scopeRef.current;
-    if (composerProductMode(currentScope) !== "agent") return;
     const normalized = normalizeNullableSelection(nextModelId);
     const group = currentScope.providerModelCatalogs?.find((item) => item.providerId === providerId);
     const nextCandidate = resolveSelectedModelCandidate(group?.snapshot, normalized);

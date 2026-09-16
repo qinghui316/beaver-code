@@ -3,7 +3,7 @@ import { applyCurrentWorkbenchSchema, ensureColumn, hasAnyWorkbenchUserTables, h
 import type { SqliteRow } from "./sql-mappers.js";
 
 export const MINIMUM_AUTOMATIC_WORKBENCH_SCHEMA_VERSION = 16;
-export const WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION = 2;
+export const WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION = 3;
 
 export type WorkbenchDatabaseCompatibilityCode =
   | "unsupported-legacy"
@@ -170,10 +170,22 @@ const schema18To19: WorkbenchSchemaMigration = {
   },
 };
 
+const schema19To20: WorkbenchSchemaMigration = {
+  from: 19,
+  to: 20,
+  migrate(db) {
+    applyCurrentWorkbenchSchema(db);
+  },
+  validate(db) {
+    assertSchemaShape(db, 20, { historicalSource: true });
+  },
+};
+
 export const WORKBENCH_SCHEMA_MIGRATIONS: readonly WorkbenchSchemaMigration[] = [
   schema16To17,
   schema17To18,
   schema18To19,
+  schema19To20,
 ];
 
 export function inspectWorkbenchSchema(db: Database.Database): {
@@ -205,7 +217,7 @@ export function inspectWorkbenchSchema(db: Database.Database): {
 
 function validateMigrationSourceSchema(db: Database.Database, version: number): void {
   try {
-    assertSchemaShape(db, version);
+    assertSchemaShape(db, version, { historicalSource: true });
   } catch (cause) {
     throw new WorkbenchDatabaseCompatibilityError("corrupt", "这个项目的数据结构不完整。", { cause });
   }
@@ -247,7 +259,7 @@ export function migrateWorkbenchSchema(db: Database.Database, currentVersion: nu
 }
 
 export function validateCurrentWorkbenchSchema(db: Database.Database): void {
-  assertSchemaShape(db, WORKBENCH_SCHEMA_VERSION);
+  assertSchemaShape(db, WORKBENCH_SCHEMA_VERSION, { historicalSource: true });
   const integrity = db.pragma("integrity_check", { simple: true });
   if (integrity !== "ok") throw new Error("Workbench database integrity check failed.");
 }
@@ -268,13 +280,17 @@ interface ColumnShape {
 
 const schemaShapeCache = new Map<number, SchemaShape>();
 
-function assertSchemaShape(db: Database.Database, version: number): void {
+function assertSchemaShape(
+  db: Database.Database,
+  version: number,
+  options: { historicalSource?: boolean } = {},
+): void {
   const expected = expectedSchemaShape(version);
   const actual = readSchemaShape(db);
   for (const [table, expectedColumns] of expected.tables) {
     const actualColumns = actual.tables.get(table);
     if (!actualColumns) throw new Error(`Workbench schema is missing required table: ${table}`);
-    if (JSON.stringify(actualColumns) !== JSON.stringify(expectedColumns)) {
+    if (!columnsMatch(table, actualColumns, expectedColumns, Boolean(options.historicalSource))) {
       throw new Error(`Workbench schema table ${table} has an unexpected column contract.`);
     }
     const actualIndexes = actual.indexes.get(table) ?? [];
@@ -285,13 +301,49 @@ function assertSchemaShape(db: Database.Database, version: number): void {
   if (JSON.stringify([...actual.triggers]) !== JSON.stringify([...expected.triggers])) {
     throw new Error("Workbench schema has an unexpected trigger contract.");
   }
-  assertCheckConstraintFragments(db, version);
+  assertCheckConstraintFragments(db, version, Boolean(options.historicalSource));
+}
+
+function columnsMatch(
+  table: string,
+  actualColumns: readonly ColumnShape[],
+  expectedColumns: readonly ColumnShape[],
+  historicalSource: boolean,
+): boolean {
+  if (actualColumns.length !== expectedColumns.length) return false;
+  const actualByName = new Map(actualColumns.map((column) => [column.name, column] as const));
+  for (const expected of expectedColumns) {
+    const actual = actualByName.get(expected.name);
+    if (!actual
+      || actual.type !== expected.type
+      || actual.notnull !== expected.notnull
+      || actual.pk !== expected.pk
+      || !compatibleDefaultValue(table, expected.name, actual.defaultValue, expected.defaultValue, historicalSource)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function compatibleDefaultValue(
+  table: string,
+  column: string,
+  actual: string | null,
+  expected: string | null,
+  historicalSource: boolean,
+): boolean {
+  if (actual === expected) return true;
+  if (!historicalSource || column !== "product_mode" || !["conversations", "provider_attempts"].includes(table)) {
+    return false;
+  }
+  return new Set([actual, expected]).size === 2
+    && [actual, expected].every((value) => value === null || value === "'harness'");
 }
 
 function expectedSchemaShape(version: number): SchemaShape {
   const cached = schemaShapeCache.get(version);
   if (cached) return cached;
-  if (version !== 16 && version !== 17 && version !== 18 && version !== 19) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
+  if (version !== 16 && version !== 17 && version !== 18 && version !== 19 && version !== 20) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
   const reference = new Database(":memory:");
   try {
     applyCurrentWorkbenchSchema(reference);
@@ -385,7 +437,10 @@ function readSchemaShape(db: Database.Database): SchemaShape {
   return { tables, indexes, triggers };
 }
 
-export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19): void {
+export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19 | 20): void {
+  if (version < 20) {
+    db.exec(LEGACY_MODEL_SELECTION_TRIGGER_SQL);
+  }
   if (version < 19) {
     db.exec(`
       DROP TABLE conversation_turn_queue_contract_confirmations;
@@ -471,6 +526,77 @@ const LEGACY_EXECUTION_TRIGGER_SQL = `
   END;
 `;
 
+const LEGACY_MODEL_SELECTION_TRIGGER_SQL = `
+  DROP TRIGGER IF EXISTS trg_conversations_agent_model_insert;
+  CREATE TRIGGER trg_conversations_agent_model_insert
+  BEFORE INSERT ON conversations
+  WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'Harness Conversation cannot store Agent model selection');
+  END;
+  DROP TRIGGER IF EXISTS trg_conversations_agent_model_update;
+  CREATE TRIGGER trg_conversations_agent_model_update
+  BEFORE UPDATE OF agent_model_id, agent_reasoning_effort, product_mode ON conversations
+  WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'Harness Conversation cannot store Agent model selection');
+  END;
+  DROP TRIGGER IF EXISTS trg_composer_draft_agent_model_insert;
+  CREATE TRIGGER trg_composer_draft_agent_model_insert
+  BEFORE INSERT ON composer_drafts
+  WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
+  END;
+  DROP TRIGGER IF EXISTS trg_composer_draft_agent_model_update;
+  CREATE TRIGGER trg_composer_draft_agent_model_update
+  BEFORE UPDATE OF agent_model_id, agent_reasoning_effort, product_mode ON composer_drafts
+  WHEN NEW.product_mode = 'harness' AND (NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL)
+  BEGIN
+    SELECT RAISE(ABORT, 'Harness ComposerDraft cannot store Agent model selection');
+  END;
+  DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_insert;
+  CREATE TRIGGER trg_conversation_turn_queue_item_mode_insert
+  BEFORE INSERT ON conversation_turn_queue_items
+  WHEN NOT EXISTS (
+    SELECT 1 FROM conversation_turn_queues
+    WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+      AND product_mode = NEW.product_mode
+  ) OR (NEW.item_kind = 'conversation-turn' AND NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+    OR (NEW.item_kind = 'conversation-turn' AND NEW.review_target_json IS NOT NULL)
+    OR (NEW.item_kind = 'review' AND (NEW.product_mode <> 'agent' OR NEW.review_target_json IS NULL
+      OR NEW.text <> '' OR NEW.context_refs_json <> '[]' OR NEW.attachment_ids_json <> '[]'
+      OR NEW.skill_overrides_json <> '{}' OR NEW.agent_turn_mode IS NOT NULL
+      OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL))
+    OR (NEW.product_mode = 'harness' AND (
+      NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
+    ))
+  BEGIN
+    SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+  END;
+  DROP TRIGGER IF EXISTS trg_conversation_turn_queue_item_mode_update;
+  CREATE TRIGGER trg_conversation_turn_queue_item_mode_update
+  BEFORE UPDATE OF project_id, conversation_id, product_mode, item_kind, review_target_json, text,
+    context_refs_json, attachment_ids_json, skill_overrides_json, agent_turn_mode, agent_model_id, agent_reasoning_effort
+    ON conversation_turn_queue_items
+  WHEN NOT EXISTS (
+    SELECT 1 FROM conversation_turn_queues
+    WHERE project_id = NEW.project_id AND conversation_id = NEW.conversation_id
+      AND product_mode = NEW.product_mode
+  ) OR (NEW.item_kind = 'conversation-turn' AND NEW.product_mode = 'agent' AND NEW.agent_turn_mode IS NULL)
+    OR (NEW.item_kind = 'conversation-turn' AND NEW.review_target_json IS NOT NULL)
+    OR (NEW.item_kind = 'review' AND (NEW.product_mode <> 'agent' OR NEW.review_target_json IS NULL
+      OR NEW.text <> '' OR NEW.context_refs_json <> '[]' OR NEW.attachment_ids_json <> '[]'
+      OR NEW.skill_overrides_json <> '{}' OR NEW.agent_turn_mode IS NOT NULL
+      OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL))
+    OR (NEW.product_mode = 'harness' AND (
+      NEW.agent_turn_mode IS NOT NULL OR NEW.agent_model_id IS NOT NULL OR NEW.agent_reasoning_effort IS NOT NULL
+    ))
+  BEGIN
+    SELECT RAISE(ABORT, 'Conversation queued Turn fields must match product_mode');
+  END;
+`;
+
 const SCHEMA_16_QUEUE_CANCEL_TRIGGER_SQL = `
   CREATE TRIGGER trg_conversation_turn_queue_cancel_inactive
   AFTER UPDATE OF state, deleted_at ON conversations
@@ -495,7 +621,7 @@ function normalizeSchemaSql(value: string): string {
   return value.toLowerCase().replaceAll(/\s+/g, "").replaceAll('"', "");
 }
 
-function assertCheckConstraintFragments(db: Database.Database, version: number): void {
+function assertCheckConstraintFragments(db: Database.Database, version: number, historicalSource = false): void {
   const fragments: Readonly<Record<string, readonly string[]>> = {
     conversations: ["check(product_modein('agent','harness'))", "check(agent_turn_modein('default','plan')oragent_turn_modeisnull)"],
     provider_attempts: ["check(product_modein('agent','harness'))", "check(conversation_idisnotnullorproduct_mode='harness')"],
@@ -505,6 +631,10 @@ function assertCheckConstraintFragments(db: Database.Database, version: number):
     conversation_turn_queue_items: ["check(product_modein('agent','harness'))", "check(statusin('queued','dispatching','blocked','dispatched','cancelled'))", "check(retry_countbetween0and1)"],
   };
   const versioned: Record<string, readonly string[]> = { ...fragments };
+  if (historicalSource) {
+    versioned.conversations = versioned.conversations!.filter((fragment) => !fragment.includes("agent_turn_mode"));
+    versioned.provider_attempts = versioned.provider_attempts!.filter((fragment) => !fragment.includes("conversation_idisnotnull"));
+  }
   if (version >= 17) {
     versioned.conversations = [...versioned.conversations!, "check(archive_originin('agent-user','harness-workflow')orarchive_originisnull)"];
     versioned.conversation_lifecycle_operations = [

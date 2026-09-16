@@ -967,20 +967,59 @@ body.is-resizing-column {
 .workspace-orchestration-toggle,
 .workspace-right-rail-toggle {
   position: relative;
-  width: auto;
+  width: 34px;
   min-width: 34px;
-  padding-inline: 9px;
-  gap: 6px;
+  height: 34px;
+  padding: 0;
   pointer-events: auto;
 }
 
-.workspace-tool-label {
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
+.workspace-dock-direct {
+  display: inline-flex;
+  gap: 6px;
 }
 
+.workspace-dock-overflow {
+  display: none;
+  position: relative;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.workspace-dock-overflow-menu {
+  z-index: 80;
+  display: grid;
+  min-width: 210px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.workspace-dock-overflow-item {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workspace-dock-overflow-item[data-highlighted] { background: var(--bg-hover); }
+.workspace-dock-overflow-item[data-active] { color: var(--text-strong); font-weight: 600; }
+.workspace-dock-overflow-item[data-disabled] { color: var(--text-faint); cursor: default; }
+
 @media (max-width: 720px), (pointer: coarse) {
+  .workspace-dock-direct { display: none; }
+  .workspace-dock-overflow { display: inline-flex; }
+
   .workspace-dock-toggle,
   .workspace-orchestration-toggle,
   .workspace-right-rail-toggle {
@@ -988,10 +1027,6 @@ body.is-resizing-column {
     min-width: 44px;
     height: 44px;
     padding: 0;
-  }
-
-  .workspace-tool-label {
-    display: none;
   }
 }
 

@@ -2,15 +2,15 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentModelSelectors } from "../../src/web/src/shell/AgentModelSelectors.js";
+import { ConversationModelSelectors } from "../../src/web/src/shell/ConversationModelSelectors.js";
 import type { ProviderModelCatalogGroup } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
-describe("Agent model selectors", () => {
+describe("Conversation model selectors", () => {
   it("groups models by service and selects provider and model together", () => {
     const onSelect = vi.fn();
-    render(<AgentModelSelectors
+    render(<ConversationModelSelectors
       catalogs={catalogs()}
       selectedProviderId="codex"
       modelId="gpt-test"
@@ -30,7 +30,7 @@ describe("Agent model selectors", () => {
   });
 
   it("shows only the selected model's supported reasoning efforts and restores focus on Escape", async () => {
-    render(<AgentModelSelectors
+    render(<ConversationModelSelectors
       catalogs={catalogs()}
       selectedProviderId="codex"
       modelId="gpt-test"
@@ -52,7 +52,7 @@ describe("Agent model selectors", () => {
     const refresh = vi.fn();
     const groups = catalogs();
     groups[1] = { ...groups[1]!, status: "error", snapshot: null, message: "Claude 模型目录不可用" };
-    render(<AgentModelSelectors
+    render(<ConversationModelSelectors
       catalogs={groups}
       selectedProviderId="codex"
       modelId="gpt-test"

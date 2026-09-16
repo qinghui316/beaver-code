@@ -42,8 +42,8 @@ requests carry explicit product mode and may assert Conversation and Provider
 identity; stored Conversation identity is authoritative and mismatches fail
 closed before Provider effects.
 
-Ordinary Agent conversations have per-send `Default / Plan`, model, and reasoning
-effort controls. `Default` uses the admitted project workspace-write sandbox.
+Agent and AHO conversations share per-send Provider, model, and reasoning-effort
+controls. Agent conversations additionally expose `Default / Plan`; `Default` uses the admitted project workspace-write sandbox.
 `Plan` is available when the selected Provider reports the optional `turn.plan`
 protocol capability, uses a read-only sandbox with no writable roots, and also
 requires this Turn to resolve an effective model. Model and effort may follow the
@@ -51,8 +51,8 @@ current Provider configuration/defaults or select one exact catalog option. An
 invalid explicit selection remains visible and blocks sending instead of falling
 back. One immutable admission captures the requested and resolved values before
 the user message, ProviderAttempt, or Provider turn is created. The adapter alone
-constructs any private Plan payload. Harness conversations expose none of these
-Agent controls and continue through their existing operation-profile model path.
+constructs any private Plan payload. AHO selection applies only to the main Agent;
+role-owned child Agents continue through their existing Provider configuration.
 
 The existing-Conversation and empty-Conversation entry points render one shared
 `ConversationComposerSurface`. It owns one bordered input container, selected
@@ -70,13 +70,11 @@ removable above the editor. Low-frequency additions live behind the `+` menu,
 while Queue and running-turn actions only appear when their current snapshots
 make them relevant.
 
-The Composer model label means “the model that the next Agent Turn will use.”
+The Composer model label means “the model that the next Conversation Turn will use.”
 It resolves from the current Composer selection, then the Conversation's saved
 selection, then the selected Provider default. Changing it updates the label
 immediately and does not rewrite the immutable model snapshot of a running Turn.
 The actual model used by the current Turn belongs in Turn detail or diagnostics.
-AHO continues to use its Harness operation profile and exposes no Agent per-Turn
-model override.
 
 Workbench Settings has two user-facing destinations: `模型与服务` and `技能`.
 The normal provider view shows connection state, effective default
@@ -114,9 +112,10 @@ inputs are removed from the keyboard focus order.
 Composer drafts are durable full snapshots scoped by `projectId + productMode`.
 They reuse the schema-14 `composer_drafts` row and include unsent text, safe
 project-relative file references, managed attachment ids, provider-neutral Skill
-overrides, the selected Provider id, and the Agent Default/Plan, model, and effort
-preferences. Harness snapshots always store null Agent turn/model/effort fields,
-and Agent and Harness never read or update each other's draft row. Draft IO does
+overrides, the selected Provider id, the shared model and effort preferences, and
+the Agent-only Default/Plan preference. Harness snapshots always store a null Agent
+turn mode but may store the AHO main Agent model and effort; Agent and Harness never
+read or update each other's draft row. Draft IO does
 not require Harness readiness, invoke a Provider, or create Conversation,
 Timeline, Attempt, Change, Workflow, or authorization evidence.
 
@@ -168,10 +167,10 @@ actions. Search matches both projects and their conversations; archived
 conversations stay collapsed unless explicitly opened or matched by search.
 Unavailable projects remain visible with a recovery state instead of disappearing.
 
-Agent and AHO use the same page skeleton and expose a short task-oriented mode
-description near the selector. Desktop tool launchers show `Agent Office`,
-`Terminal`, and `工具`; compact layouts retain the same order and accessible names
-while reducing them to icon controls. The right launcher separates everyday work
+Agent and AHO use the same page skeleton. Mode guidance is available from one
+focusable information icon instead of persistent header copy. Desktop and compact
+tool launchers show fixed Lucide icons for `Agent Office`, `Terminal`, and `工具`,
+with the same order, tooltips, and accessible names. The right launcher separates everyday work
 from `帮助与诊断`, so diagnostics remain reachable without competing with primary
 tasks. These labels and counts are display projections only; all actions still
 route through the existing feature controllers.
@@ -253,6 +252,13 @@ the item remains intact but shows `执行方式已更新，需要确认后发送
 choose `按当前方式发送` before the Queue owner may dispatch it. Ordinary retry
 cannot bypass this confirmation, and historical Attempts remain readable as the
 behavior that actually ran rather than being rewritten to current policy.
+
+Schema 20 removes the historical Harness-only rejection of Conversation, draft,
+and queued-Turn model selection while retaining Agent Turn Mode isolation. The
+Workbench schema migrator validates supported historical layouts by column name and
+compatible constraints, stages every upgrade against a recovery snapshot, and only
+shows project recovery when integrity, version support, or transaction recovery
+cannot be proven automatically.
 
 Ordinary Agent turns accept Composer-managed images and safe text/code files in
 both Default and Plan mode. One server-owned `TurnAttachmentResolver` validates

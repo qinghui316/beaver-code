@@ -12,6 +12,7 @@ import {
 } from "../../src/project-runtime/identity-migration.js";
 import { WORKBENCH_PROJECT_IDENTITY_COLUMNS } from "../../src/project-runtime/identity-migration-sqlite.js";
 import { initializeCurrentWorkbenchSchema, materializeWorkbenchSchemaContract, prepareStagedWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
+import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 
 const SOURCE_ID = "aho-self";
 const TARGET_ID = "agent-harness-orchestrator-a6ad344cbe4e";
@@ -71,7 +72,7 @@ describe("staged canonical project identity migration", () => {
       expect(proof.countAfter, proof.table).toBe(proof.countBefore);
       expect(proof.identityNeutralHashAfter, proof.table).toBe(proof.identityNeutralHashBefore);
     }
-    expect(result.sqliteProofs[0].userVersion).toBe(19);
+    expect(result.sqliteProofs[0].userVersion).toBe(WORKBENCH_SCHEMA_VERSION);
     expect(result.sqliteProofs[0].updatedRows).toBe(3);
 
     const run = await readJson<{ projectId: string; payload: { keep: string } }>(

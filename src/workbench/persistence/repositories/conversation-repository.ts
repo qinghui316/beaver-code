@@ -68,6 +68,33 @@ constructor(private readonly db: Database.Database) {}
     if (result.changes !== 1) throw new Error(`Agent Conversation preferences changed concurrently: ${input.conversationId}`);
   }
 
+  updateConversationModelSelection(input: {
+    projectId: string;
+    conversationId: string;
+    expectedModelId: string | null;
+    expectedReasoningEffort: string | null;
+    modelId: string | null;
+    reasoningEffort: string | null;
+    updatedAt: string;
+  }): void {
+    const result = this.db.prepare(`
+      UPDATE conversations
+      SET agent_model_id = ?, agent_reasoning_effort = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ?
+        AND agent_model_id IS ? AND agent_reasoning_effort IS ?
+        AND surface_kind = 'user' AND deleted_at IS NULL
+    `).run(
+      input.modelId,
+      input.reasoningEffort,
+      input.updatedAt,
+      input.projectId,
+      input.conversationId,
+      input.expectedModelId,
+      input.expectedReasoningEffort,
+    );
+    if (result.changes !== 1) throw new Error(`Conversation model selection changed concurrently: ${input.conversationId}`);
+  }
+
   markConversationDeleted(projectId: string, conversationId: string, deletedAt: string): void {
     this.db.prepare(`
       UPDATE conversations SET deleted_at = ?, updated_at = ?
@@ -194,8 +221,8 @@ createConversation(
       conversation.conversationId,
       conversation.productMode,
       agentTurnMode,
-      conversation.productMode === "agent" ? conversation.agentModelId ?? null : null,
-      conversation.productMode === "agent" ? conversation.agentReasoningEffort ?? null : null,
+      conversation.agentModelId ?? null,
+      conversation.agentReasoningEffort ?? null,
       conversation.clientCreateRequestId ?? null,
       conversation.clientCreateRequestHash ?? null,
       conversation.title,

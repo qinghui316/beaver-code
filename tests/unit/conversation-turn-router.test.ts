@@ -93,6 +93,63 @@ describe("ConversationTurnRouter", () => {
     expect(harness.execute.mock.calls[0]![0]).toMatchObject({ turnSkillResolution: null });
   });
 
+  it("admits an AHO Main Turn with the same explicit model selection contract as Agent mode", async () => {
+    const modelAdmission = {
+      providerId: "codex",
+      requested: { providerId: "codex", modelId: "gpt-test", reasoningEffort: "high" },
+      resolvedModelId: "gpt-test",
+      resolvedReasoningEffort: "high",
+      modelSource: "explicit" as const,
+      effortSource: "explicit" as const,
+      catalogGeneration: "catalog-generation",
+    };
+    const admit = vi.fn(async () => modelAdmission);
+    const capabilitySnapshot: ProviderCapabilitySnapshot = {
+      ...agentCapabilitySnapshot(),
+      productMode: "harness",
+      capabilities: PROVIDER_OPERATION_CAPABILITIES.main.map((key) => ({
+        key, label: key, spec: "supported", runtime: "ready", summary: "ready",
+      })),
+    };
+    const providerRegistry = {
+      requireProfiles: vi.fn(async () => ({ descriptor: {}, snapshot: capabilitySnapshot })),
+    };
+    const router = new ConversationTurnRouter(
+      { agent: strategy("agent", topicResult("agent")), harness: strategy("harness", topicResult("harness")) },
+      ports(),
+      {
+        projectRuntimeCoordinator: {
+          resolve: async () => readyState(project()),
+          runtimePaths: (projectId: string) => resolveProjectRuntimePaths(projectId, "C:\\aho-test"),
+        },
+        providerRegistry: providerRegistry as never,
+        modelAdmissionOwner: { admit } as never,
+      },
+    );
+
+    await expect(router.admit({
+      project: project(),
+      productMode: "harness",
+      conversationId: "conversation-1",
+      providerId: "codex",
+      agentTurnMode: null,
+      modelId: "gpt-test",
+      reasoningEffort: "high",
+      attachments: [],
+    })).resolves.toMatchObject({
+      productMode: "harness",
+      providerId: "codex",
+      agentTurnMode: null,
+      model: { providerId: "codex", modelId: "gpt-test" },
+      modelAdmission,
+      capabilitySnapshot,
+    });
+    expect(providerRegistry.requireProfiles).toHaveBeenCalledWith("codex", ["main"], "harness", project(), project().path);
+    expect(admit).toHaveBeenCalledWith(expect.objectContaining({
+      requested: { providerId: "codex", modelId: "gpt-test", reasoningEffort: "high" },
+    }));
+  });
+
   it("rejects an attachment Turn whose admission lacks the immutable resolution", async () => {
     const resolveSkillContext = vi.fn(async () => ({ skillInputs: [], diagnostics: [] }));
     const agent = new DirectAgentConversationTurnStrategy({
@@ -217,6 +274,8 @@ describe("Conversation Turn Strategies", () => {
       undefined,
       {
         graphScopeId: "graph:conversation-1",
+        model: null,
+        reasoningEffort: null,
         runtimeState: input.runtimeState,
         turnSkillResolution: null,
       },

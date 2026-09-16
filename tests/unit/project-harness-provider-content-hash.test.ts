@@ -53,6 +53,15 @@ describe("Project Harness Provider content hash", () => {
     await expect(hashNativeSkillPackageContent(root)).rejects.toThrow(/too many files/i);
   });
 
+  it("ignores runtime state when Codex fingerprints a discovered project Harness", async () => {
+    const root = await fixture();
+    await mkdir(join(root, "state", "changes"), { recursive: true });
+    await Promise.all(Array.from({ length: 520 }, (_, index) =>
+      writeFile(join(root, "state", "changes", `change-${String(index).padStart(3, "0")}.json`), "{}", "utf8")));
+
+    await expect(hashNativeSkillPackageContent(root)).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it.each([
     ["SKILL.md", "updated entry"],
     ["references/guide.md", "updated reference"],

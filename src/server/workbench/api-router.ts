@@ -469,7 +469,10 @@ async function loadNativeSkillCatalog(
   const roots = await listSkillRoots(context.paths);
   const snapshot = await context.provider.skills.list({
     projectPath: project.path,
-    extraRoots: [getSystemSkillsRoot(), ...roots.map((root) => root.rootPath)],
+    extraRoots: [
+      getSystemSkillsRoot(),
+      ...roots.map((root) => root.rootPath),
+    ],
     forceReload,
   });
   const catalog = await listSkills(context.paths, snapshot, context.requiredInputs, context.identityInputs);

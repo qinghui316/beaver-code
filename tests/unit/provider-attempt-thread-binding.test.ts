@@ -7,6 +7,7 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 import { subscribeProjectLiveEvents } from "../../src/workbench/project-live-events.js";
 
 let root: string;
@@ -66,7 +67,7 @@ describe("ProviderAttempt-owned thread binding", () => {
       store.close();
     }
     const db = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(19);
+    expect(db.pragma("user_version", { simple: true })).toBe(WORKBENCH_SCHEMA_VERSION);
     expect(db.prepare("PRAGMA table_info(provider_thread_links)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "attempt_id", notnull: 1 }),
       expect.objectContaining({ name: "parent_agent_surface_id" }),

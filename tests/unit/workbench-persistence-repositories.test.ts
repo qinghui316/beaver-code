@@ -63,7 +63,7 @@ describe("Workbench persistence owners", () => {
     }
   });
 
-  it("persists full Composer drafts with CAS and rejects Harness mode leakage", async () => {
+  it("persists shared model selection in Composer drafts while rejecting Harness turn-mode leakage", async () => {
     const database = await openProjectRuntimeWorkbenchDatabase(runtimePaths());
     try {
       expect(database.drafts.readDraft(projectId, "agent")).toBeNull();
@@ -104,6 +104,24 @@ describe("Workbench persistence owners", () => {
         selectedProviderId: "codex",
         updatedAt: now,
       }, null)).toThrow(/must match product_mode/);
+      expect(database.drafts.upsertDraft({
+        projectId,
+        productMode: "harness",
+        agentTurnMode: null,
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+        text: "AHO draft",
+        contextRefsJson: "[]",
+        attachmentIdsJson: "[]",
+        skillOverridesJson: "{}",
+        selectedProviderId: "codex",
+        updatedAt: now,
+      }, null)).toMatchObject({
+        productMode: "harness",
+        agentTurnMode: null,
+        agentModelId: "gpt-test",
+        agentReasoningEffort: "high",
+      });
       expect(database.drafts.deleteDraft(projectId, "agent", now)).toBe(true);
       expect(database.drafts.readDraft(projectId, "agent")).toBeNull();
     } finally {
@@ -312,6 +330,10 @@ describe("Workbench persistence owners", () => {
         graphScopeId: "graph-1",
         message: message("shared-message", "conversation-1"),
         skillOverrides: [{ skillId: "queued-skill", enabled: true }],
+        expectedModelId: null,
+        expectedReasoningEffort: null,
+        modelId: null,
+        reasoningEffort: null,
         updatedAt: now,
       });
 
@@ -326,6 +348,10 @@ describe("Workbench persistence owners", () => {
         graphScopeId: "graph-1",
         message: message("shared-message", "conversation-2"),
         skillOverrides: [{ skillId: "must-not-persist", enabled: true }],
+        expectedModelId: null,
+        expectedReasoningEffort: null,
+        modelId: null,
+        reasoningEffort: null,
         updatedAt: now,
       })).toThrow();
       expect(database.timeline.listConversationMessages(projectId, "conversation-2")).toEqual([]);

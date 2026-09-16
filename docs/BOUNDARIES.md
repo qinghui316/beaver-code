@@ -82,18 +82,19 @@ diagnostics. The static Provider Registry resolves adapters and operation
 capabilities; it is not a scheduler or state store.
 
 `ConversationTurnRouter` owns side-effect-free admission for each new turn, and
-the injected `AgentTurnModelAdmissionOwner` owns the provider-neutral model and
-reasoning-effort decision. Agent admission captures the Provider, requested and
-resolved model/effort, optional `turn.plan` capability snapshot, Agent turn mode,
+the injected `ConversationModelAdmissionOwner` owns the provider-neutral model and
+reasoning-effort decision. Agent and AHO main admission capture the Provider and
+requested and resolved model/effort; Agent admission additionally captures the
+optional `turn.plan` capability snapshot, Agent turn mode,
 and sandbox policy before Conversation or message persistence. Catalog reads may
 report invalid global configuration but must not repair or write it. Request
 hashes bind requested values while handoff and ProviderAttempt evidence bind the
 resolved values. The public contract carries only provider-neutral selections
 and `default | plan`; a Provider adapter alone constructs private collaboration
 payloads. Plan capability remains optional and independent of model validity,
-while each Plan Turn separately requires a resolved model. Harness requests
-cannot carry Agent turn mode/model/effort, and Agent Plan cannot create Harness
-planning or governance objects.
+while each Plan Turn separately requires a resolved model. Harness requests cannot
+carry Agent turn mode, but their main Agent may carry model and effort selection;
+Agent Plan cannot create Harness planning or governance objects.
 
 Direct Agent attachments cross one provider-neutral boundary. The Workbench
 composition root injects one `TurnAttachmentResolver`; Composer and HTTP carry
@@ -1297,7 +1298,7 @@ composition owner
 -> WorkbenchDatabase
 -> database-upgrade owner
 -> bounded repositories
--> schema v19 tables
+-> schema v20 tables
 ```
 
 - `src/workbench/persistence/database.ts` owns the shared repository connection lifetime and
@@ -1314,13 +1315,13 @@ composition owner
 - Upgrade quiescence is supplied through the existing composition-owned guard port. Persistence
   consumes that narrow port and must not import Provider, Workflow, or Agent Task owners to decide
   whether a migration may start.
-- Schema 16, 17, 18, and 19 are the only automatic compatibility window. Each transition is explicit,
+- Schema 16 through 20 are the automatic compatibility window. Each transition is explicit,
   validated, and forward-only. Populated older or future schemas are preserved byte-for-byte and
   rejected; no unsupported version may fall back to table deletion or cumulative current-DDL
   mutation.
 - A schema-changing open checkpoints SQLite, writes a verified sidecar snapshot and receipt, and
   then migrates in one exclusive transaction. Failure restores the snapshot and leaves a retry
-  suppression marker. Schema 19 opens do not create routine backups.
+  suppression marker. Schema 20 opens do not create routine backups.
 - Schema 19 stores immutable execution identity on Provider Attempts and creation identity plus
   exact confirmation receipts for Conversation Queue. The 18 -> 19 migration preserves old facts
   as `legacy-v0`; it neither rewrites history nor treats a legacy item as current behavior.

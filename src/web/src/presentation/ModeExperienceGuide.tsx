@@ -3,12 +3,11 @@ import type { ReactElement } from "react";
 import type { ProductMode } from "../types.js";
 import { productModeExperience } from "./core-workbench-experience.js";
 
-export function ModeExperienceGuide({ mode, compact = false }: {
+export function ModeExperienceGuide({ mode }: {
   mode: ProductMode;
-  compact?: boolean;
 }): ReactElement {
   const experience = productModeExperience(mode);
-  return compact ? (
+  return (
     <span
       className="product-mode-compact-guide"
       tabIndex={0}
@@ -17,10 +16,5 @@ export function ModeExperienceGuide({ mode, compact = false }: {
     >
       <Info size={14} aria-hidden="true" />
     </span>
-  ) : (
-    <div className="product-mode-guide" data-testid="product-mode-guide">
-      <strong>{experience.title}</strong>
-      <span>{experience.description}</span>
-    </div>
   );
 }

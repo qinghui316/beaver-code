@@ -670,8 +670,8 @@
 @media (max-width: 720px) {
   .thread-header {
     align-items: flex-end;
-    min-height: 96px;
-    padding: 54px 12px 7px;
+    min-height: 104px;
+    padding: 62px 12px 7px;
   }
 }
 

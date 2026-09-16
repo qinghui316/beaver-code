@@ -16,6 +16,7 @@ import { git } from "../../src/project/git.js";
 import { getWorktreeStatus } from "../../src/worktree/manager.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { initializeCurrentWorkbenchSchema, materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
+import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 
 const cleanup: string[] = [];
 
@@ -39,7 +40,7 @@ describe("project runtime coordinator", () => {
     expect(existsSync(fixture.targetSidecar)).toBe(true);
     const database = new Database(join(fixture.targetSidecar, "workbench", "workbench.sqlite"), { readonly: true });
     try {
-      expect(database.pragma("user_version", { simple: true })).toBe(19);
+      expect(database.pragma("user_version", { simple: true })).toBe(WORKBENCH_SCHEMA_VERSION);
       expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skills'").get()).toBeUndefined();
     } finally {
       database.close();

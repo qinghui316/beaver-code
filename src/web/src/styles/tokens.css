@@ -37,6 +37,8 @@
   --focus-border: #cbdafe;
   --on-accent: #ffffff;
   --overlay: rgb(23 25 27 / 38%);
+  --mask-muted: rgb(0 0 0 / 48%);
+  --mask-solid: #000;
   --terminal-bg: #12161c;
   --terminal-surface: #1a2028;
   --terminal-surface-strong: #111820;

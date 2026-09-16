@@ -86,8 +86,8 @@ export class ComposerDraftRecoveryService {
       projectId: stored.projectId,
       productMode: stored.productMode,
       agentTurnMode,
-      agentModelId: stored.productMode === "agent" ? stored.agentModelId : null,
-      agentReasoningEffort: stored.productMode === "agent" ? stored.agentReasoningEffort : null,
+      agentModelId: stored.agentModelId,
+      agentReasoningEffort: stored.agentReasoningEffort,
       text: stored.text,
       contextRefs,
       attachments,
@@ -103,8 +103,8 @@ export class ComposerDraftRecoveryService {
     if (!parsed.success) throw badRequest("Composer draft payload is invalid.");
     const productMode = parsed.data.productMode;
     const agentTurnMode = parseWriteTurnMode(productMode, parsed.data.agentTurnMode);
-    const agentModelId = parseWriteAgentSelection(productMode, parsed.data.agentModelId, "model");
-    const agentReasoningEffort = parseWriteAgentSelection(productMode, parsed.data.agentReasoningEffort, "reasoning effort");
+    const agentModelId = parseWriteModelSelection(parsed.data.agentModelId);
+    const agentReasoningEffort = parseWriteModelSelection(parsed.data.agentReasoningEffort);
     const contextRefs: TopicFileReference[] = [];
     for (const reference of uniqueReferences(parsed.data.contextRefs)) {
       const safe = await restoreTopicFileReference(project, reference).catch(() => null);
@@ -217,11 +217,7 @@ function parseWriteTurnMode(productMode: ProductMode, value: unknown): AgentTurn
   }
 }
 
-function parseWriteAgentSelection(productMode: ProductMode, value: string | null | undefined, label: string): string | null {
-  if (productMode === "harness") {
-    if (value !== null && value !== undefined) throw conflict(`Harness Composer drafts cannot carry Agent ${label}.`);
-    return null;
-  }
+function parseWriteModelSelection(value: string | null | undefined): string | null {
   return value?.trim() || null;
 }
 

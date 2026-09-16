@@ -8,6 +8,7 @@ const excludedPackageDirectories = new Set([
   ".turbo",
   ".vite",
   "node_modules",
+  "state",
   "dist",
   "build",
   "coverage",

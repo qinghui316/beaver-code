@@ -198,7 +198,6 @@ export function ProjectReadinessHome({
           <Bot size={50} />
         </div>
         <h1>{modeExperience.title}</h1>
-        <p className="home-mode-description">{modeExperience.description}</p>
         <WorkspacePicker
           projects={projects}
           selectedProjectId={selectedProjectId}

@@ -423,8 +423,8 @@ function createRequest(snapshot: DraftSubmissionSnapshot): ComposerCreateConvers
     providerId: snapshot.providerId ?? undefined,
     skillOverrides: normalizeSkillOverrides(snapshot.skillOverrides),
     agentTurnMode: snapshot.productMode === "agent" ? snapshot.agentTurnMode ?? undefined : undefined,
-    modelId: snapshot.productMode === "agent" ? snapshot.modelId : undefined,
-    reasoningEffort: snapshot.productMode === "agent" ? snapshot.reasoningEffort : undefined,
+    modelId: snapshot.modelId,
+    reasoningEffort: snapshot.reasoningEffort,
     showPendingBeforeCreate: true,
   };
 }
@@ -451,8 +451,8 @@ function messageRequest(snapshot: DraftSubmissionSnapshot, providerSwitchIntent?
     providerId: snapshot.providerId ?? undefined,
     providerSwitchIntent,
     agentTurnMode: snapshot.productMode === "agent" ? snapshot.agentTurnMode ?? undefined : undefined,
-    modelId: snapshot.productMode === "agent" ? snapshot.modelId : undefined,
-    reasoningEffort: snapshot.productMode === "agent" ? snapshot.reasoningEffort : undefined,
+    modelId: snapshot.modelId,
+    reasoningEffort: snapshot.reasoningEffort,
   };
 }
 

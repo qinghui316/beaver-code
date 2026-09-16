@@ -3,8 +3,7 @@ import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelCatalogGroup, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
-import { ComposerControls } from "./ComposerControls.js";
-import { AgentModelSelectors } from "./AgentModelSelectors.js";
+import { ConversationModelSelectors } from "./ConversationModelSelectors.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 import { ComposerFrame } from "./ComposerFrame.js";
@@ -276,8 +275,6 @@ export function ConversationComposerSurface({
   agentTurnMode,
   onSelectAgentTurnMode,
   agentTurnModeDisabledReason,
-  providerDisplayName,
-  modelLabel,
   selectedProviderId,
   agentModelId,
   agentReasoningEffort,
@@ -425,7 +422,7 @@ export function ConversationComposerSurface({
         <AgentTurnModeControl productMode={productMode} value={agentTurnMode} onChange={onSelectAgentTurnMode} planDisabledReason={agentTurnModeDisabledReason} />
         <span className="composer-spacer" />
         {contextControl}
-        {productMode === "agent" && onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <AgentModelSelectors
+        {onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <ConversationModelSelectors
           catalogs={providerModelCatalogs ?? []}
           selectedProviderId={selectedProviderId ?? null}
           modelId={agentModelId ?? null}
@@ -434,7 +431,7 @@ export function ConversationComposerSurface({
           onRefresh={onRefreshProviderModels}
           onSelectProviderModel={onSelectAgentProviderModel}
           onSelectReasoningEffort={onSelectAgentReasoningEffort}
-        /> : <ComposerControls providerDisplayName={providerDisplayName} modelLabel={modelLabel} />}
+        /> : null}
         {trailingControls}
       </>}
     >

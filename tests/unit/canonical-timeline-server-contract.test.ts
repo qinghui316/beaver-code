@@ -7,6 +7,7 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntime } from "../../src/project-runtime/resolution.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
+import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 import { decodeCanonicalTimelineCursor, encodeCanonicalTimelineCursor, getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
 import { CanonicalTimelineDelivery } from "../../src/workbench/canonical-timeline-delivery.js";
@@ -137,7 +138,7 @@ describe("canonical Timeline server contract", () => {
 
     const db = new Database(memory.workbenchDbPath, { readonly: true });
     try {
-      expect(db.pragma("user_version", { simple: true })).toBe(19);
+      expect(db.pragma("user_version", { simple: true })).toBe(WORKBENCH_SCHEMA_VERSION);
       expect(db.prepare("PRAGMA index_list(canonical_timeline_items)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "idx_timeline_conversation_position", unique: 1 }),
       ]));

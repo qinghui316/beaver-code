@@ -8,7 +8,7 @@ import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/
 import type { ManagedProject } from "../../src/types/index.js";
 import { ConversationLifecycleOwner } from "../../src/workbench/conversation-lifecycle.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
-import { applyCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema.js";
+import { applyCurrentWorkbenchSchema, WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 import { migrateWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
 
 const projectId = "conversation-lifecycle-project";
@@ -325,7 +325,7 @@ describe("Schema 17 lifecycle migration", () => {
       PRAGMA user_version = 16;
     `);
     migrateWorkbenchSchema(db, 16);
-    expect(db.pragma("user_version", { simple: true })).toBe(19);
+    expect(db.pragma("user_version", { simple: true })).toBe(WORKBENCH_SCHEMA_VERSION);
     expect(db.prepare("SELECT conversation_id, archive_origin, archived_at, lifecycle_revision, deleted_at FROM conversations ORDER BY conversation_id").all())
       .toEqual([
         { conversation_id: "agent-archive", archive_origin: "agent-user", archived_at: "2026-08-02", lifecycle_revision: 0, deleted_at: null },

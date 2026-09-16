@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
 
 const roots: string[] = [];
@@ -100,7 +101,7 @@ describe("Conversation Review schema compatibility", () => {
 
     const verified = new Database(paths.workbenchDbPath);
     try {
-      expect(verified.pragma("user_version", { simple: true })).toBe(19);
+      expect(verified.pragma("user_version", { simple: true })).toBe(WORKBENCH_SCHEMA_VERSION);
       expect(() => verified.prepare(`
         UPDATE conversation_turn_queue_items
         SET item_kind = 'review', review_target_json = '{"type":"uncommitted-changes"}'

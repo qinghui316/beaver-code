@@ -91,7 +91,7 @@ describe("Workbench shell layout contract", () => {
 
   it("keeps the Agent model menus inside the application viewport", async () => {
     const [selectorSource, composerCss] = await Promise.all([
-      readFile("src/web/src/shell/AgentModelSelectors.tsx", "utf8"),
+      readFile("src/web/src/shell/ConversationModelSelectors.tsx", "utf8"),
       readFile("src/web/src/styles/surfaces/composer.css", "utf8"),
     ]);
     expect(selectorSource).toContain('side="top"');

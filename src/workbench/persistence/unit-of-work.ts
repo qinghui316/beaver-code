@@ -282,6 +282,10 @@ export class WorkbenchUnitOfWork {
     skillOverrides: Array<{ skillId: string; enabled: boolean }>;
     queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
     allowActiveQueue?: boolean;
+    expectedModelId: string | null;
+    expectedReasoningEffort: string | null;
+    modelId: string | null;
+    reasoningEffort: string | null;
     updatedAt: string;
   }): { message: StoredTopicMessage; graphScopeRows: StoredTopicMessage[]; replayed: boolean } {
     return this.db.transaction(() => {
@@ -299,6 +303,15 @@ export class WorkbenchUnitOfWork {
         input.graphScopeId,
         input.updatedAt,
       );
+      this.conversations.updateConversationModelSelection({
+        projectId: input.projectId,
+        conversationId: input.conversationId,
+        expectedModelId: input.expectedModelId,
+        expectedReasoningEffort: input.expectedReasoningEffort,
+        modelId: input.modelId,
+        reasoningEffort: input.reasoningEffort,
+        updatedAt: input.updatedAt,
+      });
       const message = this.timeline.appendMessage(input.message);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
       return { message, graphScopeRows, replayed: false };

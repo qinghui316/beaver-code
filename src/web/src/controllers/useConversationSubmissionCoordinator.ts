@@ -274,8 +274,8 @@ export function useConversationSubmissionCoordinator(
       skillOverrides: prepared.skillOverrides,
       providerId: effectiveComposerProviderId(currentScope),
       agentTurnMode: productMode === "agent" ? captured.agentTurnMode : null,
-      modelId: productMode === "agent" ? captured.modelId : null,
-      reasoningEffort: productMode === "agent" ? captured.reasoningEffort : null,
+      modelId: captured.modelId,
+      reasoningEffort: captured.reasoningEffort,
     });
     await submissionOwner().submitMessage({
       snapshot,

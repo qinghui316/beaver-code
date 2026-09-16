@@ -1,4 +1,5 @@
-import { GitBranch, PanelRightOpen, SquareTerminal } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { GitBranch, MoreHorizontal, PanelRightOpen, SquareTerminal } from "lucide-react";
 import type { ReactElement } from "react";
 import { WORKSPACE_TOOLS } from "../../presentation/core-workbench-experience.js";
 
@@ -27,7 +28,8 @@ export function WorkspaceDockToggleBar({
 }): ReactElement {
   return (
     <div className="workspace-dock-toggle-bar" aria-label="工作区工具">
-      <button
+      <div className="workspace-dock-direct">
+        <button
         type="button"
         className={`top-tool-button workspace-orchestration-toggle${orchestrationActive ? " active" : ""}${orchestrationNeedsAttention ? " attention" : ""}`}
         data-testid="orchestration-overlay-toggle"
@@ -38,9 +40,8 @@ export function WorkspaceDockToggleBar({
         onClick={onToggleOrchestration}
       >
         <GitBranch size={16} aria-hidden="true" />
-        <span className="workspace-tool-label">{WORKSPACE_TOOLS.office.label}</span>
-      </button>
-      <button
+        </button>
+        <button
         type="button"
         className={`top-tool-button workspace-dock-toggle${terminalActive ? " active" : ""}`}
         data-testid="terminal-dock-toggle"
@@ -51,9 +52,8 @@ export function WorkspaceDockToggleBar({
         onClick={onToggleTerminal}
       >
         <SquareTerminal size={16} aria-hidden="true" />
-        <span className="workspace-tool-label">{WORKSPACE_TOOLS.terminal.label}</span>
-      </button>
-      <button
+        </button>
+        <button
         type="button"
         className={`top-tool-button workspace-right-rail-toggle${rightRailOpen ? " active" : ""}`}
         data-testid="right-tool-rail-toggle"
@@ -67,9 +67,76 @@ export function WorkspaceDockToggleBar({
         onClick={onToggleRightRail}
       >
         <PanelRightOpen size={16} aria-hidden="true" />
-        <span className="workspace-tool-label">{WORKSPACE_TOOLS.tools.label}</span>
         {rightRailPendingCount > 0 ? <span className="decision-pane-badge">{rightRailPendingCount}</span> : null}
-      </button>
+        </button>
+      </div>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            className="top-tool-button workspace-dock-overflow"
+            aria-label="更多工作区工具"
+            title="更多工作区工具"
+          >
+            <MoreHorizontal size={18} aria-hidden="true" />
+            {orchestrationNeedsAttention || rightRailPendingCount > 0
+              ? <span className="decision-pane-badge">{rightRailPendingCount > 0 ? rightRailPendingCount : ""}</span>
+              : null}
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="workspace-dock-overflow-menu" side="bottom" align="end" sideOffset={6} collisionPadding={8}>
+            <WorkspaceToolMenuItem
+              icon={<GitBranch size={16} aria-hidden="true" />}
+              label={orchestrationNeedsAttention ? "Agent Office 需要你处理" : orchestrationActive ? WORKSPACE_TOOLS.office.closeLabel : WORKSPACE_TOOLS.office.openLabel}
+              disabled={orchestrationDisabled}
+              active={orchestrationActive}
+              onSelect={onToggleOrchestration}
+            />
+            <WorkspaceToolMenuItem
+              icon={<SquareTerminal size={16} aria-hidden="true" />}
+              label={terminalActive ? WORKSPACE_TOOLS.terminal.closeLabel : WORKSPACE_TOOLS.terminal.openLabel}
+              disabled={terminalDisabled}
+              active={terminalActive}
+              onSelect={onToggleTerminal}
+            />
+            <WorkspaceToolMenuItem
+              icon={<PanelRightOpen size={16} aria-hidden="true" />}
+              label={rightRailOpen
+                ? WORKSPACE_TOOLS.tools.closeLabel
+                : rightRailPendingCount > 0
+                  ? `${WORKSPACE_TOOLS.tools.openLabel}，${rightRailPendingCount} 个待确认`
+                  : WORKSPACE_TOOLS.tools.openLabel}
+              active={rightRailOpen}
+              onSelect={onToggleRightRail}
+            />
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
+}
+
+function WorkspaceToolMenuItem({
+  icon,
+  label,
+  disabled = false,
+  active = false,
+  onSelect,
+}: {
+  icon: ReactElement;
+  label: string;
+  disabled?: boolean;
+  active?: boolean;
+  onSelect: () => void;
+}): ReactElement {
+  return <DropdownMenu.Item
+    className="workspace-dock-overflow-item"
+    disabled={disabled}
+    data-active={active || undefined}
+    onSelect={onSelect}
+  >
+    {icon}
+    <span>{label}</span>
+  </DropdownMenu.Item>;
 }

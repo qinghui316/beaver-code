@@ -128,8 +128,8 @@ export function useConversationExecutionActions(
         skillOverrides: prepared.skillOverrides,
         providerId,
         agentTurnMode: productMode === "agent" ? captured.agentTurnMode : null,
-        modelId: productMode === "agent" ? captured.modelId : null,
-        reasoningEffort: productMode === "agent" ? captured.reasoningEffort : null,
+        modelId: captured.modelId,
+        reasoningEffort: captured.reasoningEffort,
         expectedDraftUpdatedAt,
       });
       if (!queued) {

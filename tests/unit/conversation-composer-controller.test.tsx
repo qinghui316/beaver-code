@@ -161,6 +161,9 @@ describe("Conversation composer controller", () => {
       contextRefs: [fileRef("src/app.ts")],
       attachmentIds: ["existing"],
       providerId: "codex",
+      agentTurnMode: undefined,
+      modelId: null,
+      reasoningEffort: null,
       skillOverrides: [{ skillId: "reviewer", enabled: true }],
       showPendingBeforeCreate: true,
     });

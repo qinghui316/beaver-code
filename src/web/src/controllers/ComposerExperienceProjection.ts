@@ -83,11 +83,9 @@ export function projectComposerModelLabel(input: {
   modelSettings?: ProviderModelSettingsSnapshot | null;
 }): string {
   const effectiveModelId = input.modelSettings?.effectiveModel?.modelId ?? null;
-  const selectedModelId = input.productMode === "agent"
-    ? input.composerModelId === undefined
-      ? input.savedConversationModelId ?? effectiveModelId
-      : input.composerModelId ?? effectiveModelId
-    : effectiveModelId;
+  const selectedModelId = input.composerModelId === undefined
+    ? input.savedConversationModelId ?? effectiveModelId
+    : input.composerModelId ?? effectiveModelId;
   if (!selectedModelId) return input.modelSettings?.available === false ? "模型不可用" : "默认模型";
   return input.modelSettings?.candidates.find((candidate) => candidate.modelId.toLowerCase() === selectedModelId.toLowerCase())?.label
     ?? selectedModelId;

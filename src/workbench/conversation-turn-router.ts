@@ -22,7 +22,7 @@ import type { TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, 
 import type { TurnSkillContextPort } from "./conversation-turn-contract.js";
 import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 import type { ConversationTurnControlOwner } from "./conversation-turn-control.js";
-import { AgentTurnModelAdmissionOwner } from "./agent-turn-model-admission.js";
+import { ConversationModelAdmissionOwner } from "./conversation-model-admission.js";
 import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
 
 export type ConversationTurnStrategies = Readonly<Record<ProductMode, ConversationTurnStrategy>>;
@@ -34,7 +34,7 @@ export interface ConversationTurnRouterCompositionOptions {
   resolveRuntimePaths?: (projectId: string) => ProjectRuntimePaths;
   attachmentResolver?: TurnAttachmentResolver;
   turnControl?: ConversationTurnControlOwner;
-  modelAdmissionOwner?: AgentTurnModelAdmissionOwner;
+  modelAdmissionOwner?: ConversationModelAdmissionOwner;
   contextLifecycle?: ConversationContextLifecycleOwner;
 }
 
@@ -44,7 +44,7 @@ export function createConversationTurnRouter(
   const resolveRuntimePaths = options.resolveRuntimePaths
     ?? ((projectId: string) => options.projectRuntimeCoordinator.runtimePaths(projectId));
   const attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({ resolveRuntimePaths });
-  const modelAdmissionOwner = options.modelAdmissionOwner ?? new AgentTurnModelAdmissionOwner(options.providerRegistry);
+  const modelAdmissionOwner = options.modelAdmissionOwner ?? new ConversationModelAdmissionOwner(options.providerRegistry);
   return new ConversationTurnRouter(
     {
       agent: new DirectAgentConversationTurnStrategy({
@@ -88,7 +88,7 @@ export class ConversationTurnRouter {
     this.attachmentResolver = options.attachmentResolver ?? new TurnAttachmentResolver({
       resolveRuntimePaths: (projectId) => options.projectRuntimeCoordinator.runtimePaths(projectId),
     });
-    this.modelAdmissionOwner = options.modelAdmissionOwner ?? new AgentTurnModelAdmissionOwner(options.providerRegistry);
+    this.modelAdmissionOwner = options.modelAdmissionOwner ?? new ConversationModelAdmissionOwner(options.providerRegistry);
     this.contextLifecycle = options.contextLifecycle;
     for (const productMode of ["agent", "harness"] as const) {
       if (strategies[productMode].productMode !== productMode) {
@@ -100,7 +100,7 @@ export class ConversationTurnRouter {
   private readonly providerRegistry: ProviderRegistry;
   private readonly attachmentResolver: TurnAttachmentResolver;
   private readonly turnControl?: ConversationTurnControlOwner;
-  private readonly modelAdmissionOwner: AgentTurnModelAdmissionOwner;
+  private readonly modelAdmissionOwner: ConversationModelAdmissionOwner;
   private readonly contextLifecycle?: ConversationContextLifecycleOwner;
 
   readonly resolveAttachments = (project: ManagedProject, attachmentIds: readonly string[] = []) => (
@@ -136,16 +136,30 @@ export class ConversationTurnRouter {
     const runtimeState = await this.requireRuntimeState(input.project);
     if (input.productMode === "harness") {
       if (input.agentTurnMode !== null) throw conflict("Harness Turn cannot carry an Agent Turn mode.");
-      if (input.modelId !== null || input.reasoningEffort !== null) throw conflict("Harness Turn cannot carry Agent model selection.");
+      const resolved = await this.providerRegistry.requireProfiles(
+        input.providerId,
+        ["main"],
+        "harness",
+        input.project,
+        input.project.path,
+      );
+      const modelAdmission = await this.modelAdmissionOwner.admit({
+        project: input.project,
+        providerId: input.providerId,
+        requested: { providerId: input.providerId, modelId: input.modelId, reasoningEffort: input.reasoningEffort },
+        requireResolvedModel: false,
+      });
       return freezeAdmission({
         projectId: input.project.id,
         productMode: input.productMode,
         conversationId: input.conversationId,
         providerId: input.providerId,
         agentTurnMode: null,
-        capabilitySnapshot: null,
-        model: null,
-        modelAdmission: null,
+        capabilitySnapshot: resolved.snapshot,
+        model: modelAdmission.resolvedModelId
+          ? { providerId: input.providerId, modelId: modelAdmission.resolvedModelId }
+          : null,
+        modelAdmission,
         sandboxPolicy: "workspace-write",
         writableRoots: [input.project.path],
         runtimeState,
@@ -170,7 +184,7 @@ export class ConversationTurnRouter {
     const modelAdmission = await this.modelAdmissionOwner.admit({
       project: input.project,
       providerId: input.providerId,
-      requested: { modelId: input.modelId, reasoningEffort: input.reasoningEffort },
+      requested: { providerId: input.providerId, modelId: input.modelId, reasoningEffort: input.reasoningEffort },
       requireResolvedModel: agentTurnMode === "plan",
     });
     requireAttachmentCapabilities(resolved.snapshot, attachmentResolution);
@@ -324,11 +338,25 @@ export class ConversationTurnRouter {
       conversation: turn.conversation,
       requiredSkillIds: [],
     }, turn.runtimeState);
+    const modelAdmission = await this.modelAdmissionOwner.admit({
+      project,
+      providerId: turn.conversation.selectedProviderId,
+      requested: {
+        providerId: turn.conversation.selectedProviderId,
+        modelId: turn.conversation.agentModelId,
+        reasoningEffort: turn.conversation.agentReasoningEffort,
+      },
+      requireResolvedModel: false,
+    });
     return runProjectScopedMainAgentTurn(project, conversationId, message, live, planHandoff, {
       ...options,
       providerRegistry: this.providerRegistry,
       runtimeState: turn.runtimeState,
       turnSkillResolution: freezeResolution(turnSkillResolution),
+      model: modelAdmission.resolvedModelId
+        ? { providerId: turn.conversation.selectedProviderId, modelId: modelAdmission.resolvedModelId }
+        : null,
+      reasoningEffort: modelAdmission.resolvedReasoningEffort,
       turnControl: this.turnControl,
       contextLifecycle: this.contextLifecycle,
     });

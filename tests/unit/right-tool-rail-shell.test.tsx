@@ -21,8 +21,11 @@ describe("Right tool rail shell", () => {
       rightRailPendingCount={2}
       onToggleRightRail={onToggleRightRail}
     />);
-    expect(screen.getByText("Agent Office")).toBeTruthy();
-    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开 Agent Office" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开 Terminal" })).toBeTruthy();
+    expect(screen.queryByText("Agent Office")).toBeNull();
+    expect(screen.queryByText("Terminal")).toBeNull();
+    expect(screen.getByRole("button", { name: "更多工作区工具" })).toBeTruthy();
     fireEvent.click(screen.getByLabelText("打开工具，2 个待确认"));
     expect(onToggleRightRail).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();

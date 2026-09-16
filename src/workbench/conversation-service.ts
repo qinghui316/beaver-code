@@ -210,8 +210,8 @@ export async function createWorkbenchConversation(
           contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
           attachments: attachments.length > 0 ? attachments : undefined,
           agentTurnMode: agentTurnMode ?? undefined,
-          agentModelId: productMode === "agent" ? modelId : undefined,
-          agentReasoningEffort: productMode === "agent" ? reasoningEffort : undefined,
+          agentModelId: modelId ?? undefined,
+          agentReasoningEffort: reasoningEffort ?? undefined,
         }),
         skillOverrides,
       });
@@ -509,10 +509,6 @@ export async function postConversationMessage(
   turnRouter.assertRequestedMode(identity.conversation, requestedMode);
   const parsed = options.prepared?.parsed
     ?? await normalizeTopicMessageInput(project, input, turnRouter.resolveAttachments);
-  if (identity.conversation.productMode === "harness"
-    && (parsed.modelId !== undefined || parsed.reasoningEffort !== undefined)) {
-    throw conflict("Harness requests cannot carry Agent model selection.");
-  }
   const runtimeState = identity.runtimeState;
   if (identity.conversation.productMode === "agent" && parsed.planHandoffIntent) {
     const error = new Error("Agent mode does not accept AHO child feedback or planning handoffs.");
@@ -521,7 +517,8 @@ export async function postConversationMessage(
   }
   if (parsed.agentSurfaceId) {
     if (identity.conversation.productMode === "agent") {
-      if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
+      if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId
+        || parsed.modelId !== undefined || parsed.reasoningEffort !== undefined) {
         const error = new Error("Native child follow-up supports plain text only and cannot switch Providers or carry Main context.");
         error.name = "BadRequest";
         throw error;
@@ -543,7 +540,8 @@ export async function postConversationMessage(
     if (runtimeState.state === "repair-required") {
       throw new Error("Project Harness requires repair before planning or source execution.");
     }
-    if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
+    if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId
+      || parsed.modelId !== undefined || parsed.reasoningEffort !== undefined) {
       const error = new Error("Child Agent feedback supports text only and cannot switch providers or carry Main planning context.");
       error.name = "BadRequest";
       throw error;
@@ -611,8 +609,8 @@ export async function postConversationMessage(
       conversationId,
       providerId: admissionProviderId,
       agentTurnMode,
-      modelId: identity.conversation.productMode === "agent" ? modelId : null,
-      reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : null,
+      modelId,
+      reasoningEffort,
       attachments: parsed.attachments ?? [],
     });
     if (!admission) throw new Error("Prepared Conversation Turn is missing admission evidence.");
@@ -620,8 +618,8 @@ export async function postConversationMessage(
       ...parsed,
       requestHash: requestHash ?? undefined,
       agentTurnMode: agentTurnMode ?? undefined,
-      modelId: identity.conversation.productMode === "agent" ? modelId : undefined,
-      reasoningEffort: identity.conversation.productMode === "agent" ? reasoningEffort : undefined,
+      modelId,
+      reasoningEffort,
     }, turnRouter, live);
     if (committed.replayed) return replayedConversationMessageResult(committed.message);
     const result = await turnRouter.route({
@@ -917,6 +915,10 @@ async function commitTopLevelConversationMessage(
         skillOverrides: parsed.skillOverrides,
         queuedTurnDispatch: parsed.queuedTurnDispatch,
         allowActiveQueue: Boolean(planHandoff),
+        expectedModelId: conversation.agentModelId,
+        expectedReasoningEffort: conversation.agentReasoningEffort,
+        modelId: parsed.modelId ?? null,
+        reasoningEffort: parsed.reasoningEffort ?? null,
         updatedAt: now,
       });
       replayed = committed.replayed;
@@ -1564,16 +1566,10 @@ function normalizeRequestedAgentTurnMode(productMode: ProductMode, value: AgentT
 }
 
 function normalizeRequestedAgentModelSelection(
-  productMode: ProductMode,
+  _productMode: ProductMode,
   modelId: string | null | undefined,
   reasoningEffort: string | null | undefined,
 ): { modelId: string | null; reasoningEffort: string | null } {
-  if (productMode === "harness") {
-    if (modelId !== undefined || reasoningEffort !== undefined) {
-      throw conflict("Harness requests cannot carry Agent model selection.");
-    }
-    return { modelId: null, reasoningEffort: null };
-  }
   return {
     modelId: normalizeNullableSelection(modelId ?? null, "modelId"),
     reasoningEffort: normalizeNullableSelection(reasoningEffort ?? null, "reasoningEffort"),

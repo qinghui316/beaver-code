@@ -792,12 +792,12 @@ Workbench persistence separates connection lifetime, schema evolution, and table
 Workbench composition
 -> WorkbenchDatabase
 -> database-upgrade owner
--> explicit 16 -> 17 -> 18 -> 19 migration chain
+-> explicit 16 -> 17 -> 18 -> 19 -> 20 migration chain
 -> bounded repositories
 ```
 
-The migration chain is forward-only. Schema 19 opens without a snapshot. A populated Schema 16,
-17, or 18 database is checkpointed and backed up before one exclusive migration transaction runs. The
+The migration chain is forward-only. Schema 20 opens without a snapshot. A populated Schema 16,
+17, 18, or 19 database is checkpointed and backed up before one exclusive migration transaction runs. The
 snapshot, digest, applied versions, and bounded receipt live beside the Workbench database under
 `schema-upgrades/`; they never enter the user's Git repository. A failed or interrupted migration
 restores the verified snapshot and records a recovery marker so startup cannot repeat the same
@@ -815,6 +815,10 @@ The 18 -> 19 migration labels historical Attempts and active Queue items as
 `legacy-v0`; it does not manufacture policy facts or rewrite Timeline and Harness
 evidence. Legacy Queue content is preserved and waits for explicit confirmation
 before it can run under current semantics.
+
+Schema 20 allows Agent and AHO main conversations to share the same persisted model and reasoning-effort
+selection while keeping Agent Turn Mode isolated. Supported historical layouts are validated by named
+column contracts and compatible historical defaults rather than physical SQLite column order.
 
 ## 16. Workbench Experience Composition
 

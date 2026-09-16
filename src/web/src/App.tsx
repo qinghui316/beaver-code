@@ -1289,7 +1289,6 @@ export function App(): ReactElement {
           ><span>AHO</span><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></button>
         </div>
         <ModeExperienceGuide mode={appMode.productMode} />
-        <ModeExperienceGuide mode={appMode.productMode} compact />
       </div> : null}
       {!settingsOpen ? (
         <button

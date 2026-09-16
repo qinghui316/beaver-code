@@ -21,7 +21,7 @@ describe("Composer action projection", () => {
     expect(buildComposerActionProjection({ running: true, hasDraft: true, stopping: true, canStop: true })).toMatchObject({ primaryIntent: "wait", canSubmitDraft: false, canStop: false });
   });
 
-  it("labels the next Agent Turn from Composer selection before observed runtime state", () => {
+  it("labels the next Conversation Turn from Composer selection before observed runtime state", () => {
     const modelSettings = {
       providerId: "codex",
       selectedModel: null,
@@ -67,6 +67,6 @@ describe("Composer action projection", () => {
       productMode: "harness",
       composerModelId: "must-not-cross",
       modelSettings,
-    })).toBe("Runtime Model");
+    })).toBe("must-not-cross");
   });
 });

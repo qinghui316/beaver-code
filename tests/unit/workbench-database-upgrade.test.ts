@@ -71,7 +71,7 @@ describe("Workbench database upgrade safety", () => {
     const previousDir = join(dirname(paths.workbenchDbPath), "schema-upgrades", "previous");
     const receipt = JSON.parse(await readFile(join(previousDir, "receipt.json"), "utf8")) as Record<string, unknown>;
     expect(receipt).toMatchObject({ fromSchema: revision, toSchema: WORKBENCH_SCHEMA_VERSION, result: "completed" });
-    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19] : [18, 19]);
+    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19, 20] : [18, 19, 20]);
     expect(receipt.preservedRecordCounts).toMatchObject({ canonical_timeline_items: 1 });
     expect(receipt.preservedIdentityDigest).toMatch(/^[a-f0-9]{64}$/);
     await expect(stat(join(previousDir, "workbench.sqlite"))).resolves.toBeTruthy();
@@ -84,6 +84,25 @@ describe("Workbench database upgrade safety", () => {
     const second = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
     second.close();
     await expect(stat(join(dirname(paths.workbenchDbPath), "schema-upgrades"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("migrates a real additive-layout Schema 18 database without classifying it as corrupt", async () => {
+    const paths = resolveProjectRuntimePaths("additive-schema-18", root);
+    await createAdditiveLayoutSchema18Database(paths.workbenchDbPath);
+    await expect(inspectWorkbenchDatabaseUpgradeState(paths)).resolves.toEqual({
+      state: "upgrade-required",
+      schemaVersion: 18,
+    });
+
+    const opened = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    opened.close();
+
+    const verified = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(verified.pragma("integrity_check", { simple: true })).toBe("ok");
+    expect(verified.pragma("user_version", { simple: true })).toBe(WORKBENCH_SCHEMA_VERSION);
+    expect(verified.prepare("SELECT title FROM conversations WHERE conversation_id = 'additive-conversation'").get())
+      .toEqual({ title: "Preserved conversation" });
+    verified.close();
   });
 
   it.each([7, 99])("fails closed and byte-preserves unsupported Schema %i", async (revision) => {
@@ -422,8 +441,8 @@ describe("Workbench database upgrade safety", () => {
     })).rejects.toMatchObject({ code: "recovery-required" });
     const promotedReceipt = JSON.parse(await readFile(receiptPath, "utf8")) as { migrationImplementationVersion: number };
     const staleMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
-    expect(promotedReceipt.migrationImplementationVersion).toBe(2);
-    expect(staleMarker.migrationImplementationVersion).toBe(3);
+    expect(promotedReceipt.migrationImplementationVersion).toBe(3);
+    expect(staleMarker.migrationImplementationVersion).toBe(4);
 
     let migrationRetried = false;
     await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
@@ -431,7 +450,7 @@ describe("Workbench database upgrade safety", () => {
     })).rejects.toMatchObject({ code: "recovery-required" });
     expect(migrationRetried).toBe(false);
     const reconciledMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
-    expect(reconciledMarker.migrationImplementationVersion).toBe(2);
+    expect(reconciledMarker.migrationImplementationVersion).toBe(3);
   });
 
   it("retries after a recovered Schema 16 source receives a later durable write", async () => {
@@ -601,14 +620,14 @@ describe("Workbench database upgrade safety", () => {
       transactionId: "completed",
       fromSchema: 17,
       toSchema: WORKBENCH_SCHEMA_VERSION,
-      migrationImplementationVersion: 2,
+      migrationImplementationVersion: 3,
       sourceFileDigest: await digest(snapshotPath),
       sourceDigest: digestWorkbenchDatabaseContent(snapshotPath),
       snapshotDigest: await digest(snapshotPath),
       targetDigest,
       preservedRecordCounts: {},
       preservedIdentityDigest: "test",
-      appliedVersions: [18, 19],
+      appliedVersions: [18, 19, 20],
       startedAt: "2026-09-11T00:00:00.000Z",
       completedAt: "2026-09-11T00:00:01.000Z",
       result: "completed",
@@ -636,6 +655,48 @@ async function createLegacyDatabase(path: string, revision: 16 | 17): Promise<vo
   database.prepare("INSERT INTO skill_roots(project_id, root_path, source_kind, updated_at) VALUES ('project', 'provider-root', 'provider', '2026-09-11T00:00:00.000Z')").run();
   materializeWorkbenchSchemaContract(database, revision);
   database.close();
+}
+
+async function createAdditiveLayoutSchema18Database(path: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const reference = new Database(":memory:");
+  applyCurrentWorkbenchSchema(reference);
+  materializeWorkbenchSchemaContract(reference, 18);
+  const schemaRows = reference.prepare(`
+    SELECT type, name, sql
+    FROM sqlite_master
+    WHERE sql IS NOT NULL AND type IN ('table', 'index', 'trigger')
+    ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name
+  `).all() as Array<{ type: "table" | "index" | "trigger"; name: string; sql: string }>;
+  reference.close();
+
+  const historicalSql = schemaRows.map((row) => {
+    if (row.type !== "table") return row.sql;
+    if (row.name === "conversations") {
+      return row.sql
+        .replace("agent_turn_mode TEXT CHECK(agent_turn_mode IN ('default', 'plan') OR agent_turn_mode IS NULL)", "agent_turn_mode TEXT")
+        .replace("product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness'))", "product_mode TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))");
+    }
+    if (row.name === "provider_attempts") {
+      return row.sql
+        .replace("product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness'))", "product_mode TEXT NOT NULL DEFAULT 'harness' CHECK(product_mode IN ('agent', 'harness'))")
+        .replace(/,\s*CHECK\(conversation_id IS NOT NULL OR product_mode = 'harness'\)/, "");
+    }
+    return row.sql;
+  });
+
+  const database = new Database(path);
+  try {
+    database.exec(historicalSql.join(";\n"));
+    database.prepare(`INSERT INTO conversations (
+      project_id, conversation_id, product_mode, agent_turn_mode, title, state, surface_kind,
+      selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at
+    ) VALUES ('project', 'additive-conversation', 'harness', NULL, 'Preserved conversation', 'active', 'user',
+      'codex', 0, 0, 0, '2026-09-11T00:00:00.000Z', '2026-09-11T00:00:00.000Z')`).run();
+    database.pragma("user_version = 18");
+  } finally {
+    database.close();
+  }
 }
 
 async function digest(path: string): Promise<string> {

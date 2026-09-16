@@ -3,7 +3,7 @@ import { Bot, Check, ChevronDown, Gauge, RefreshCw } from "lucide-react";
 import type { ReactElement } from "react";
 import type { ProviderModelCatalogGroup, ProviderModelSettingsSnapshot } from "../types.js";
 
-export function AgentModelSelectors({
+export function ConversationModelSelectors({
   catalogs,
   selectedProviderId,
   modelId,

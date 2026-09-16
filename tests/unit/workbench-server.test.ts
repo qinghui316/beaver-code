@@ -20,7 +20,7 @@ import { resolveTopicAttachments } from "../../src/workbench/attachments.js";
 import type { ConversationTurnRoutingPort } from "../../src/workbench/conversation-turn-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
-import { applyCurrentWorkbenchSchema } from "../../src/workbench/persistence/schema.js";
+import { applyCurrentWorkbenchSchema, WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 import type { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import type { ConversationTurnRetryOwner } from "../../src/workbench/conversation-turn-retry.js";
 import type { ConversationContextLifecycleOwner } from "../../src/workbench/conversation-context-lifecycle.js";
@@ -1015,6 +1015,10 @@ describe("workbench server", () => {
     });
     expect(createdResponse.ok).toBe(true);
     const agentConversationId = (await createdResponse.json() as { topic: { conversationId: string } }).topic.conversationId;
+    const agentTopics = await getJson<Array<{ id: string }>>(
+      `${handle!.url}/api/projects/repo/workbench/topics?productMode=agent`,
+    );
+    expect(agentTopics).toContainEqual(expect.objectContaining({ id: agentConversationId }));
     const agentCatalog = await getJson<{ skills: Array<{ skillId: string; name: string; required: boolean; sourceKind: string }> }>(
       `${handle!.url}/api/projects/repo/skills?productMode=agent&providerId=codex&conversationId=${encodeURIComponent(agentConversationId)}`,
     );
@@ -2335,7 +2339,7 @@ describe("workbench server", () => {
 
     expect((await fetch(`${handle.url}/api/projects/lazy-project/workbench/topics?productMode=agent`)).status).toBe(200);
     const afterOpen = new Database(paths.workbenchDbPath, { readonly: true });
-    expect(Number(afterOpen.pragma("user_version", { simple: true }))).toBe(19);
+    expect(Number(afterOpen.pragma("user_version", { simple: true }))).toBe(WORKBENCH_SCHEMA_VERSION);
     afterOpen.close();
     const after = await getJson<{ projects: Array<{
       project: ManagedProject;
@@ -2396,7 +2400,7 @@ describe("workbench server", () => {
     await rm(`${stalePaths.workbenchDbPath}-shm`, { force: true });
     const replacement = new Database(stalePaths.workbenchDbPath);
     applyCurrentWorkbenchSchema(replacement);
-    replacement.pragma("user_version = 19");
+    replacement.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
     replacement.close();
 
     handle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
@@ -2414,7 +2418,7 @@ describe("workbench server", () => {
     for (const projectId of ["implementation-retry", "changed-source-retry"] as const) {
       expect((await fetch(`${handle.url}/api/projects/${projectId}/workbench/topics?productMode=agent`)).status).toBe(200);
       const current = new Database(resolveProjectRuntimePaths(projectId, isolatedHome).workbenchDbPath, { readonly: true });
-      expect(Number(current.pragma("user_version", { simple: true }))).toBe(19);
+      expect(Number(current.pragma("user_version", { simple: true }))).toBe(WORKBENCH_SCHEMA_VERSION);
       current.close();
     }
     expect(existsSync(join(stalePaths.workbenchRoot, "schema-upgrades", "recovery-required.json"))).toBe(false);

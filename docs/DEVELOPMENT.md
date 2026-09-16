@@ -227,7 +227,7 @@ GET  /api/projects/:projectId/workbench/actions/:actionRunId/events
 ```
 
 Ordinary chat messages use the Workbench canonical timeline in the resolved SQLite store. Schema
-16, 17, and 18 databases upgrade to Schema 19 through explicit forward migrations after a quiescence
+16, 17, 18, and 19 databases upgrade to Schema 20 through explicit forward migrations after a quiescence
 check and verified sidecar backup. Populated older schemas, future schemas, damaged databases, and
 failed recovery markers are preserved and isolated instead of being rebuilt or cleared. Never
 delete a project's Workbench database, WAL, migration snapshot, or recovery marker to make startup

@@ -82,7 +82,8 @@ describe("Workbench App owner composition", () => {
     const view = render(<App />);
 
     expect(await screen.findByRole("button", { name: "Agent，正在执行" })).toBeTruthy();
-    expect(screen.getByTestId("product-mode-guide").textContent).toContain("让多个 Agent 按流程协作");
+    expect(screen.getByLabelText("让多个 Agent 按流程协作。先规划，再开发、测试和审查；关键步骤由你确认。")).toBeTruthy();
+    expect(screen.queryByText("让多个 Agent 按流程协作")).toBeNull();
     expect(screen.getByRole("button", { name: "AHO" }).querySelector(".product-mode-activity-icon svg")).toBeNull();
     expect(view.container.querySelectorAll(".product-mode-activity-icon")).toHaveLength(2);
   });

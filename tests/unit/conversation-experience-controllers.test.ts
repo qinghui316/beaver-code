@@ -74,7 +74,7 @@ describe("Conversation experience application owners", () => {
     });
   });
 
-  it("merges restored content without overwriting current work and restores Agent-only configuration only into an empty draft", () => {
+  it("merges restored content and restores shared model configuration only into an empty draft", () => {
     const harness = draftHarness(draft({
       text: "current",
       contextRefs: [fileRef("src/current.ts")],
@@ -108,7 +108,7 @@ describe("Conversation experience application owners", () => {
       [],
       { restoreConfiguration: true },
     );
-    expect(ahoHarness.state).toMatchObject({ agentTurnMode: "default", modelId: null, reasoningEffort: null });
+    expect(ahoHarness.state).toMatchObject({ agentTurnMode: "default", modelId: "must-not-cross", reasoningEffort: "high" });
   });
 
   it("shows the optimistic row before transport and sends one immutable follow-up snapshot", async () => {

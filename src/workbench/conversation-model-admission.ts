@@ -1,17 +1,20 @@
 import { createHash } from "node:crypto";
 import type { ProviderModelCandidate, ProviderModelSettingsSnapshot, ProviderRegistry } from "../provider-runtime/index.js";
 import type { ManagedProject } from "../types/index.js";
-import type { AgentTurnModelAdmission, AgentTurnModelSelection } from "./conversation-turn-contract.js";
+import type { ConversationModelAdmission, ConversationModelSelection } from "./conversation-turn-contract.js";
 
-export class AgentTurnModelAdmissionOwner {
+export class ConversationModelAdmissionOwner {
   constructor(private readonly providerRegistry: ProviderRegistry) {}
 
   async admit(input: {
     project: ManagedProject;
     providerId: string;
-    requested: AgentTurnModelSelection;
+    requested: ConversationModelSelection;
     requireResolvedModel: boolean;
-  }): Promise<AgentTurnModelAdmission> {
+  }): Promise<ConversationModelAdmission> {
+    if (input.requested.providerId !== input.providerId) {
+      throw conflict("Conversation model selection does not match the Turn Provider.");
+    }
     let snapshot: ProviderModelSettingsSnapshot;
     try {
       snapshot = await this.providerRegistry.get(input.providerId).models.read(input.project.path);
@@ -46,7 +49,7 @@ export class AgentTurnModelAdmissionOwner {
 
     return Object.freeze({
       providerId: input.providerId,
-      requested: Object.freeze({ modelId: requestedModelId, reasoningEffort: requestedEffort }),
+      requested: Object.freeze({ providerId: input.providerId, modelId: requestedModelId, reasoningEffort: requestedEffort }),
       resolvedModelId,
       resolvedReasoningEffort: requestedEffort ?? candidate?.defaultReasoningEffort ?? null,
       modelSource: requestedModelId ? "explicit" : "provider-configuration",

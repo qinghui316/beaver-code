@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { readBundledAgentCatalog } from "../agent/catalog.js";
 import { evaluateToolPolicy } from "../agent-task/tool-policy.js";
-import type { ProviderRegistry, ProviderTurnResult } from "../provider-runtime/index.js";
+import type { ProviderModelRef, ProviderRegistry, ProviderTurnResult } from "../provider-runtime/index.js";
 import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -77,6 +77,8 @@ export function runProjectScopedMainAgentTurn(
     providerRegistry: ProviderRegistry;
     runtimeState: ProjectRuntimeState;
     turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
+    model: ProviderModelRef | null;
+    reasoningEffort: string | null;
     turnControl?: ConversationTurnControlOwner;
     contextLifecycle?: ConversationContextLifecycleOwner;
   },
@@ -103,6 +105,8 @@ async function runProjectScopedMainAgentTurnActivity(
     providerRegistry: ProviderRegistry;
     runtimeState: ProjectRuntimeState;
     turnSkillResolution: import("./conversation-turn-contract.js").TurnSkillContextResolution | null;
+    model: ProviderModelRef | null;
+    reasoningEffort: string | null;
     turnControl?: ConversationTurnControlOwner;
     contextLifecycle?: ConversationContextLifecycleOwner;
   },
@@ -111,6 +115,8 @@ async function runProjectScopedMainAgentTurnActivity(
   if (runtimeState.state === "onboarding") {
     return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, {
       providerRegistry: options.providerRegistry,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
     }, live);
   }
   if (runtimeState.state === "repair-required") {
@@ -305,7 +311,8 @@ async function runProjectScopedMainAgentTurnActivity(
         providerAdapterVersion: provider.adapter.version,
       }),
       nativeSessionId: mainSessionId,
-      model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
       capabilitySnapshot,
       effectiveSkillInputs: [...turnSkillResolution.skillInputs],
       handoffHash: turnHandoffHash,
@@ -416,7 +423,7 @@ async function runProjectScopedMainAgentTurnActivity(
         conversationId,
         providerId,
         nativeSessionId: nativeSessionId ?? mainSessionId,
-        preferredModel: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+        preferredModel: options.model,
         lastUsedAt: failedAt,
         bindingStatus: "stale",
       },
@@ -702,7 +709,8 @@ async function runProjectScopedMainAgentTurnActivity(
     onApprovalRequest: providerInputLifecycle.onApprovalRequest,
     onApprovalResolved: providerInputLifecycle.onApprovalResolved,
     onError: (error) => capture.sink.emit({ event: "error", data: { projectId, productMode: "harness", conversationId, runId, message: error instanceof Error ? error.message : String(error) } }),
-    model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
+    model: options.model,
+    reasoningEffort: options.reasoningEffort,
       });
       await providerInputLifecycle.terminalize();
     } catch (error) {
@@ -913,7 +921,7 @@ async function runProjectScopedMainAgentTurnActivity(
         conversationId,
         providerId,
         nativeSessionId: result.session?.sessionId ?? mainSessionId,
-        preferredModel: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+        preferredModel: options.model,
         lastUsedAt: terminalAt,
         bindingStatus: result.status === "failed" ? "stale" : "ready",
       },

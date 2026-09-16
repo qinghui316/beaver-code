@@ -276,7 +276,7 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
   const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    return Promise.all(store.conversations.listConversations(paths.projectId, productMode).map(async (conversation) => {
+    return await Promise.all(store.conversations.listConversations(paths.projectId, productMode).map(async (conversation) => {
       const forkOperation = store.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
       const lifecycle = input.conversationLifecycleSnapshotResolver
         ? await input.conversationLifecycleSnapshotResolver(input.project!, productMode, conversation.conversationId)

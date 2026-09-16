@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProviderTurnResult } from "../provider-runtime/contracts.js";
+import type { ProviderModelRef } from "../provider-runtime/types.js";
 import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
 import { createProjectHarnessRuntime, type ProjectHarnessCommandPort } from "../project-harness/runtime.js";
 import {
@@ -27,6 +28,8 @@ import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activi
 
 export interface RunProjectHarnessOnboardingTurnOptions {
   providerRegistry: Pick<ProviderRegistry, "requireProfiles">;
+  model: ProviderModelRef | null;
+  reasoningEffort: string | null;
   compiledRuntimeEntry?: string;
 }
 
@@ -98,9 +101,8 @@ async function runProjectHarnessOnboardingTurnActivity(
         providerAdapterVersion: resolvedProvider.descriptor.adapter.version,
       }),
       nativeSessionId: null,
-      model: resolvedProvider.snapshot.effectiveModel
-        ? { providerId, modelId: resolvedProvider.snapshot.effectiveModel }
-        : null,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
       capabilitySnapshot: resolvedProvider.snapshot,
       handoffHash: createHash("sha256").update(userMessage).digest("hex"),
       deliveredThroughCompletedTurn: conversation.completedTurnSequence,
@@ -246,6 +248,8 @@ async function runProjectHarnessOnboardingTurnActivity(
             sessionId: existingBinding.nativeSessionId,
           }
         : null,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
       paths: providerPaths(runRoot),
       onRealtimeEvent: (event) => {
         if (!event.parentThreadId && event.threadId && liveMainThreadId !== event.threadId) {
@@ -311,9 +315,7 @@ async function runProjectHarnessOnboardingTurnActivity(
         conversationId,
         providerId,
         nativeSessionId: result.session?.sessionId ?? null,
-        preferredModel: resolvedProvider.snapshot.effectiveModel
-          ? { providerId, modelId: resolvedProvider.snapshot.effectiveModel }
-          : null,
+        preferredModel: options.model,
         lastUsedAt: completedAt,
         bindingStatus: terminalStatus === "completed" ? "ready" : "stale",
       },
