@@ -14,13 +14,21 @@ describe("navigation toggle and overlay interactions", () => {
   it("projects one direct mode toggle whose label describes the next action", () => {
     const onToggle = vi.fn();
     const view = productModeToggleViewModel("agent", { harness: "attention" });
-    render(<ProductModeToggle view={view} onToggle={onToggle} />);
+    const rendered = render(<ProductModeToggle view={view} onToggle={onToggle} />);
 
     const toggle = screen.getByRole("button", { name: "切换到 AHO，需要你处理" });
-    expect(toggle.textContent).toContain("Agent");
+    expect(toggle.getAttribute("data-mode")).toBe("agent");
+    expect(toggle.querySelector(".product-mode-toggle-content.agent")?.textContent).toBe("Agent 模式");
+    expect(toggle.querySelector(".product-mode-toggle-content.harness")?.textContent).toBe("AHO 模式");
+    expect(toggle.querySelector(".product-mode-toggle-affordance svg")).toBeTruthy();
     expect(toggle.querySelector(".product-mode-toggle-activity.attention")).toBeTruthy();
     fireEvent.click(toggle);
     expect(onToggle).toHaveBeenCalledTimes(1);
+
+    rendered.rerender(<ProductModeToggle view={productModeToggleViewModel("harness", { agent: "running" })} onToggle={onToggle} />);
+    const harnessToggle = screen.getByRole("button", { name: "切换到 Agent，正在执行" });
+    expect(harnessToggle.getAttribute("data-mode")).toBe("harness");
+    expect(harnessToggle.querySelector(".product-mode-toggle-activity.running")).toBeTruthy();
   });
 
   it("keeps the selected project first and searches active and archived conversations", () => {

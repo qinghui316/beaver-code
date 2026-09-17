@@ -19,7 +19,13 @@ describe("Workbench shell layout contract", () => {
     expect(app).toContain("<WorkspaceNavigationHeader");
     expect(app).toContain("appMode.selectMode(modeToggle.targetMode)");
     expect(modeToggle).toContain('className="product-mode-toggle"');
-    expect(modeToggle).toContain('view.currentMode === "agent" ? MessageSquareCode : Workflow');
+    expect(modeToggle).toContain('className="product-mode-toggle-content agent"');
+    expect(modeToggle).toContain('className="product-mode-toggle-content harness"');
+    expect(modeToggle).toContain("Agent 模式");
+    expect(modeToggle).toContain("AHO 模式");
+    expect(shellCss).toContain('.product-mode-toggle[data-mode="harness"]');
+    expect(shellCss).toContain("background: var(--accent-strong)");
+    expect(shellCss).toContain("transition-duration: 0.01ms");
     expect(app).not.toContain("ModeExperienceGuide");
     expect(titleBar).toContain("文件");
     expect(titleBar).toContain("/api/desktop/menu/open");

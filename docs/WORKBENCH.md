@@ -172,8 +172,11 @@ outside click, Escape, or a completed choice and restore focus to their trigger.
 Unavailable projects remain visible with a recovery state instead of disappearing.
 
 Agent and AHO use the same page skeleton and one fixed-size mode pill. The pill
-shows the current mode, while its label and tooltip describe the direct switch
-to the other mode. A bounded status dot may describe activity in the other mode;
+shows `Agent 模式` on a light surface or `AHO 模式` on a graphite surface, while a
+trailing switch icon and the accessible label describe the direct switch to the
+other mode. Color and stacked label content transition in place without changing
+the header geometry; reduced-motion keeps the state change but removes spatial motion.
+A bounded status dot may describe activity in the other mode;
 it carries no counts, project content, or Conversation identity. Desktop and compact
 tool launchers show fixed Lucide icons for `Agent Office`, `Terminal`, and `工具`,
 with the same order, tooltips, and accessible names. The right launcher separates everyday work
