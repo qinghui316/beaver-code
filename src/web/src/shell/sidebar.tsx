@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Archive, ArchiveRestore, CircleAlert, ChevronDown, ChevronRight, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, Settings, Trash2 } from "lucide-react";
 import { ProjectAddForm, ProjectCreateForm } from "../panels/ProjectPanels.js";
 import { projectDisplayName } from "../formatters.js";
@@ -8,15 +8,19 @@ import { userFacingErrorMessage } from "../presentation/user-facing-language.js"
 import { ResponsiveActionMenu, type ResponsiveActionMenuItem } from "./ResponsiveActionMenu.js";
 import type { ConversationDeleteConfirmation, ProjectStatus, Snapshot, TopicDetail, WorkpadSummary } from "../types.js";
 
-export function ProjectConversationSidebarFeature({ surface }: { surface: ProjectNavigationFeatureSurface }): ReactElement {
-  return <ProjectConversationSidebar {...surface.view} {...surface.actions} />;
+export function ProjectConversationSidebarFeature({ surface, onLocalDialogOpenChange }: { surface: ProjectNavigationFeatureSurface; onLocalDialogOpenChange?: (open: boolean) => void }): ReactElement {
+  return <ProjectConversationSidebar {...surface.view} {...surface.actions} onLocalDialogOpenChange={onLocalDialogOpenChange} />;
 }
 
-export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps): ReactElement {
+export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps & { onLocalDialogOpenChange?: (open: boolean) => void }): ReactElement {
   const { projects, selectedProjectId, selectedTopicId, snapshots, snapshot, expandedProjects, overlay } = props;
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [archivedProjects, setArchivedProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteState | null>(null);
+  useEffect(() => {
+    props.onLocalDialogOpenChange?.(Boolean(deleteConfirmation));
+    return () => props.onLocalDialogOpenChange?.(false);
+  }, [deleteConfirmation, props.onLocalDialogOpenChange]);
   const projectNameCounts = new Map<string, number>();
   for (const item of projects) {
     const name = projectDisplayName(item.project ?? { path: item.path });

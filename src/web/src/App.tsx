@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -154,6 +155,10 @@ export function App(): ReactElement {
   const navigationOverlay = useProjectNavigationOverlayController();
   const navigationOverlayKindRef = useRef(navigationOverlay.state.kind);
   navigationOverlayKindRef.current = navigationOverlay.state.kind;
+  const sidebarLocalDialogOpenRef = useRef(false);
+  const setSidebarLocalDialogOpen = useCallback((open: boolean) => {
+    sidebarLocalDialogOpenRef.current = open;
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
   const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
@@ -975,7 +980,7 @@ export function App(): ReactElement {
     if (!mobileSidebarModalOpen) return;
     const closeMobileSidebarOnEscape = (event: globalThis.KeyboardEvent): void => {
       if (event.isComposing) return;
-      if (navigationOverlayKindRef.current !== "closed") return;
+      if (navigationOverlayKindRef.current !== "closed" || sidebarLocalDialogOpenRef.current) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -1308,7 +1313,7 @@ export function App(): ReactElement {
           tabIndex={mobileSidebarModalOpen ? -1 : undefined}
         >
           <div className="workspace-navigation-header-spacer" aria-hidden="true" />
-              <ProjectConversationSidebarFeature surface={projectNavigation} />
+              <ProjectConversationSidebarFeature surface={projectNavigation} onLocalDialogOpenChange={setSidebarLocalDialogOpen} />
           <div
             className="shell-resize-grip sidebar-resizer"
             role="separator"

@@ -190,6 +190,30 @@ describe("Workbench App owner composition", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("keeps the mobile drawer behind a portaled permanent-delete confirmation", async () => {
+    window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
+    installMatchMedia(true);
+    installApiFixture(createArchivedSnapshot());
+    render(<App />);
+    await screen.findByRole("button", { name: "Repo" });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
+    fireEvent.click(screen.getByRole("button", { name: "已归档" }));
+    fireEvent.click(screen.getByRole("button", { name: "Owner convergence 会话菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "永久删除" }));
+
+    const confirmation = await screen.findByRole("dialog", { name: "永久删除“Owner convergence”？" });
+    const cancel = screen.getByRole("button", { name: "取消" });
+    const permanentlyDelete = screen.getByRole("button", { name: "永久删除" });
+    permanentlyDelete.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(cancel);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => expect(confirmation.isConnected).toBe(false));
+    expect(screen.getByRole("dialog", { name: "左侧项目栏" })).toBeTruthy();
+  });
+
   it("closes the mobile drawer before entering Settings and does not restore stale drawer state", async () => {
     installMatchMedia(true);
     installApiFixture(createSnapshot());
@@ -466,6 +490,31 @@ function createEmptySnapshot(productMode: "agent" | "harness"): Snapshot {
   };
 }
 
+function createArchivedSnapshot(): Snapshot {
+  const snapshot = createSnapshot(undefined, "agent");
+  const topic = {
+    ...snapshot.left.topics[0],
+    state: "archive",
+    lifecycle: {
+      state: "archived",
+      archiveOrigin: "agent-user",
+      lifecycleRevision: "conversation-lifecycle:2",
+      canArchive: false,
+      canRestore: true,
+      canDelete: true,
+    },
+  } as NonNullable<Snapshot["left"]["topics"][number]>;
+  return {
+    ...snapshot,
+    left: { ...snapshot.left, topics: [topic] },
+    center: {
+      ...snapshot.center,
+      selectedTopic: topic,
+      workpad: { ...snapshot.center.workpad, state: "archive", conversationLifecycle: "archived" },
+    },
+  };
+}
+
 function snapshotWithConversationId(snapshot: Snapshot, conversationId: string): Snapshot {
   const topic = snapshot.center.selectedTopic
     ? { ...snapshot.center.selectedTopic, id: conversationId, title: conversationId }
@@ -699,6 +748,13 @@ function installApiFixture(snapshot: Snapshot, options: {
       projectId: "repo",
       projectName: "Repo",
       expiresAt: "2026-08-03T12:00:00.000Z",
+    });
+    if (url.endsWith("/lifecycle/delete-confirmation")) return json({
+      token: "delete-token-conv-1",
+      expiresAt: "2026-08-31T00:05:00.000Z",
+      conversationId: "conv-1",
+      lifecycleRevision: "conversation-lifecycle:2",
+      effect: "删除本地会话历史，项目文件保持不变。",
     });
     if (url.endsWith("/remove")) return json({ removal: { projectId: "repo" } });
     if (url.includes("/workbench/topics/conv-1/messages/live")) return sse();
