@@ -163,12 +163,18 @@ per-Conversation draft rows.
 The core Workbench is composed from bounded Project Navigation and Conversation
 Workspace presentation adapters. The project list owns one visible primary entry,
 one persistent new-conversation action, and a menu for lower-frequency project
-actions. Search matches both projects and their conversations; archived
-conversations stay collapsed unless explicitly opened or matched by search.
+actions. Search opens from the header button or `Ctrl+K` as a temporary palette;
+it matches projects and active or archived conversations without changing the
+current project until the user selects a result. Project creation, project
+actions, conversation actions, rename, and destructive confirmation use Portal
+surfaces instead of changing sidebar row geometry. Temporary surfaces close on
+outside click, Escape, or a completed choice and restore focus to their trigger.
 Unavailable projects remain visible with a recovery state instead of disappearing.
 
-Agent and AHO use the same page skeleton. Mode guidance is available from one
-focusable information icon instead of persistent header copy. Desktop and compact
+Agent and AHO use the same page skeleton and one fixed-size mode pill. The pill
+shows the current mode, while its label and tooltip describe the direct switch
+to the other mode. A bounded status dot may describe activity in the other mode;
+it carries no counts, project content, or Conversation identity. Desktop and compact
 tool launchers show fixed Lucide icons for `Agent Office`, `Terminal`, and `工具`,
 with the same order, tooltips, and accessible names. The right launcher separates everyday work
 from `帮助与诊断`, so diagnostics remain reachable without competing with primary
@@ -190,13 +196,12 @@ model, Skill, and Commit identities remain available through focusable labels or
 accessible names when visible text must truncate. Reduced-motion mode removes
 nonessential transitions without hiding status changes.
 
-The `Agent / AHO` selector shows one compact icon on the inactive mode when the
-selected project has running work, needs user attention, or has a current
-failure there. The server returns only the aggregate mode state and update time;
-it does not expose counts, Conversation identity, titles, messages, paths, or
-Provider-private identity. Clicking the indicator performs the existing mode
-switch and leaves Conversation selection, Composer drafts, Provider activity,
-and Harness governance untouched. SSE events only invalidate the indicator;
+The mode pill shows one compact status dot when the inactive mode has running
+work, needs user attention, or has a current failure. The server returns only
+the aggregate mode state and update time; it does not expose counts, Conversation
+identity, titles, messages, paths, or Provider-private identity. Clicking the
+pill performs the existing mode switch and leaves Conversation selection,
+Composer drafts, Provider activity, and Harness governance untouched. SSE events only invalidate the indicator;
 the browser reloads the canonical read-only projection after debounce and after
 reconnect, without polling or creating unread state.
 

@@ -7,7 +7,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type PointerEvent as ReactPointerEvent } from "react";
-import { MessageSquareCode, PanelLeftClose, PanelLeftOpen, Workflow } from "lucide-react";
 import { fetchJson } from "./api.js";
 import { MainConversationView,
   AgentOfficePanel,
@@ -59,7 +58,6 @@ import type {
   CanonicalTimelineScope,
   CanonicalDocumentReference,
   ConversationInteractionSettlement,
-  ProductModeActivityState,
   WorkspaceResourceTarget,
 } from "./types.js";
 import { ConversationInteractionDock } from "./panels/workbench/ConversationInteractionDock.js";
@@ -71,6 +69,7 @@ import { useProviderConfigurationController } from "./controllers/useProviderCon
 import { useConversationActionController } from "./controllers/useConversationActionController.js";
 import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
 import { useProductModeActivityController } from "./controllers/useProductModeActivityController.js";
+import { useProjectNavigationOverlayController } from "./controllers/useProjectNavigationOverlayController.js";
 import { useConversationContextController } from "./controllers/useConversationContextController.js";
 import { useConversationTurnQueueController } from "./controllers/useConversationTurnQueueController.js";
 import { useConversationReviewController } from "./controllers/useConversationReviewController.js";
@@ -87,11 +86,11 @@ import {
   projectReadinessComposerSurface,
   topicComposerSurface,
 } from "./presentation/conversation-workspace.js";
-import { productModeControlLabel, productModeControlTitle } from "./presentation/core-workbench-experience.js";
+import { productModeToggleViewModel } from "./presentation/core-workbench-experience.js";
 import { projectNavigationSurface } from "./presentation/project-navigation.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "./presentation/user-facing-language.js";
 import { DesktopTitleBar } from "./shell/DesktopTitleBar.js";
-import { ToolbarIconButton } from "./shell/ToolbarIconButton.js";
+import { WorkspaceNavigationHeader } from "./shell/WorkspaceNavigationHeader.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
 const LEFT_SIDEBAR_MIN_WIDTH = 220;
@@ -152,9 +151,7 @@ export function App(): ReactElement {
   const mobileSidebarRef = useRef<HTMLElement | null>(null);
   const mobileSidebarToggleRef = useRef<HTMLButtonElement | null>(null);
   const mobileSidebarWasOpenRef = useRef(false);
-  const [sidebarSearch, setSidebarSearch] = useState("");
-  const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
-  const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
+  const navigationOverlay = useProjectNavigationOverlayController();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
   const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
@@ -409,11 +406,6 @@ export function App(): ReactElement {
     await session.toggleProjectFolder(projectId);
   }
 
-  function updateSidebarSearch(value: string): void {
-    setSidebarSearch(value);
-    if (value.trim()) void session.prepareProjectNavigationSearch();
-  }
-
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
     await session.chooseConversation(projectId, conversationId);
     setMobileSidebarOpen(false);
@@ -445,6 +437,7 @@ export function App(): ReactElement {
 
   function openSettings(section: SettingsSection = "basic"): void {
     setMobileSidebarOpen(false);
+    navigationOverlay.close();
     setSettingsSection(section);
     setSettingsOpen(true);
     if (section === "skills") {
@@ -1122,20 +1115,29 @@ export function App(): ReactElement {
 
   const agentModeActivityState = modeActivity.snapshot?.agent.state;
   const harnessModeActivityState = modeActivity.snapshot?.harness.state;
+  const modeToggle = productModeToggleViewModel(appMode.productMode, {
+    agent: agentModeActivityState,
+    harness: harnessModeActivityState,
+  });
   const projectNavigation = projectNavigationSurface({
     projects,
     selectedProjectId,
     selectedTopicId: activeTopic?.id ?? selectedTopicForMode,
     snapshots: snapshotMatchesCurrentMode ? projectSnapshots : {},
     snapshot: activeModeSnapshot,
-    search: sidebarSearch,
     expandedProjects,
-    projectMenuMode,
-    projectDetailsId,
+    overlay: navigationOverlay.state,
   }, {
-    onSearch: updateSidebarSearch,
-    onProjectMenuMode: setProjectMenuMode,
-    onProjectDetails: setProjectDetailsId,
+    onCloseOverlay: navigationOverlay.close,
+    onOpenSearch: navigationOverlay.openSearch,
+    onSetSearchQuery: navigationOverlay.setSearchQuery,
+    onSetSearchActiveIndex: navigationOverlay.setSearchActiveIndex,
+    onPrepareSearch: session.prepareProjectNavigationSearch,
+    onOpenProjectCreateActions: navigationOverlay.openProjectCreateActions,
+    onOpenProjectActions: navigationOverlay.openProjectActions,
+    onOpenConversationActions: navigationOverlay.openConversationActions,
+    onOpenProjectForm: navigationOverlay.openProjectForm,
+    onOpenRenameConversation: navigationOverlay.openRenameConversation,
     onNewConversation: beginNewConversation,
     onOpenProject: openProject,
     onToggleProject: toggleProjectFolder,
@@ -1265,50 +1267,31 @@ export function App(): ReactElement {
       style={appShellStyle}
     >
       <DesktopTitleBar onError={setError} />
-      {!settingsOpen ? <nav className="product-mode-navigation" aria-label="工作模式" data-testid="product-mode-control">
-          <ToolbarIconButton
-            active={appMode.productMode === "agent"}
-            className="product-mode-navigation-button"
-            aria-pressed={appMode.productMode === "agent"}
-            aria-label={productModeControlLabel("agent", appMode.productMode === "agent", agentModeActivityState)}
-            title={productModeControlTitle("agent", appMode.productMode === "agent", agentModeActivityState)}
-            onClick={() => {
-              setMobileSidebarOpen(false);
-              appMode.selectMode("agent");
-            }}
-          ><MessageSquareCode size={16} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "agent"} state={agentModeActivityState} /></ToolbarIconButton>
-          <ToolbarIconButton
-            active={appMode.productMode === "harness"}
-            className="product-mode-navigation-button"
-            aria-pressed={appMode.productMode === "harness"}
-            aria-label={productModeControlLabel("harness", appMode.productMode === "harness", harnessModeActivityState)}
-            title={productModeControlTitle("harness", appMode.productMode === "harness", harnessModeActivityState)}
-            onClick={() => {
-              setMobileSidebarOpen(false);
-              appMode.selectMode("harness");
-            }}
-          ><Workflow size={16} aria-hidden="true" /><ProductModeActivityIcon active={appMode.productMode === "harness"} state={harnessModeActivityState} /></ToolbarIconButton>
-      </nav> : null}
       {!settingsOpen ? (
-        <button
-          ref={mobileSidebarToggleRef}
-          type="button"
-          className="icon-button mobile-sidebar-toggle"
-          aria-label={mobileSidebarModalOpen ? "关闭会话栏" : "打开会话栏"}
-          aria-controls="project-conversation-sidebar"
-          aria-expanded={mobileSidebarModalOpen}
-          title={mobileSidebarModalOpen ? "关闭会话栏" : "打开会话栏"}
-          onClick={() => setMobileSidebarOpen((open) => !open)}
-        >
-          {mobileSidebarModalOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-        </button>
+        <WorkspaceNavigationHeader
+          mode={modeToggle}
+          onToggleMode={() => {
+            setMobileSidebarOpen(false);
+            appMode.selectMode(modeToggle.targetMode);
+          }}
+          navigation={projectNavigation}
+          mobileSidebarOpen={mobileSidebarModalOpen}
+          onToggleMobileSidebar={() => {
+            if (mobileSidebarOpen) navigationOverlay.close();
+            setMobileSidebarOpen((open) => !open);
+          }}
+          mobileSidebarToggleRef={mobileSidebarToggleRef}
+        />
       ) : null}
       {!settingsOpen && mobileSidebarModalOpen ? (
         <button
           type="button"
           className="mobile-sidebar-backdrop"
           aria-label="关闭会话栏"
-          onClick={() => setMobileSidebarOpen(false)}
+          onClick={() => {
+            navigationOverlay.close();
+            setMobileSidebarOpen(false);
+          }}
         />
       ) : null}
       {!settingsOpen ? (
@@ -1321,7 +1304,7 @@ export function App(): ReactElement {
           aria-modal={mobileSidebarModalOpen || undefined}
           tabIndex={mobileSidebarModalOpen ? -1 : undefined}
         >
-          <div className="product-mode-navigation-spacer" aria-hidden="true" />
+          <div className="workspace-navigation-header-spacer" aria-hidden="true" />
               <ProjectConversationSidebarFeature surface={projectNavigation} />
           <div
             className="shell-resize-grip sidebar-resizer"
@@ -1629,11 +1612,6 @@ export function App(): ReactElement {
 
     </div>
   );
-}
-
-function ProductModeActivityIcon({ active, state }: { active: boolean; state: ProductModeActivityState | undefined }): ReactElement | null {
-  const visibleState = active || state === "idle" || state === "unavailable" ? undefined : state;
-  return visibleState ? <span className={`product-mode-activity-icon ${visibleState}`} aria-hidden="true" /> : null;
 }
 
 function isOrchestrationTabParam(value: string | null): boolean {

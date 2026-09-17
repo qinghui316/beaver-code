@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useModalDialogFocus } from "./useModalDialogFocus.js";
 
 export function DialogSurface({
@@ -9,6 +10,8 @@ export function DialogSurface({
   overlayClassName = "",
   panelClassName = "",
   returnFocusRef,
+  dismissible = true,
+  portal = false,
   children,
 }: {
   open: boolean;
@@ -18,6 +21,8 @@ export function DialogSurface({
   overlayClassName?: string;
   panelClassName?: string;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  dismissible?: boolean;
+  portal?: boolean;
   children: ReactNode;
 }): ReactNode {
   const dialogRef = useModalDialogFocus(open, returnFocusRef);
@@ -27,19 +32,19 @@ export function DialogSurface({
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCloseRef.current();
+      if (event.key === "Escape" && dismissible) onCloseRef.current();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open]);
+  }, [dismissible, open]);
 
   if (!open) return null;
-  return (
+  const surface = (
     <div
       className={`settings-overlay ${overlayClassName}`.trim()}
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCloseRef.current();
+        if (dismissible && event.target === event.currentTarget) onCloseRef.current();
       }}
     >
       <section
@@ -55,4 +60,5 @@ export function DialogSurface({
       </section>
     </div>
   );
+  return portal && typeof document !== "undefined" ? createPortal(surface, document.body) : surface;
 }

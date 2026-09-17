@@ -77,21 +77,17 @@ describe("Workbench App owner composition", () => {
     expect(MockEventSource.instances[0]?.url).toBe("/api/projects/repo/workbench/events/live");
   });
 
-  it("shows one accessible status icon only on the inactive product mode", async () => {
+  it("shows one direct mode toggle with a bounded inactive-mode status", async () => {
     installApiFixture(createSnapshot());
     const view = render(<App />);
 
-    expect(await screen.findByRole("button", { name: "Agent，正在执行" })).toBeTruthy();
-    const agentButton = screen.getByRole("button", { name: "Agent，正在执行" });
-    const harnessButton = screen.getByRole("button", { name: "AHO" });
-    expect(agentButton.textContent).toBe("");
-    expect(harnessButton.textContent).toBe("");
-    expect(harnessButton.getAttribute("title")).toContain("让多个 Agent 按流程协作");
+    const toggle = await screen.findByRole("button", { name: "切换到 Agent" });
+    expect(toggle.textContent).toContain("AHO");
+    expect(toggle.getAttribute("title")).toContain("直接和 Agent 一起开发");
     expect(screen.queryByText("让多个 Agent 按流程协作")).toBeNull();
-    expect(agentButton.querySelector(".product-mode-activity-icon.running")).toBeTruthy();
-    expect(agentButton.querySelector(".product-mode-activity-icon svg")).toBeNull();
-    expect(harnessButton.querySelector(".product-mode-activity-icon")).toBeNull();
-    expect(view.container.querySelectorAll(".product-mode-activity-icon")).toHaveLength(1);
+    await waitFor(() => expect(toggle.querySelector(".product-mode-toggle-activity.running")).toBeTruthy());
+    expect(view.container.querySelectorAll(".product-mode-toggle")).toHaveLength(1);
+    expect(view.container.querySelectorAll(".product-mode-toggle-activity")).toHaveLength(1);
   });
 
   it("keeps the office as a pure center view and opens a canonical child surface", async () => {
@@ -154,11 +150,11 @@ describe("Workbench App owner composition", () => {
     expect(view.container.querySelector("main.workspace")?.hasAttribute("inert")).toBe(true);
 
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "搜索项目和对话" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "添加项目" }));
     const settingsButton = screen.getByRole("button", { name: "设置" });
     settingsButton.focus();
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "搜索项目和对话" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "添加项目" }));
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(settingsButton);
 
@@ -220,7 +216,7 @@ describe("Workbench App owner composition", () => {
     render(<App />);
     await screen.findByText("Canonical Main reply");
 
-    fireEvent.click(await screen.findByRole("button", { name: "更多项目操作" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Repo 项目菜单" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /移出项目/ }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
@@ -282,7 +278,7 @@ describe("Workbench App owner composition", () => {
     installApiFixture(createSnapshot(undefined, "agent"));
     const view = render(<App />);
     await waitFor(() => expect(view.container.querySelector(".thread-header strong")?.textContent).toBe("Owner convergence"));
-    expect(screen.getByRole("button", { name: "Agent" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "切换到 AHO" }).textContent).toContain("Agent");
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具" }));
     expect(await screen.findByTestId("right-tool-launcher-agent")).toBeTruthy();
@@ -328,7 +324,7 @@ describe("Workbench App owner composition", () => {
     await screen.findByText("Canonical Main reply");
 
     const requestStart = vi.mocked(fetch).mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: /^AHO/ }));
+    fireEvent.click(screen.getByRole("button", { name: "切换到 AHO" }));
     await waitFor(() => expect(requestUrls("/providers/capabilities?")).toContain(
       "/api/projects/repo/providers/capabilities?productMode=harness",
     ));

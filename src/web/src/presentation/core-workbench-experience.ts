@@ -8,6 +8,16 @@ export interface ProductModeExperienceViewModel {
   readonly compactDescription: string;
 }
 
+export interface ProductModeToggleViewModel {
+  readonly currentMode: ProductMode;
+  readonly currentLabel: "Agent" | "AHO";
+  readonly targetMode: ProductMode;
+  readonly targetLabel: "Agent" | "AHO";
+  readonly targetActivity: ProductModeActivityState | null;
+  readonly accessibleLabel: string;
+  readonly title: string;
+}
+
 export interface WorkspaceToolViewModel {
   readonly id: "office" | "terminal" | "tools";
   readonly label: string;
@@ -78,4 +88,21 @@ export function productModeControlTitle(
   const description = `${experience.title}。${experience.description}`;
   if (active || !state || state === "idle" || state === "unavailable") return `${experience.label} · ${description}`;
   return `${productModeControlLabel(mode, false, state)}。${description}`;
+}
+
+export function productModeToggleViewModel(
+  currentMode: ProductMode,
+  activity: Readonly<Partial<Record<ProductMode, ProductModeActivityState>>>,
+): ProductModeToggleViewModel {
+  const targetMode: ProductMode = currentMode === "agent" ? "harness" : "agent";
+  const targetActivity = activity[targetMode] ?? null;
+  return {
+    currentMode,
+    currentLabel: MODE_EXPERIENCE[currentMode].label,
+    targetMode,
+    targetLabel: MODE_EXPERIENCE[targetMode].label,
+    targetActivity,
+    accessibleLabel: `切换到 ${MODE_EXPERIENCE[targetMode].label}`,
+    title: productModeControlTitle(targetMode, false, targetActivity ?? undefined),
+  };
 }

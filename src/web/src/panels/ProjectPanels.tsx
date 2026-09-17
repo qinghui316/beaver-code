@@ -25,11 +25,18 @@ export function InfoRow({ label, value }: { label: string; value: string }): Rea
   );
 }
 
-export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Promise<void> }): ReactElement {
+export function ProjectAddForm({ onDone, onBusyChange }: { onDone: (projectId?: string) => Promise<void>; onBusyChange?: (busy: boolean) => void }): ReactElement {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [manual, setManual] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function reportBusy(action: () => Promise<void>): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    onBusyChange?.(true);
+    try { await action(); } finally { setBusy(false); onBusyChange?.(false); }
+  }
   async function submit(selectedPath = path): Promise<void> {
     const response = await fetch("/api/projects", {
       method: "POST",
@@ -62,14 +69,14 @@ export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Pro
     setMessage("无法打开文件夹选择器，请手动输入路径。");
   }
   return (
-    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
-      <button type="button" className="primary-button" onClick={() => void chooseFolder().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />打开文件夹</button>
-      <label className="project-form-field"><span>项目名称（可选）</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 Beaver Code" /></label>
-      <button type="button" className="text-button" onClick={() => setManual(!manual)}>{manual ? "收起路径输入" : "输入路径"}</button>
+    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void reportBusy(() => submit()).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
+      <button type="button" className="primary-button" disabled={busy} onClick={() => void reportBusy(chooseFolder).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />{busy ? "正在处理" : "打开文件夹"}</button>
+      <label className="project-form-field"><span>项目名称（可选）</span><input disabled={busy} type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 Beaver Code" /></label>
+      <button type="button" className="text-button" disabled={busy} onClick={() => setManual(!manual)}>{manual ? "收起路径输入" : "输入路径"}</button>
       {manual ? (
         <>
-          <label className="project-form-field"><span>项目路径</span><input type="text" value={path} onChange={(event) => setPath(event.target.value)} placeholder="例如 E:\\work\\my-app" /></label>
-          <button type="submit" className="outline-button"><Plus size={15} />添加项目</button>
+          <label className="project-form-field"><span>项目路径</span><input disabled={busy} type="text" value={path} onChange={(event) => setPath(event.target.value)} placeholder="例如 E:\\work\\my-app" /></label>
+          <button type="submit" className="outline-button" disabled={busy}><Plus size={15} />添加项目</button>
         </>
       ) : null}
       {message ? <small role="status">{message}</small> : null}
@@ -77,13 +84,20 @@ export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Pro
   );
 }
 
-export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => Promise<void> }): ReactElement {
+export function ProjectCreateForm({ onDone, onBusyChange }: { onDone: (projectId?: string) => Promise<void>; onBusyChange?: (busy: boolean) => void }): ReactElement {
   const [parentPath, setParentPath] = useState("");
   const [name, setName] = useState("");
   const [git, setGit] = useState(true);
   const [readme, setReadme] = useState(true);
   const [initialCommit, setInitialCommit] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function reportBusy(action: () => Promise<void>): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    onBusyChange?.(true);
+    try { await action(); } finally { setBusy(false); onBusyChange?.(false); }
+  }
   async function submit(): Promise<void> {
     const response = await fetch("/api/projects/new", {
       method: "POST",
@@ -113,14 +127,14 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
     setMessage("无法打开文件夹选择器，请手动输入保存位置。");
   }
   return (
-    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
-      <button type="button" className="outline-button" onClick={() => void chooseParent().catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />选择位置</button>
-      <label className="project-form-field"><span>保存位置</span><input type="text" value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="例如 E:\\work" /></label>
-      <label className="project-form-field"><span>项目名称</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 my-app" /></label>
-      <label><input type="checkbox" checked={git} onChange={(event) => setGit(event.target.checked)} /> 初始化 Git</label>
-      <label><input type="checkbox" checked={readme} onChange={(event) => setReadme(event.target.checked)} /> 创建 README</label>
-      <label><input type="checkbox" checked={initialCommit} onChange={(event) => setInitialCommit(event.target.checked)} /> 创建初始提交</label>
-      <button type="submit" className="primary-button"><Plus size={15} />新建项目</button>
+    <form className="project-form" onSubmit={(event) => { event.preventDefault(); void reportBusy(submit).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
+      <button type="button" className="outline-button" disabled={busy} onClick={() => void reportBusy(chooseParent).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />选择位置</button>
+      <label className="project-form-field"><span>保存位置</span><input disabled={busy} type="text" value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="例如 E:\\work" /></label>
+      <label className="project-form-field"><span>项目名称</span><input disabled={busy} type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 my-app" /></label>
+      <label><input disabled={busy} type="checkbox" checked={git} onChange={(event) => setGit(event.target.checked)} /> 初始化 Git</label>
+      <label><input disabled={busy} type="checkbox" checked={readme} onChange={(event) => setReadme(event.target.checked)} /> 创建 README</label>
+      <label><input disabled={busy} type="checkbox" checked={initialCommit} onChange={(event) => setInitialCommit(event.target.checked)} /> 创建初始提交</label>
+      <button type="submit" className="primary-button" disabled={busy || !parentPath.trim() || !name.trim()}><Plus size={15} />{busy ? "正在创建" : "新建项目"}</button>
       {message ? <small role="status">{message}</small> : null}
     </form>
   );

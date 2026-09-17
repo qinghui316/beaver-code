@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyWorkbenchSnapshot } from "../../src/web/src/controllers/useProjectConversationSession.js";
 import { ProjectConversationSidebar } from "../../src/web/src/shell/sidebar.js";
 import type { ProjectStatus, Snapshot } from "../../src/web/src/types.js";
+import type { ProjectNavigationOverlayState } from "../../src/web/src/presentation/project-navigation.js";
 
 afterEach(cleanup);
 
@@ -40,7 +42,7 @@ describe("Conversation sidebar rename", () => {
 
     expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
     expect(screen.queryByText("首次需求时会根据项目情况建立必要工作说明。")).toBeNull();
-    fireEvent.click(screen.getByLabelText("更多项目操作"));
+    fireEvent.click(screen.getByLabelText("Repo 项目菜单"));
     expect(screen.queryByRole("menuitem", { name: "新建对话" })).toBeNull();
   });
 
@@ -49,45 +51,45 @@ describe("Conversation sidebar rename", () => {
     renderSidebar(rename);
     fireEvent.click(screen.getByLabelText("Old title 会话菜单"));
     fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
-    const input = screen.getByLabelText("重命名 Old title");
+    const input = screen.getByLabelText("会话名称");
     fireEvent.change(input, { target: { value: "New title" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.blur(input);
 
     await waitFor(() => expect(rename).toHaveBeenCalledTimes(1));
     expect(rename).toHaveBeenCalledWith("repo-1", "conv-1", "New title");
   });
 
-  it("restores the prior title and keeps an inline error after failure", async () => {
+  it("keeps the draft and shows an inline error after failure", async () => {
     const rename = vi.fn(async () => { throw new Error("rename failed"); });
     renderSidebar(rename);
     fireEvent.click(screen.getByLabelText("Old title 会话菜单"));
     fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
-    const input = screen.getByLabelText("重命名 Old title");
+    const input = screen.getByLabelText("会话名称");
     fireEvent.change(input, { target: { value: "Broken title" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("会话操作暂时无法完成。请重试。"));
-    expect((screen.getByLabelText("重命名 Old title") as HTMLInputElement).value).toBe("Old title");
+    expect((screen.getByLabelText("会话名称") as HTMLInputElement).value).toBe("Broken title");
   });
 
-  it("saves on blur and cancels on Escape", async () => {
+  it("does not save on blur and cancels on Escape", async () => {
     const rename = vi.fn(async () => undefined);
     renderSidebar(rename);
     fireEvent.click(screen.getByLabelText("Old title 会话菜单"));
     fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
-    let input = screen.getByLabelText("重命名 Old title");
+    let input = screen.getByLabelText("会话名称");
     fireEvent.change(input, { target: { value: "Blur title" } });
     fireEvent.blur(input);
-    await waitFor(() => expect(rename).toHaveBeenCalledWith("repo-1", "conv-1", "Blur title"));
+    expect(rename).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Escape" });
 
     fireEvent.click(screen.getByLabelText("Old title 会话菜单"));
     fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
-    input = screen.getByLabelText("重命名 Old title");
+    input = screen.getByLabelText("会话名称");
     fireEvent.change(input, { target: { value: "Cancelled title" } });
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(screen.queryByLabelText("重命名 Old title")).toBeNull();
-    expect(rename).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("会话名称")).toBeNull();
+    expect(rename).not.toHaveBeenCalled();
   });
 });
 
@@ -96,30 +98,25 @@ function renderSidebar(
   snapshot = sidebarSnapshot(),
   project = managedProject(),
 ): void {
-  render(<ProjectConversationSidebar
-    projects={[project]}
-    selectedProjectId="repo-1"
-    selectedTopicId="conv-1"
-    snapshots={{ "repo-1": snapshot }}
-    snapshot={snapshot}
-    search=""
-    onSearch={vi.fn()}
-    expandedProjects={new Set(["repo-1"])}
-    projectMenuMode="closed"
-    projectDetailsId={null}
-    onProjectMenuMode={vi.fn()}
-    onProjectDetails={vi.fn()}
-    onNewConversation={vi.fn(async () => undefined)}
-    onOpenProject={vi.fn(async () => undefined)}
-    onToggleProject={vi.fn(async () => undefined)}
-    onChooseConversation={vi.fn(async () => undefined)}
-    onHideConversation={vi.fn(async () => undefined)}
-    onRenameConversation={onRenameConversation}
-    onRemoveProject={vi.fn(async () => undefined)}
-    onRefresh={vi.fn(async () => undefined)}
-    onOpenSettings={vi.fn()}
-    onOpenProjectSettings={vi.fn()}
-  />);
+  function TestSidebar() {
+    const [overlay, setOverlay] = useState<ProjectNavigationOverlayState>({ kind: "closed" });
+    const defaults = {
+      projects: [project], selectedProjectId: "repo-1", selectedTopicId: "conv-1",
+      snapshots: { "repo-1": snapshot }, snapshot, expandedProjects: new Set(["repo-1"]), overlay,
+      onCloseOverlay: () => setOverlay({ kind: "closed" }),
+      onOpenSearch: vi.fn(), onSetSearchQuery: vi.fn(), onSetSearchActiveIndex: vi.fn(), onPrepareSearch: vi.fn(),
+      onOpenProjectCreateActions: () => setOverlay({ kind: "project-create-actions" }),
+      onOpenProjectActions: (projectId: string) => setOverlay({ kind: "project-actions", projectId }),
+      onOpenConversationActions: (projectId: string, conversationId: string) => setOverlay({ kind: "conversation-actions", projectId, conversationId }),
+      onOpenProjectForm: (flow: "open" | "create") => setOverlay({ kind: "project-form", flow }),
+      onOpenRenameConversation: (projectId: string, conversationId: string, title: string) => setOverlay({ kind: "rename-conversation", projectId, conversationId, title }),
+      onNewConversation: vi.fn(), onOpenProject: vi.fn(), onToggleProject: vi.fn(), onChooseConversation: vi.fn(),
+      onArchiveConversation: vi.fn(), onRestoreConversation: vi.fn(), onPrepareConversationDelete: vi.fn(), onDeleteConversation: vi.fn(),
+      onRenameConversation, onRemoveProject: vi.fn(), onRefresh: vi.fn(), onOpenSettings: vi.fn(), onOpenProjectSettings: vi.fn(),
+    };
+    return <ProjectConversationSidebar {...defaults as never} />;
+  }
+  render(<TestSidebar />);
 }
 
 function sidebarSnapshot(): Snapshot {

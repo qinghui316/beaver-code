@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectConversationSidebar } from "../../src/web/src/shell/sidebar.js";
 import type { ProductMode, Snapshot, Topic } from "../../src/web/src/types.js";
+import type { ProjectNavigationOverlayState } from "../../src/web/src/presentation/project-navigation.js";
 
 afterEach(cleanup);
 
@@ -82,12 +84,8 @@ function renderSidebar(productMode: ProductMode, topics: Topic[], overrides: Rec
     selectedTopicId: null,
     snapshots: { repo: snapshot },
     snapshot,
-    search: "",
-    onSearch: vi.fn(),
     expandedProjects: new Set(["repo"]),
-    projectMenuMode: "closed" as const,
-    projectDetailsId: null,
-    onProjectMenuMode: vi.fn(), onProjectDetails: vi.fn(), onNewConversation: vi.fn(), onOpenProject: vi.fn(),
+    onNewConversation: vi.fn(), onOpenProject: vi.fn(),
     onToggleProject: vi.fn(), onChooseConversation: vi.fn(), onArchiveConversation: vi.fn(),
     onRestoreConversation: vi.fn(),
     onPrepareConversationDelete: vi.fn(async () => ({ token: "token", expiresAt: "2026-08-31", conversationId: "", lifecycleRevision: "", effect: "" })),
@@ -95,7 +93,20 @@ function renderSidebar(productMode: ProductMode, topics: Topic[], overrides: Rec
     onOpenSettings: vi.fn(), onOpenProjectSettings: vi.fn(),
     ...overrides,
   };
-  return render(<ProjectConversationSidebar {...defaults as never} />);
+  function TestSidebar() {
+    const [overlay, setOverlay] = useState<ProjectNavigationOverlayState>({ kind: "closed" });
+    return <ProjectConversationSidebar {...defaults as never} overlay={overlay}
+      onCloseOverlay={() => setOverlay({ kind: "closed" })}
+      onOpenSearch={() => setOverlay({ kind: "search", query: "", activeIndex: 0 })}
+      onSetSearchQuery={vi.fn()} onSetSearchActiveIndex={vi.fn()} onPrepareSearch={vi.fn()}
+      onOpenProjectCreateActions={() => setOverlay({ kind: "project-create-actions" })}
+      onOpenProjectActions={(projectId) => setOverlay({ kind: "project-actions", projectId })}
+      onOpenConversationActions={(projectId, conversationId) => setOverlay({ kind: "conversation-actions", projectId, conversationId })}
+      onOpenProjectForm={(flow) => setOverlay({ kind: "project-form", flow })}
+      onOpenRenameConversation={(projectId, conversationId, title) => setOverlay({ kind: "rename-conversation", projectId, conversationId, title })}
+    />;
+  }
+  return render(<TestSidebar />);
 }
 
 function topic(

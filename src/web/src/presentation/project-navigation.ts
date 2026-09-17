@@ -7,6 +7,16 @@ import type {
   WorkpadSummary,
 } from "../types.js";
 import type { FeatureSurface } from "./feature-surface.js";
+import { projectDisplayName } from "../formatters.js";
+
+export type ProjectNavigationOverlayState =
+  | { readonly kind: "closed" }
+  | { readonly kind: "search"; readonly query: string; readonly activeIndex: number }
+  | { readonly kind: "project-create-actions" }
+  | { readonly kind: "project-actions"; readonly projectId: string }
+  | { readonly kind: "conversation-actions"; readonly projectId: string; readonly conversationId: string }
+  | { readonly kind: "project-form"; readonly flow: "open" | "create" }
+  | { readonly kind: "rename-conversation"; readonly projectId: string; readonly conversationId: string; readonly title: string };
 
 export interface ProjectNavigationViewModel {
   projects: ProjectStatus[];
@@ -14,16 +24,21 @@ export interface ProjectNavigationViewModel {
   selectedTopicId: string | null;
   snapshots: Record<string, Snapshot>;
   snapshot: Snapshot;
-  search: string;
   expandedProjects: Set<string>;
-  projectMenuMode: "closed" | "add" | "new";
-  projectDetailsId: string | null;
+  overlay: ProjectNavigationOverlayState;
 }
 
 export interface ProjectNavigationActions {
-  onSearch: (value: string) => void;
-  onProjectMenuMode: (mode: "closed" | "add" | "new") => void;
-  onProjectDetails: (projectId: string | null) => void;
+  onCloseOverlay: () => void;
+  onOpenSearch: () => void;
+  onSetSearchQuery: (query: string) => void;
+  onSetSearchActiveIndex: (activeIndex: number) => void;
+  onPrepareSearch: () => Promise<void>;
+  onOpenProjectCreateActions: () => void;
+  onOpenProjectActions: (projectId: string) => void;
+  onOpenConversationActions: (projectId: string, conversationId: string) => void;
+  onOpenProjectForm: (flow: "open" | "create") => void;
+  onOpenRenameConversation: (projectId: string, conversationId: string, title: string) => void;
   onNewConversation: (projectId?: string) => Promise<void>;
   onOpenProject: (projectId: string) => Promise<void>;
   onToggleProject: (projectId: string) => Promise<void>;
@@ -37,6 +52,56 @@ export interface ProjectNavigationActions {
   onRefresh: () => Promise<void>;
   onOpenSettings: () => void;
   onOpenProjectSettings: (projectId: string) => void;
+}
+
+export type ProjectNavigationSearchResult =
+  | { readonly kind: "project"; readonly key: string; readonly projectId: string; readonly title: string; readonly context: string | null; readonly statusLabel: string }
+  | { readonly kind: "conversation"; readonly key: string; readonly projectId: string; readonly conversationId: string; readonly title: string; readonly projectTitle: string; readonly statusLabel: string; readonly archived: boolean };
+
+export function projectNavigationSearchResults(input: {
+  readonly projects: readonly ProjectStatus[];
+  readonly snapshots: Readonly<Record<string, Snapshot>>;
+  readonly selectedProjectId: string | null;
+  readonly selectedConversationId: string | null;
+  readonly query: string;
+}): readonly ProjectNavigationSearchResult[] {
+  const query = input.query.trim().toLocaleLowerCase();
+  const projects = [...input.projects]
+    .filter((item): item is ProjectStatus & { project: NonNullable<ProjectStatus["project"]> } => Boolean(item.project))
+    .sort((a, b) => Number(b.project.id === input.selectedProjectId) - Number(a.project.id === input.selectedProjectId));
+  const nameCounts = new Map<string, number>();
+  for (const item of projects) {
+    const name = projectDisplayName(item.project);
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+  }
+  const results: ProjectNavigationSearchResult[] = [];
+  for (const item of projects) {
+    const projectId = item.project.id;
+    const title = projectDisplayName(item.project);
+    const context = (nameCounts.get(title) ?? 0) > 1 ? projectParentContext(item.path) : null;
+    const status = item.runtimeAvailability?.state === "unavailable" ? "需要处理" : "项目";
+    if (!query || `${title} ${context ?? ""} ${status}`.toLocaleLowerCase().includes(query)) {
+      results.push({ kind: "project", key: `project:${projectId}`, projectId, title, context, statusLabel: status });
+    }
+    const conversations = projectNavigationConversations(input.snapshots[projectId], input.selectedConversationId);
+    for (const conversation of conversations) {
+      const archived = conversation.state === "archive";
+      const searchable = `${conversation.title} ${title} ${conversation.userStatusLabel} ${archived ? "已归档" : ""}`.toLocaleLowerCase();
+      if (!query || searchable.includes(query)) {
+        results.push({
+          kind: "conversation",
+          key: `conversation:${projectId}:${conversation.id}`,
+          projectId,
+          conversationId: conversation.id,
+          title: conversation.title,
+          projectTitle: title,
+          statusLabel: conversation.userStatusLabel,
+          archived,
+        });
+      }
+    }
+  }
+  return results;
 }
 
 export type ProjectNavigationSurfaceProps = ProjectNavigationViewModel & ProjectNavigationActions;
@@ -53,7 +118,7 @@ export function projectNavigationSurface(
 export interface ProjectNavigationConversationViewModel {
   readonly id: string;
   readonly title: string;
-  readonly status: string;
+  readonly userStatusLabel: string;
   readonly selected: boolean;
   readonly waitingDecisionCount: number;
   readonly blocker?: string;
@@ -88,7 +153,7 @@ export function projectNavigationConversations(
   return workpads.map((workpad) => ({
     id: workpad.id,
     title: workpad.title,
-    status: workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus),
+    userStatusLabel: workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus),
     selected: selectedConversationId === workpad.id || workpad.selected,
     waitingDecisionCount: workpad.waitingDecisionCount,
     blocker: workpad.blocker,
@@ -105,7 +170,7 @@ export function groupProjectNavigationConversations(
   const filtered = normalizedSearch
     ? conversations.filter((conversation) => (
       conversation.title.toLocaleLowerCase().includes(normalizedSearch)
-      || conversation.status.toLocaleLowerCase().includes(normalizedSearch)
+      || conversation.userStatusLabel.toLocaleLowerCase().includes(normalizedSearch)
     ))
     : conversations;
   return {
@@ -113,4 +178,9 @@ export function groupProjectNavigationConversations(
     archived: filtered.filter((conversation) => conversation.state === "archive"),
     hasSearchMatch: filtered.length > 0,
   };
+}
+
+function projectParentContext(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.length >= 2 ? parts.at(-2) ?? path : path;
 }
