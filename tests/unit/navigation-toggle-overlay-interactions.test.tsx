@@ -16,7 +16,7 @@ describe("navigation toggle and overlay interactions", () => {
     const view = productModeToggleViewModel("agent", { harness: "attention" });
     render(<ProductModeToggle view={view} onToggle={onToggle} />);
 
-    const toggle = screen.getByRole("button", { name: "切换到 AHO" });
+    const toggle = screen.getByRole("button", { name: "切换到 AHO，需要你处理" });
     expect(toggle.textContent).toContain("Agent");
     expect(toggle.querySelector(".product-mode-toggle-activity.attention")).toBeTruthy();
     fireEvent.click(toggle);
@@ -56,21 +56,23 @@ describe("navigation toggle and overlay interactions", () => {
     render(<NavigationHarness onChooseConversation={onChooseConversation} onPrepareSearch={onPrepareSearch} />);
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
-    const input = await screen.findByRole("textbox", { name: "搜索项目和会话" });
+    const input = await screen.findByRole("combobox", { name: "搜索项目和会话" });
     expect(document.activeElement).toBe(input);
     expect(screen.queryByRole("button", { name: /关闭/ })).toBeNull();
     expect(onPrepareSearch).toHaveBeenCalledTimes(1);
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe("navigation-search-result-1");
+    expect(document.getElementById("navigation-search-result-1")?.getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onChooseConversation).toHaveBeenCalledWith("repo", "conversation"));
 
     const trigger = screen.getByRole("button", { name: "搜索项目和会话" });
     trigger.focus();
     fireEvent.click(trigger);
-    expect(await screen.findByRole("textbox", { name: "搜索项目和会话" })).toBeTruthy();
+    expect(await screen.findByRole("combobox", { name: "搜索项目和会话" })).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("textbox", { name: "搜索项目和会话" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("combobox", { name: "搜索项目和会话" })).toBeNull());
     expect(document.activeElement).toBe(trigger);
   });
 });

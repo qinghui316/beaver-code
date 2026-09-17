@@ -164,6 +164,32 @@ describe("Workbench App owner composition", () => {
     expect(view.container.querySelector("main.workspace")?.hasAttribute("inert")).toBe(false);
   });
 
+  it("yields mobile drawer focus and Escape handling to a portaled conversation action sheet", async () => {
+    installMatchMedia(true);
+    installApiFixture(createSnapshot());
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
+    const trigger = screen.getByRole("button", { name: "Owner convergence 会话菜单" });
+    expect(trigger.classList.contains("conversation-more")).toBe(true);
+    fireEvent.click(trigger);
+
+    const actionSheet = await screen.findByRole("dialog", { name: "Owner convergence 会话菜单" });
+    const rename = screen.getByRole("button", { name: "重命名" });
+    const archive = screen.getByRole("button", { name: "归档" });
+    expect(document.activeElement).toBe(rename);
+
+    archive.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(rename);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => expect(actionSheet.isConnected).toBe(false));
+    expect(screen.getByRole("dialog", { name: "左侧项目栏" })).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("closes the mobile drawer before entering Settings and does not restore stale drawer state", async () => {
     installMatchMedia(true);
     installApiFixture(createSnapshot());
@@ -278,7 +304,7 @@ describe("Workbench App owner composition", () => {
     installApiFixture(createSnapshot(undefined, "agent"));
     const view = render(<App />);
     await waitFor(() => expect(view.container.querySelector(".thread-header strong")?.textContent).toBe("Owner convergence"));
-    expect(screen.getByRole("button", { name: "切换到 AHO" }).textContent).toContain("Agent");
+    expect(screen.getByRole("button", { name: /^切换到 AHO/ }).textContent).toContain("Agent");
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具" }));
     expect(await screen.findByTestId("right-tool-launcher-agent")).toBeTruthy();
@@ -324,7 +350,7 @@ describe("Workbench App owner composition", () => {
     await screen.findByText("Canonical Main reply");
 
     const requestStart = vi.mocked(fetch).mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "切换到 AHO" }));
+    fireEvent.click(screen.getByRole("button", { name: /^切换到 AHO/ }));
     await waitFor(() => expect(requestUrls("/providers/capabilities?")).toContain(
       "/api/projects/repo/providers/capabilities?productMode=harness",
     ));

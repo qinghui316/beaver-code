@@ -102,7 +102,7 @@ export function productModeToggleViewModel(
     targetMode,
     targetLabel: MODE_EXPERIENCE[targetMode].label,
     targetActivity,
-    accessibleLabel: `切换到 ${MODE_EXPERIENCE[targetMode].label}`,
+    accessibleLabel: `切换到 ${productModeControlLabel(targetMode, false, targetActivity ?? undefined)}`,
     title: productModeControlTitle(targetMode, false, targetActivity ?? undefined),
   };
 }

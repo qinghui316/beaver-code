@@ -18,6 +18,7 @@ export function ProjectConversationSearchPalette({ surface, triggerRef }: {
   }) : [], [search, view.projects, view.selectedProjectId, view.selectedTopicId, view.snapshots]);
   if (!search) return null;
   const activeIndex = results.length ? Math.min(search.activeIndex, results.length - 1) : 0;
+  const activeResultId = results.length ? `navigation-search-result-${activeIndex}` : undefined;
   const openResult = (index: number) => {
     const result = results[index];
     if (!result) return;
@@ -45,11 +46,12 @@ export function ProjectConversationSearchPalette({ surface, triggerRef }: {
     <DialogSurface open onClose={actions.onCloseOverlay} ariaLabel="搜索项目和会话" overlayClassName="navigation-search-overlay" panelClassName="navigation-search-palette" returnFocusRef={triggerRef} portal>
       <label className="navigation-search-field">
         <Search size={19} aria-hidden="true" />
-        <input autoFocus value={search.query} onChange={(event) => actions.onSetSearchQuery(event.target.value)} onKeyDown={onKeyDown} placeholder="搜索项目和会话" aria-label="搜索项目和会话" />
+        <input autoFocus role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls="navigation-search-results" aria-activedescendant={activeResultId} value={search.query} onChange={(event) => actions.onSetSearchQuery(event.target.value)} onKeyDown={onKeyDown} placeholder="搜索项目和会话" aria-label="搜索项目和会话" />
       </label>
-      <div className="navigation-search-results" role="listbox" aria-label="搜索结果">
+      <div id="navigation-search-results" className="navigation-search-results" role="listbox" aria-label="搜索结果">
         {results.map((result, index) => <button
           key={result.key}
+          id={`navigation-search-result-${index}`}
           type="button"
           role="option"
           aria-selected={index === activeIndex}

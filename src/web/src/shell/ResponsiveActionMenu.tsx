@@ -26,11 +26,12 @@ function useActionSheetLayout(): boolean {
   return matches;
 }
 
-export function ResponsiveActionMenu({ open, onOpenChange, trigger, triggerLabel, menuLabel, items }: {
+export function ResponsiveActionMenu({ open, onOpenChange, trigger, triggerLabel, triggerClassName = "", menuLabel, items }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   trigger: ReactNode;
   triggerLabel: string;
+  triggerClassName?: string;
   menuLabel: string;
   items: readonly ResponsiveActionMenuItem[];
 }): ReactElement {
@@ -45,7 +46,7 @@ export function ResponsiveActionMenu({ open, onOpenChange, trigger, triggerLabel
     <button
       ref={triggerRef}
       type="button"
-      className="navigation-menu-trigger"
+      className={`navigation-menu-trigger ${triggerClassName}`.trim()}
       aria-label={triggerLabel}
       title={triggerLabel}
       onClick={actionSheet || (typeof window !== "undefined" && typeof window.PointerEvent !== "function") ? () => onOpenChange(!open) : undefined}

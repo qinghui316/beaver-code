@@ -152,6 +152,8 @@ export function App(): ReactElement {
   const mobileSidebarToggleRef = useRef<HTMLButtonElement | null>(null);
   const mobileSidebarWasOpenRef = useRef(false);
   const navigationOverlay = useProjectNavigationOverlayController();
+  const navigationOverlayKindRef = useRef(navigationOverlay.state.kind);
+  navigationOverlayKindRef.current = navigationOverlay.state.kind;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
   const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
@@ -973,6 +975,7 @@ export function App(): ReactElement {
     if (!mobileSidebarModalOpen) return;
     const closeMobileSidebarOnEscape = (event: globalThis.KeyboardEvent): void => {
       if (event.isComposing) return;
+      if (navigationOverlayKindRef.current !== "closed") return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();

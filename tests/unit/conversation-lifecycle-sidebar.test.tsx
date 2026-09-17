@@ -31,7 +31,9 @@ describe("shared Conversation lifecycle sidebar", () => {
       }),
     ], { onArchiveConversation, onRestoreConversation, onPrepareConversationDelete, onDeleteConversation });
 
-    fireEvent.click(screen.getByLabelText("Active Agent 会话菜单"));
+    const activeMenuTrigger = screen.getByLabelText("Active Agent 会话菜单");
+    expect(activeMenuTrigger.classList.contains("conversation-more")).toBe(true);
+    fireEvent.click(activeMenuTrigger);
     fireEvent.click(screen.getByRole("menuitem", { name: "归档" }));
     await waitFor(() => expect(onArchiveConversation).toHaveBeenCalledWith("repo", "active-agent", "conversation-lifecycle:0"));
 
