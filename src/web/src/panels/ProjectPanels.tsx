@@ -2,28 +2,7 @@ import { useState, type ReactElement } from "react";
 import { Folder, Plus } from "lucide-react";
 import { postJson, WorkbenchRequestError } from "../api.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
-import type { FolderDialogResult, ProjectStatus, Snapshot } from "../types.js";
-
-export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRefresh }: { project: ProjectStatus; snapshot: Snapshot | undefined; selected: boolean; onOpen: () => void; onRefresh: () => void }): ReactElement {
-  const harnessReady = snapshot?.harness.harnessReady ?? project.harness.readiness === "ready";
-  return (
-    <div className="project-details-panel">
-      <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已准备" : "未检测到 Git")} />
-      <InfoRow label="项目状态" value={harnessReady ? "可用" : project.harness.readiness === "partial" ? "需要处理" : "可开始使用"} />
-      {!selected ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
-      <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
-    </div>
-  );
-}
-
-export function InfoRow({ label, value }: { label: string; value: string }): ReactElement {
-  return (
-    <div className="info-row">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
+import type { FolderDialogResult } from "../types.js";
 
 export function ProjectAddForm({ onDone, onBusyChange }: { onDone: (projectId?: string) => Promise<void>; onBusyChange?: (busy: boolean) => void }): ReactElement {
   const [path, setPath] = useState("");

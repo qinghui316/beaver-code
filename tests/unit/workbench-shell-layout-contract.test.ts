@@ -118,6 +118,16 @@ describe("Workbench shell layout contract", () => {
     );
   });
 
+  it("does not retain the retired inline navigation implementations", async () => {
+    const [projectPanels, sidebarCss] = await Promise.all([
+      readFile("src/web/src/panels/ProjectPanels.tsx", "utf8"),
+      readFile("src/web/src/styles/surfaces/sidebar.css", "utf8"),
+    ]);
+    expect(`${projectPanels}\n${sidebarCss}`).not.toMatch(
+      /ProjectDetailsPanel|sidebar-search|project-menu-popover|conversation-row-menu|project-details-panel|project-detail-action/,
+    );
+  });
+
   it("keeps the Agent model menus inside the application viewport", async () => {
     const [selectorSource, composerCss] = await Promise.all([
       readFile("src/web/src/shell/ConversationModelSelectors.tsx", "utf8"),

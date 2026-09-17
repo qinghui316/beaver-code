@@ -14,8 +14,7 @@
   padding: 10px 10px 8px;
 }
 
-.global-nav-item,
-.project-menu-item {
+.global-nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -31,36 +30,8 @@
   cursor: pointer;
 }
 
-.global-nav-item:hover,
-.project-menu-item:hover {
+.global-nav-item:hover {
   background: var(--bg-hover);
-}
-.project-menu-item.selected {
-  background: var(--bg-selected);
-}
-
-.sidebar-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-}
-
-.sidebar-search:focus-within {
-  background: var(--bg-hover);
-  color: var(--text-strong);
-}
-
-.sidebar-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
 }
 
 .project-tree {
@@ -176,23 +147,6 @@
 
 @keyframes navigation-overlay-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .navigation-action-menu, .navigation-search-palette { animation: none; } }
-
-.compact-icon {
-  width: 28px;
-  height: 28px;
-  border: 0;
-}
-
-.project-menu-popover {
-  display: grid;
-  gap: 5px;
-  margin: 0 0 10px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-soft);
-}
 
 .project-folder-list {
   display: grid;
@@ -401,27 +355,6 @@
   color: var(--text);
 }
 
-.conversation-row-menu {
-  position: absolute;
-  z-index: 20;
-  right: 4px;
-  top: 30px;
-  display: grid;
-  gap: 2px;
-  min-width: 148px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-soft);
-}
-
-.conversation-menu-disabled {
-  padding: 6px 8px;
-  color: var(--text-faint);
-  font-size: 12px;
-}
-
 .conversation-placeholder {
   padding: 6px 8px;
 }
@@ -477,33 +410,6 @@
   color: var(--danger);
   font-size: 12px;
   line-height: 1.35;
-}
-
-.project-menu-item.danger {
-  color: var(--danger);
-}
-
-.project-details-panel {
-  display: grid;
-  gap: 7px;
-  margin: 2px 0 8px 28px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-}
-
-.project-detail-action {
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.project-detail-action:hover {
-  border-color: var(--border-strong);
 }
 
 .sidebar-settings {
