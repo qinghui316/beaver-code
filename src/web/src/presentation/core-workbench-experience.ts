@@ -3,6 +3,7 @@ import type { ProductMode, ProductModeActivityState } from "../types.js";
 export interface ProductModeExperienceViewModel {
   readonly mode: ProductMode;
   readonly label: "Agent" | "AHO";
+  readonly toggleLabel: "Agent 模式" | "AHO 模式";
   readonly title: string;
   readonly description: string;
   readonly compactDescription: string;
@@ -10,9 +11,9 @@ export interface ProductModeExperienceViewModel {
 
 export interface ProductModeToggleViewModel {
   readonly currentMode: ProductMode;
-  readonly currentLabel: "Agent" | "AHO";
+  readonly currentLabel: "Agent 模式" | "AHO 模式";
   readonly targetMode: ProductMode;
-  readonly targetLabel: "Agent" | "AHO";
+  readonly targetLabel: "Agent 模式" | "AHO 模式";
   readonly targetActivity: ProductModeActivityState | null;
   readonly accessibleLabel: string;
   readonly title: string;
@@ -29,6 +30,7 @@ const MODE_EXPERIENCE: Readonly<Record<ProductMode, ProductModeExperienceViewMod
   agent: {
     mode: "agent",
     label: "Agent",
+    toggleLabel: "Agent 模式",
     title: "直接和 Agent 一起开发",
     description: "适合快速修改、调试和连续对话。",
     compactDescription: "直接开发",
@@ -36,6 +38,7 @@ const MODE_EXPERIENCE: Readonly<Record<ProductMode, ProductModeExperienceViewMod
   harness: {
     mode: "harness",
     label: "AHO",
+    toggleLabel: "AHO 模式",
     title: "让多个 Agent 按流程协作",
     description: "先规划，再开发、测试和审查；关键步骤由你确认。",
     compactDescription: "多 Agent 协作",
@@ -98,9 +101,9 @@ export function productModeToggleViewModel(
   const targetActivity = activity[targetMode] ?? null;
   return {
     currentMode,
-    currentLabel: MODE_EXPERIENCE[currentMode].label,
+    currentLabel: MODE_EXPERIENCE[currentMode].toggleLabel,
     targetMode,
-    targetLabel: MODE_EXPERIENCE[targetMode].label,
+    targetLabel: MODE_EXPERIENCE[targetMode].toggleLabel,
     targetActivity,
     accessibleLabel: `切换到 ${productModeControlLabel(targetMode, false, targetActivity ?? undefined)}`,
     title: productModeControlTitle(targetMode, false, targetActivity ?? undefined),

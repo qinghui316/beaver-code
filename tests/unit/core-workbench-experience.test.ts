@@ -3,6 +3,7 @@ import {
   productModeControlLabel,
   productModeControlTitle,
   productModeExperience,
+  productModeToggleViewModel,
   WORKSPACE_TOOLS,
 } from "../../src/web/src/presentation/core-workbench-experience.js";
 
@@ -24,6 +25,17 @@ describe("core Workbench experience projection", () => {
     expect(productModeControlTitle("harness", true, "failed")).toBe(
       "AHO · 让多个 Agent 按流程协作。先规划，再开发、测试和审查；关键步骤由你确认。",
     );
+  });
+
+  it("owns the visible toggle labels in the presentation projection", () => {
+    expect(productModeToggleViewModel("agent", {})).toMatchObject({
+      currentLabel: "Agent 模式",
+      targetLabel: "AHO 模式",
+    });
+    expect(productModeToggleViewModel("harness", {})).toMatchObject({
+      currentLabel: "AHO 模式",
+      targetLabel: "Agent 模式",
+    });
   });
 
   it("provides one shared vocabulary for workspace tools", () => {

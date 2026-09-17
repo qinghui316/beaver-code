@@ -16,11 +16,11 @@ export function ProductModeToggle({ view, onToggle }: { view: ProductModeToggleV
       <span className="product-mode-toggle-stage" aria-hidden="true">
         <span className="product-mode-toggle-content agent">
           <MessageSquareCode size={16} />
-          <strong>Agent 模式</strong>
+          <strong>{view.currentMode === "agent" ? view.currentLabel : view.targetLabel}</strong>
         </span>
         <span className="product-mode-toggle-content harness">
           <Workflow size={16} />
-          <strong>AHO 模式</strong>
+          <strong>{view.currentMode === "harness" ? view.currentLabel : view.targetLabel}</strong>
         </span>
       </span>
       <span className="product-mode-toggle-affordance" aria-hidden="true">

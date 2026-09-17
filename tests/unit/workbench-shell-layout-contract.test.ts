@@ -3,11 +3,12 @@ import { describe, expect, it } from "vitest";
 
 describe("Workbench shell layout contract", () => {
   it("uses the native Windows title-bar overlay and a single direct product-mode toggle", async () => {
-    const [desktopMain, app, titleBar, modeToggle, shellCss] = await Promise.all([
+    const [desktopMain, app, titleBar, modeToggle, modePresentation, shellCss] = await Promise.all([
       readFile("src/desktop/main.ts", "utf8"),
       readFile("src/web/src/App.tsx", "utf8"),
       readFile("src/web/src/shell/DesktopTitleBar.tsx", "utf8"),
       readFile("src/web/src/shell/ProductModeToggle.tsx", "utf8"),
+      readFile("src/web/src/presentation/core-workbench-experience.ts", "utf8"),
       readFile("src/web/src/styles/surfaces/shell.css", "utf8"),
     ]);
     expect(desktopMain).toContain('titleBarStyle: "hidden"');
@@ -21,8 +22,10 @@ describe("Workbench shell layout contract", () => {
     expect(modeToggle).toContain('className="product-mode-toggle"');
     expect(modeToggle).toContain('className="product-mode-toggle-content agent"');
     expect(modeToggle).toContain('className="product-mode-toggle-content harness"');
-    expect(modeToggle).toContain("Agent 模式");
-    expect(modeToggle).toContain("AHO 模式");
+    expect(modeToggle).toContain("view.currentLabel");
+    expect(modeToggle).toContain("view.targetLabel");
+    expect(modePresentation).toContain('toggleLabel: "Agent 模式"');
+    expect(modePresentation).toContain('toggleLabel: "AHO 模式"');
     expect(shellCss).toContain('.product-mode-toggle[data-mode="harness"]');
     expect(shellCss).toContain("background: var(--accent-strong)");
     expect(shellCss).toContain("transition-duration: 0.01ms");
