@@ -13,6 +13,9 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const [choosing, setChoosing] = useState(false);
   const [choiceFailure, setChoiceFailure] = useState<string | null>(null);
   const autoOpenedOffers = useRef(new Set<string>());
+  const currentOfferId = useRef<string | null>(null);
+  const choosingOfferId = useRef<string | null>(null);
+  const choiceEpoch = useRef(0);
   useLayoutEffect(() => {
     if (frozen && notice.current && !notice.current.open) notice.current.showModal();
     if (!frozen) focusBeforeUpdate.current?.focus();
@@ -38,14 +41,29 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       });
       events.addEventListener("offer", (event) => {
         const value = JSON.parse((event as MessageEvent).data) as typeof offer;
-        if (!disposed && value) {
-          setOffer(value);
+        if (disposed) return;
+        if (!value) {
+          choiceEpoch.current += 1;
+          currentOfferId.current = null;
+          choosingOfferId.current = null;
+          setOffer(null);
+          setExpanded(false);
           setChoosing(false);
           setChoiceFailure(null);
-          if (!autoOpenedOffers.current.has(value.offerId)) {
-            autoOpenedOffers.current.add(value.offerId);
-            setExpanded(true);
-          }
+          return;
+        }
+        const sameOffer = currentOfferId.current === value.offerId;
+        currentOfferId.current = value.offerId;
+        if (!sameOffer) {
+          choiceEpoch.current += 1;
+          choosingOfferId.current = null;
+          setChoosing(false);
+          setChoiceFailure(null);
+        }
+        setOffer(value);
+        if (!autoOpenedOffers.current.has(value.offerId)) {
+          autoOpenedOffers.current.add(value.offerId);
+          setExpanded(true);
         }
       });
       events.addEventListener("update", (event) => {
@@ -89,27 +107,42 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
         if (activeUpdate) setFailed(true);
       };
     }).catch(() => { /* Update discovery must not prevent normal Web startup. */ });
-    return () => { disposed = true; epoch += 1; events?.close(); };
+    return () => {
+      disposed = true;
+      epoch += 1;
+      choiceEpoch.current += 1;
+      currentOfferId.current = null;
+      choosingOfferId.current = null;
+      events?.close();
+    };
   }, []);
 
   const install = useCallback(async (): Promise<void> => {
-    if (!offer || choosing) return;
+    if (!offer || choosingOfferId.current) return;
+    const selectedOffer = offer;
+    const requestEpoch = ++choiceEpoch.current;
+    choosingOfferId.current = selectedOffer.offerId;
     setChoosing(true);
     setChoiceFailure(null);
     try {
       const response = await fetch("/api/desktop/update/choice", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ offerId: offer.offerId, action: "install" }),
+        body: JSON.stringify({ offerId: selectedOffer.offerId, action: "install" }),
       });
       if (!response.ok) throw new Error("choice rejected");
+      if (choiceEpoch.current !== requestEpoch || currentOfferId.current !== selectedOffer.offerId) return;
+      currentOfferId.current = null;
+      choosingOfferId.current = null;
       setOffer(null);
       setExpanded(false);
     } catch {
+      if (choiceEpoch.current !== requestEpoch || currentOfferId.current !== selectedOffer.offerId) return;
+      choosingOfferId.current = null;
       setChoosing(false);
       setExpanded(true);
       setChoiceFailure("更新暂未开始，请重试。");
     }
-  }, [choosing, offer]);
+  }, [offer]);
 
   const offerSurface = useMemo<DesktopUpdateOfferSurface>(() => ({
     view: {
