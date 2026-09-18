@@ -14,15 +14,22 @@ const spawnMock = vi.hoisted(() => Object.assign(vi.fn(), {
 vi.mock("cross-spawn", () => ({ default: spawnMock }));
 
 import { getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerThreadGoal } from "../../src/codex/app-server.js";
+import { resetCodexRuntimeForTests } from "../../src/codex/executable.js";
 
 const tempDirs: string[] = [];
+const previousCodexBin = process.env.AHO_CODEX_BIN;
 
 beforeEach(() => {
+  process.env.AHO_CODEX_BIN = process.execPath;
+  resetCodexRuntimeForTests();
   spawnMock.mockReset();
   spawnMock.sync.mockClear();
 });
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  if (previousCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
+  else process.env.AHO_CODEX_BIN = previousCodexBin;
+  resetCodexRuntimeForTests();
 });
 
 describe("Codex native Goal lifecycle", () => {
