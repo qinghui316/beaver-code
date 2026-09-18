@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem } from "../../src/codex/app-server.js";
@@ -32,6 +32,40 @@ const execHelp = [
 ].join("\n");
 
 describe("codex capabilities", () => {
+  const previousCodexBin = process.env.AHO_CODEX_BIN;
+  let runtimeDirectory = "";
+  let runtimeExecutable = "";
+
+  beforeAll(async () => {
+    runtimeDirectory = await mkdtemp(join(tmpdir(), "aho codex argv runtime "));
+    runtimeExecutable = join(runtimeDirectory, process.platform === "win32" ? "codex.cmd" : "codex");
+    if (process.platform === "win32") {
+      await writeCompatibleCodexCmd(runtimeExecutable, "0.999.0");
+    } else {
+      await writeFile(runtimeExecutable, [
+        "#!/bin/sh",
+        "echo 'codex-cli 0.999.0'",
+        "echo 'app server --listen stdio://'",
+      ].join("\n"), "utf8");
+      await chmod(runtimeExecutable, 0o755);
+    }
+  });
+
+  beforeEach(() => {
+    process.env.AHO_CODEX_BIN = runtimeExecutable;
+    resetCodexRuntimeForTests();
+  });
+
+  afterEach(() => {
+    if (previousCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
+    else process.env.AHO_CODEX_BIN = previousCodexBin;
+    resetCodexRuntimeForTests();
+  });
+
+  afterAll(async () => {
+    await rm(runtimeDirectory, { recursive: true, force: true });
+  });
+
   it("uses one explicit environment key for Codex runtime selection", () => {
     expect(codexExecutableEnvironmentKey()).toBe("AHO_CODEX_BIN");
   });
