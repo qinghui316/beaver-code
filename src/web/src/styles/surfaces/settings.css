@@ -20,6 +20,7 @@
 }
 
 .settings-surface-sidebar {
+  position: relative;
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -46,6 +47,14 @@
 .settings-surface-sidebar nav {
   display: grid;
   gap: 4px;
+}
+
+.settings-update-footer {
+  display: flex;
+  margin-top: auto;
+  justify-content: flex-end;
+  padding: 12px 8px 0;
+  border-top: 1px solid var(--border);
 }
 
 .settings-surface-sidebar nav button {
@@ -1067,6 +1076,10 @@
   }
   .settings-surface-sidebar nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settings-update-footer {
+    margin: 0;
+    padding: 8px 0 0;
   }
   .settings-surface-sidebar nav button,
   .settings-back-button,

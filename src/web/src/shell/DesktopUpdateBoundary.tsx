@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { rendererUpdateParticipants } from "../controllers/RendererUpdateParticipants.js";
+import { DesktopUpdateOfferContext, type DesktopUpdateOfferSurface } from "./DesktopUpdateOfferContext.js";
 
 export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const [frozen, setFrozen] = useState(false);
@@ -8,7 +9,10 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const notice = useRef<HTMLDialogElement>(null);
   const focusBeforeUpdate = useRef<HTMLElement | null>(null);
   const [offer, setOffer] = useState<{ offerId: string; version: string; releaseUrl: string } | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [choiceFailure, setChoiceFailure] = useState<string | null>(null);
+  const autoOpenedOffers = useRef(new Set<string>());
   useLayoutEffect(() => {
     if (frozen && notice.current && !notice.current.open) notice.current.showModal();
     if (!frozen) focusBeforeUpdate.current?.focus();
@@ -34,7 +38,15 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       });
       events.addEventListener("offer", (event) => {
         const value = JSON.parse((event as MessageEvent).data) as typeof offer;
-        if (!disposed) { setOffer(value); setChoosing(false); }
+        if (!disposed && value) {
+          setOffer(value);
+          setChoosing(false);
+          setChoiceFailure(null);
+          if (!autoOpenedOffers.current.has(value.offerId)) {
+            autoOpenedOffers.current.add(value.offerId);
+            setExpanded(true);
+          }
+        }
       });
       events.addEventListener("update", (event) => {
         const myEpoch = ++epoch;
@@ -57,7 +69,7 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
             } else if (value.action === "prepare") {
               activeUpdate = updateId;
               focusBeforeUpdate.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-              flushSync(() => { setFrozen(true); setFailed(false); });
+              flushSync(() => { setFrozen(true); setFailed(false); setExpanded(false); });
               await rendererUpdateParticipants.prepare(updateId);
               ok = activeUpdate === updateId && rendererUpdateParticipants.confirm(updateId);
             } else if (value.action === "confirm") {
@@ -80,29 +92,51 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
     return () => { disposed = true; epoch += 1; events?.close(); };
   }, []);
 
-  const choose = async (action: "install" | "later"): Promise<void> => {
+  const install = useCallback(async (): Promise<void> => {
     if (!offer || choosing) return;
     setChoosing(true);
+    setChoiceFailure(null);
     try {
       const response = await fetch("/api/desktop/update/choice", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ offerId: offer.offerId, action }),
+        body: JSON.stringify({ offerId: offer.offerId, action: "install" }),
       });
       if (!response.ok) throw new Error("choice rejected");
       setOffer(null);
-    } catch { setChoosing(false); }
-  };
+      setExpanded(false);
+    } catch {
+      setChoosing(false);
+      setExpanded(true);
+      setChoiceFailure("更新暂未开始，请重试。");
+    }
+  }, [choosing, offer]);
+
+  const offerSurface = useMemo<DesktopUpdateOfferSurface>(() => ({
+    view: {
+      available: Boolean(offer),
+      version: offer?.version ?? null,
+      releaseUrl: offer?.releaseUrl ?? null,
+      expanded: Boolean(offer) && expanded && !frozen,
+      submitting: choosing,
+      failure: choiceFailure,
+    },
+    actions: {
+      open: () => { if (offer) setExpanded(true); },
+      dismiss: () => setExpanded(false),
+      openReleaseNotes: () => {
+        if (!offer?.releaseUrl) return;
+        setExpanded(false);
+        window.open(offer.releaseUrl, "_blank", "noopener,noreferrer");
+      },
+      install,
+    },
+  }), [choiceFailure, choosing, expanded, frozen, install, offer]);
 
   return <>
-    <div inert={frozen} aria-busy={frozen || undefined}>{children}</div>
-    {offer && !frozen && <aside className="desktop-update-offer" role="status" aria-label="Beaver Code 更新已准备好">
-      <div><strong>Beaver Code {offer.version} 已准备好</strong><span>重新启动后完成更新。</span></div>
-      <div className="desktop-update-offer-actions">
-        <button type="button" disabled={choosing} onClick={() => void choose("later")}>稍后</button>
-        <a href={offer.releaseUrl} target="_blank" rel="noreferrer">查看更新说明</a>
-        <button type="button" disabled={choosing} onClick={() => void choose("install")}>重新启动并更新</button>
-      </div>
-    </aside>}
+    <DesktopUpdateOfferContext.Provider value={offerSurface}>
+      <div inert={frozen} aria-busy={frozen || undefined}>{children}</div>
+    </DesktopUpdateOfferContext.Provider>
+    <span className="sr-only" role="status" aria-live="polite">{offer ? `Beaver Code ${offer.version} 更新已准备好` : ""}</span>
     {frozen && <dialog ref={notice} className="desktop-update-notice" aria-labelledby="desktop-update-title" aria-modal="true"
       onCancel={(event) => event.preventDefault()}>
       <strong id="desktop-update-title" role={failed ? "alert" : "status"}>{failed ? "更新暂未完成" : "正在保存并更新…"}</strong>

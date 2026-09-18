@@ -4,6 +4,7 @@ import type { ProductModeToggleViewModel } from "../presentation/core-workbench-
 import type { ProjectNavigationFeatureSurface } from "../presentation/project-navigation.js";
 import { ProductModeToggle } from "./ProductModeToggle.js";
 import { ProjectConversationSearchPalette } from "./ProjectConversationSearchPalette.js";
+import { DesktopUpdateDock } from "./DesktopUpdateDock.js";
 
 export function WorkspaceNavigationHeader({ mode, onToggleMode, navigation, mobileSidebarOpen, onToggleMobileSidebar, mobileSidebarToggleRef }: {
   mode: ProductModeToggleViewModel;
@@ -36,7 +37,10 @@ export function WorkspaceNavigationHeader({ mode, onToggleMode, navigation, mobi
         </button>
         <ProductModeToggle view={mode} onToggle={onToggleMode} />
       </div>
-      <button ref={searchRef} type="button" className="workspace-navigation-search" aria-label="搜索项目和会话" aria-expanded={searchOpen} title="搜索项目和会话 (Ctrl+K)" onClick={toggleSearch}><Search size={18} /></button>
+      <div className="workspace-navigation-header-actions">
+        <DesktopUpdateDock className="workspace-update-dock" displayWhen="mobile" />
+        <button ref={searchRef} type="button" className="workspace-navigation-search" aria-label="搜索项目和会话" aria-expanded={searchOpen} title="搜索项目和会话 (Ctrl+K)" onClick={toggleSearch}><Search size={18} /></button>
+      </div>
       <ProjectConversationSearchPalette surface={navigation} triggerRef={searchRef} />
     </header>
   );

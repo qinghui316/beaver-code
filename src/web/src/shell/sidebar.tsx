@@ -6,6 +6,7 @@ import { DialogSurface } from "../presentation/DialogSurface.js";
 import { groupProjectNavigationConversations, projectNavigationConversations, type ProjectNavigationFeatureSurface, type ProjectNavigationSurfaceProps } from "../presentation/project-navigation.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import { ResponsiveActionMenu, type ResponsiveActionMenuItem } from "./ResponsiveActionMenu.js";
+import { DesktopUpdateDock } from "./DesktopUpdateDock.js";
 import type { ConversationDeleteConfirmation, ProjectStatus, Snapshot, TopicDetail, WorkpadSummary } from "../types.js";
 
 export function ProjectConversationSidebarFeature({ surface, onLocalDialogOpenChange }: { surface: ProjectNavigationFeatureSurface; onLocalDialogOpenChange?: (open: boolean) => void }): ReactElement {
@@ -96,7 +97,7 @@ export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps 
         })}
       </div>
     </section>
-    <div className="sidebar-settings"><button className="global-nav-item settings-entry" onClick={props.onOpenSettings}><Settings size={16} />设置</button></div>
+    <div className="sidebar-settings"><button className="global-nav-item settings-entry" onClick={props.onOpenSettings}><Settings size={16} />设置</button><DesktopUpdateDock displayWhen="desktop" /></div>
     <ProjectFormDialog overlay={overlay} onClose={props.onCloseOverlay} onDone={afterProjectAdded} />
     <RenameConversationDialog overlay={overlay} onClose={props.onCloseOverlay} onRename={props.onRenameConversation} />
     <DialogSurface open={Boolean(deleteConfirmation)} onClose={() => setDeleteConfirmation(null)} dismissible={!deleteConfirmation?.busy} ariaLabelledBy="conversation-delete-title" panelClassName="conversation-delete-dialog" portal>

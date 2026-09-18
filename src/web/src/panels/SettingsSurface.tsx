@@ -5,6 +5,7 @@ import { DialogSurface } from "../presentation/DialogSurface.js";
 import { providerHealthViewModel } from "../presentation/provider-health.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
+import { DesktopUpdateDock } from "../shell/DesktopUpdateDock.js";
 
 export type SettingsSection = "basic" | "project" | "provider" | "skills";
 type VisibleSettingsSection = "provider" | "skills";
@@ -49,6 +50,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
       <aside className="settings-surface-sidebar" aria-label="设置分类">
         <header><h2>设置</h2></header>
         <nav aria-label="设置页面">{sections.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" className={visibleSection === item.id ? "selected" : ""} aria-current={visibleSection === item.id ? "page" : undefined} onClick={() => onSectionChange(item.id)}><Icon size={16} aria-hidden="true" />{item.label}</button>; })}</nav>
+        <div className="settings-update-footer"><DesktopUpdateDock /></div>
       </aside>
 
       <div className="settings-surface-content">

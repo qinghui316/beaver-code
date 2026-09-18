@@ -31,57 +31,154 @@
   outline-offset: 2px;
 }
 
-.desktop-update-offer {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 120;
+.desktop-update-dock {
   display: flex;
-  max-width: min(620px, calc(100vw - 48px));
+  min-width: 0;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: var(--bg-elevated);
+  justify-content: flex-end;
+}
+
+.desktop-update-trigger {
+  display: inline-flex;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--on-accent);
+  background: var(--focus);
+  box-shadow: var(--shadow-soft);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out), transform 120ms var(--ease-out);
+}
+
+.desktop-update-trigger:hover {
+  background: color-mix(in srgb, var(--focus) 84%, var(--accent-strong));
   box-shadow: var(--shadow-lg);
 }
 
-.desktop-update-offer > div:first-child {
+.desktop-update-trigger:active { transform: scale(0.97); }
+.desktop-update-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.desktop-update-popover {
+  position: fixed;
+  z-index: 500;
   display: grid;
-  min-width: 180px;
-  gap: 3px;
+  width: min(400px, calc(100vw - 24px));
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  border-radius: 16px;
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--bg-elevated) 97%, transparent);
+  box-shadow: var(--shadow-lg);
+  box-sizing: border-box;
+  animation: desktop-update-popover-in 160ms var(--ease-out) both;
 }
 
-.desktop-update-offer span {
+.desktop-update-popover[data-positioned="false"] { visibility: hidden; }
+
+.desktop-update-popover-arrow {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-right: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  background: var(--bg-elevated);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.desktop-update-popover[data-placement="top"] .desktop-update-popover-arrow { bottom: -9px; }
+.desktop-update-popover[data-placement="bottom"] .desktop-update-popover-arrow { top: -9px; transform: translateX(-50%) rotate(225deg); }
+
+.desktop-update-popover-heading {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.desktop-update-popover-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--on-accent);
+  background: var(--focus);
+  box-shadow: var(--shadow-soft);
+}
+
+.desktop-update-popover-heading strong {
+  display: block;
+  color: var(--text-strong);
+  font-size: 17px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.desktop-update-popover-heading p {
+  margin: 5px 0 0;
   color: var(--text-muted);
   font-size: 13px;
+  line-height: 1.45;
 }
 
-.desktop-update-offer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.desktop-update-install,
+.desktop-update-release-notes {
+  min-height: 44px;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
 }
 
-.desktop-update-offer-actions a,
-.desktop-update-offer-actions button {
-  white-space: nowrap;
+.desktop-update-install {
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow: var(--shadow-soft);
+  transition: background-color 140ms var(--ease-out), transform 120ms var(--ease-out);
 }
 
-@media (max-width: 720px) {
-  .desktop-update-offer {
-    right: 12px;
-    bottom: 12px;
-    left: 12px;
-    max-width: none;
-    align-items: stretch;
-    flex-direction: column;
-  }
+.desktop-update-install:hover { background: var(--accent-strong); }
+.desktop-update-install:active { transform: scale(0.99); }
+.desktop-update-install:disabled { cursor: wait; opacity: 0.62; }
 
-  .desktop-update-offer-actions {
-    flex-wrap: wrap;
-  }
+.desktop-update-release-notes {
+  min-height: 28px;
+  padding: 0;
+  color: var(--focus);
+  background: transparent;
+}
+
+.desktop-update-release-notes:hover { text-decoration: underline; text-underline-offset: 3px; }
+.desktop-update-install:focus-visible,
+.desktop-update-release-notes:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.desktop-update-popover-error {
+  margin: -4px 0;
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+@keyframes desktop-update-popover-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-update-trigger,
+  .desktop-update-install { transition: none; }
+  .desktop-update-trigger:active,
+  .desktop-update-install:active { transform: none; }
+  .desktop-update-popover { animation: none; }
 }
 
 .app-shell {
@@ -264,6 +361,14 @@
   gap: 6px;
 }
 
+.workspace-navigation-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-update-dock { display: none; }
+
 .product-mode-toggle {
   position: relative;
   display: block;
@@ -410,6 +515,7 @@
   }
 
   .workspace-navigation-search { width: 44px; height: 44px; }
+  .workspace-update-dock { display: flex; }
 
   .mobile-sidebar-backdrop {
     position: fixed;
