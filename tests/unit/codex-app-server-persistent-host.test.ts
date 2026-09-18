@@ -15,17 +15,26 @@ vi.mock("cross-spawn", () => ({ default: spawnMock }));
 
 import { getActiveCodexAppServerTurn, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn, type CodexAppServerRealtimeEvent } from "../../src/codex/app-server.js";
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
+import { resetCodexRuntimeForTests } from "../../src/codex/executable.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
 import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
 import { compactCodexContext, forkCodexSession, runCodexReview, runCodexTurn, setCodexSessionArchived } from "../../src/provider-runtime/codex-adapter.js";
 
 const tempDirs: string[] = [];
+const previousCodexBin = process.env.AHO_CODEX_BIN;
 
-beforeEach(() => spawnMock.mockReset());
+beforeEach(() => {
+  process.env.AHO_CODEX_BIN = process.execPath;
+  resetCodexRuntimeForTests();
+  spawnMock.mockReset();
+});
 afterEach(async () => {
   vi.useRealTimers();
   await defaultCodexAppServerHostRegistry.disposeAll("persistent Host test cleanup");
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  if (previousCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
+  else process.env.AHO_CODEX_BIN = previousCodexBin;
+  resetCodexRuntimeForTests();
 });
 
 describe("Codex persistent app-server Host", () => {
