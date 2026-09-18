@@ -164,7 +164,7 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
         })}</div></section>)}
       </div>
 
-      <DialogSurface open={identityResolved && Boolean(selectedSkill)} onClose={() => setSelectedSkillId(null)} ariaLabel={selectedSkill ? `${selectedSkill.name} 详情` : "技能详情"} panelClassName="settings-panel skill-detail-drawer" returnFocusRef={detailTriggerRef}>
+      <DialogSurface open={identityResolved && Boolean(selectedSkill)} onClose={() => setSelectedSkillId(null)} ariaLabel={selectedSkill ? `${selectedSkill.name} 详情` : "技能详情"} overlayClassName="settings-drawer-overlay" panelClassName="settings-panel skill-detail-drawer" returnFocusRef={detailTriggerRef}>
         {selectedSkill ? <>
         <header className="settings-panel-header"><div className="skill-detail-title"><span className="skill-list-icon"><Sparkles size={18} aria-hidden="true" /></span><div><h2>{selectedSkill.name}</h2><p className="skill-detail-source">{sourceKindLabel(selectedSkill.sourceKind)}</p></div></div><button className="icon-button" aria-label="关闭技能详情" onClick={() => setSelectedSkillId(null)}><X size={16} /></button></header>
         <p className="skill-detail-description">{selectedSkill.description || "当前技能没有提供说明。"}</p>
@@ -173,14 +173,14 @@ export function SkillsSettingsView({ projectId, productMode, conversationId, pro
         </> : null}
       </DialogSurface>
 
-      <DialogSurface open={identityResolved && sourceManagerOpen} onClose={() => setSourceManagerOpen(false)} ariaLabel="技能来源设置" panelClassName="settings-panel skill-source-drawer" returnFocusRef={sourceTriggerRef}>
+      <DialogSurface open={identityResolved && sourceManagerOpen} onClose={() => setSourceManagerOpen(false)} ariaLabel="技能来源设置" overlayClassName="settings-drawer-overlay" panelClassName="settings-panel skill-source-drawer" returnFocusRef={sourceTriggerRef}>
         <header className="settings-panel-header"><div><h2>技能来源</h2><p>高级设置</p></div><button className="icon-button" aria-label="关闭技能来源设置" onClick={() => setSourceManagerOpen(false)}><X size={16} /></button></header>
         <p className="muted-copy">添加受信任的本机目录，让当前项目发现其中的技能。</p>
         <div className="skill-root-form compact"><label className="skill-root-field"><span>技能目录</span><input value={rootPath} onChange={(event) => setRootPath(event.target.value)} placeholder="输入受信任的本机目录" /></label><button className="primary-button" disabled={busy || !rootPath.trim()} onClick={async () => { const added = await run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom", ...skillRequestBody(productMode, conversationId, providerId) }); }); if (added) setRootPath(""); }}>添加</button></div>
         <div className="skill-root-list" aria-label="已添加技能目录">{visibleRoots.length === 0 ? <span>尚未添加自定义来源。</span> : visibleRoots.map((root) => <div key={root.rootPath}><Folder size={14} /><span title={root.rootPath}>{root.rootPath}</span></div>)}</div>
       </DialogSurface>
 
-      <DialogSurface open={identityResolved && catalogDiagnosticsOpen} onClose={() => setCatalogDiagnosticsOpen(false)} ariaLabel="技能扫描诊断" panelClassName="settings-panel skill-diagnostics-drawer" returnFocusRef={diagnosticsTriggerRef}><div data-diagnostic-raw-evidence><header className="settings-panel-header"><div><h2>无法读取的技能</h2><p>技能扫描诊断</p></div><button className="icon-button" aria-label="关闭技能扫描诊断" onClick={() => setCatalogDiagnosticsOpen(false)}><X size={16} /></button></header>{visibleCatalogErrors.map((error) => <div className="skill-diagnostic-item" key={`${error.path}:${error.message}`}><strong>{safePathLabel(error.path)}</strong><p>{sanitizeTechnicalDetail(error.message)}</p></div>)}</div></DialogSurface>
+      <DialogSurface open={identityResolved && catalogDiagnosticsOpen} onClose={() => setCatalogDiagnosticsOpen(false)} ariaLabel="技能扫描诊断" overlayClassName="settings-drawer-overlay" panelClassName="settings-panel skill-diagnostics-drawer" returnFocusRef={diagnosticsTriggerRef}><div data-diagnostic-raw-evidence><header className="settings-panel-header"><div><h2>无法读取的技能</h2><p>技能扫描诊断</p></div><button className="icon-button" aria-label="关闭技能扫描诊断" onClick={() => setCatalogDiagnosticsOpen(false)}><X size={16} /></button></header>{visibleCatalogErrors.map((error) => <div className="skill-diagnostic-item" key={`${error.path}:${error.message}`}><strong>{safePathLabel(error.path)}</strong><p>{sanitizeTechnicalDetail(error.message)}</p></div>)}</div></DialogSurface>
     </section>
   );
 }

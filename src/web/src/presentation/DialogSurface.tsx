@@ -41,7 +41,7 @@ export function DialogSurface({
   if (!open) return null;
   const surface = (
     <div
-      className={`settings-overlay ${overlayClassName}`.trim()}
+      className={`dialog-overlay ${overlayClassName}`.trim()}
       role="presentation"
       onMouseDown={(event) => {
         if (dismissible && event.target === event.currentTarget) onCloseRef.current();

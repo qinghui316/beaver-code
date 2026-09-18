@@ -16,18 +16,20 @@ describe("navigation toggle and overlay interactions", () => {
     const view = productModeToggleViewModel("agent", { harness: "attention" });
     const rendered = render(<ProductModeToggle view={view} onToggle={onToggle} />);
 
-    const toggle = screen.getByRole("button", { name: "切换到 AHO，需要你处理" });
+    const toggle = screen.getByRole("switch", { name: "切换到 AHO，需要你处理" });
     expect(toggle.getAttribute("data-mode")).toBe("agent");
-    expect(toggle.querySelector(".product-mode-toggle-content.agent")?.textContent).toBe("Agent 模式");
-    expect(toggle.querySelector(".product-mode-toggle-content.harness")?.textContent).toBe("AHO 模式");
-    expect(toggle.querySelector(".product-mode-toggle-affordance svg")).toBeTruthy();
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.querySelector(".product-mode-toggle-label.agent")?.textContent).toBe("Agent 模式");
+    expect(toggle.querySelector(".product-mode-toggle-label.harness")?.textContent).toBe("AHO 模式");
+    expect(toggle.querySelector(".product-mode-toggle-thumb")).toBeTruthy();
     expect(toggle.querySelector(".product-mode-toggle-activity.attention")).toBeTruthy();
     fireEvent.click(toggle);
     expect(onToggle).toHaveBeenCalledTimes(1);
 
     rendered.rerender(<ProductModeToggle view={productModeToggleViewModel("harness", { agent: "running" })} onToggle={onToggle} />);
-    const harnessToggle = screen.getByRole("button", { name: "切换到 Agent，正在执行" });
+    const harnessToggle = screen.getByRole("switch", { name: "切换到 Agent，正在执行" });
     expect(harnessToggle.getAttribute("data-mode")).toBe("harness");
+    expect(harnessToggle.getAttribute("aria-checked")).toBe("true");
     expect(harnessToggle.querySelector(".product-mode-toggle-activity.running")).toBeTruthy();
   });
 

@@ -18,7 +18,7 @@ export function useModalDialogFocus(open: boolean, returnFocusRef?: RefObject<HT
     if (!dialog) return;
     const previousFocus = returnFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
-    const focusInitial = () => (focusable()[0] ?? dialog).focus();
+    const focusInitial = () => (dialog.querySelector<HTMLElement>("[data-dialog-initial-focus]") ?? focusable()[0] ?? dialog).focus();
     focusInitial();
     const focusTimer = window.setTimeout(focusInitial, 0);
 

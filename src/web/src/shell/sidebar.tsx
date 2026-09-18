@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Archive, ArchiveRestore, CircleAlert, ChevronDown, ChevronRight, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, Settings, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, CircleAlert, ChevronDown, ChevronRight, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, Settings, Trash2, X } from "lucide-react";
 import { ProjectAddForm, ProjectCreateForm } from "../panels/ProjectPanels.js";
 import { projectDisplayName } from "../formatters.js";
 import { DialogSurface } from "../presentation/DialogSurface.js";
@@ -124,7 +124,7 @@ function ConversationRow({ projectId, conversation, archived, props, runLifecycl
 function ProjectFormDialog({ overlay, onClose, onDone }: { overlay: ProjectNavigationSurfaceProps["overlay"]; onClose: () => void; onDone: (projectId?: string) => Promise<void> }): ReactElement {
   const [busy, setBusy] = useState(false);
   const open = overlay.kind === "project-form";
-  return <DialogSurface open={open} onClose={onClose} dismissible={!busy} ariaLabel={overlay.kind === "project-form" && overlay.flow === "create" ? "新建项目" : "打开文件夹"} panelClassName="project-form-dialog" portal>{overlay.kind === "project-form" ? <><h2>{overlay.flow === "create" ? "新建项目" : "打开文件夹"}</h2>{overlay.flow === "create" ? <ProjectCreateForm onDone={onDone} onBusyChange={setBusy} /> : <ProjectAddForm onDone={onDone} onBusyChange={setBusy} />}</> : null}</DialogSurface>;
+  return <DialogSurface open={open} onClose={onClose} dismissible={!busy} ariaLabel={overlay.kind === "project-form" && overlay.flow === "create" ? "新建项目" : "打开文件夹"} overlayClassName="task-dialog-overlay" panelClassName="project-form-dialog" portal>{overlay.kind === "project-form" ? <><header className="task-dialog-header"><h2>{overlay.flow === "create" ? "新建项目" : "打开文件夹"}</h2><button type="button" className="icon-button" aria-label="关闭" disabled={busy} onClick={onClose}><X size={17} /></button></header>{overlay.flow === "create" ? <ProjectCreateForm onDone={onDone} onBusyChange={setBusy} /> : <ProjectAddForm onDone={onDone} onBusyChange={setBusy} />}<div className="project-form-dialog-actions"><button type="button" className="text-button" disabled={busy} onClick={onClose}>取消</button></div></> : null}</DialogSurface>;
 }
 
 function RenameConversationDialog({ overlay, onClose, onRename }: { overlay: ProjectNavigationSurfaceProps["overlay"]; onClose: () => void; onRename: (projectId: string, conversationId: string, title: string) => Promise<void> }): ReactElement {

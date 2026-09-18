@@ -49,7 +49,7 @@ export function ProjectAddForm({ onDone, onBusyChange }: { onDone: (projectId?: 
   }
   return (
     <form className="project-form" onSubmit={(event) => { event.preventDefault(); void reportBusy(() => submit()).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
-      <button type="button" className="primary-button" disabled={busy} onClick={() => void reportBusy(chooseFolder).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />{busy ? "正在处理" : "打开文件夹"}</button>
+      <button type="button" data-dialog-initial-focus className="primary-button" disabled={busy} onClick={() => void reportBusy(chooseFolder).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />{busy ? "正在处理" : "打开文件夹"}</button>
       <label className="project-form-field"><span>项目名称（可选）</span><input disabled={busy} type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 Beaver Code" /></label>
       <button type="button" className="text-button" disabled={busy} onClick={() => setManual(!manual)}>{manual ? "收起路径输入" : "输入路径"}</button>
       {manual ? (
@@ -107,7 +107,7 @@ export function ProjectCreateForm({ onDone, onBusyChange }: { onDone: (projectId
   }
   return (
     <form className="project-form" onSubmit={(event) => { event.preventDefault(); void reportBusy(submit).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "save"))); }}>
-      <button type="button" className="outline-button" disabled={busy} onClick={() => void reportBusy(chooseParent).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />选择位置</button>
+      <button type="button" data-dialog-initial-focus className="outline-button" disabled={busy} onClick={() => void reportBusy(chooseParent).catch((cause: unknown) => setMessage(userFacingErrorMessage(cause, "load")))}><Folder size={15} />选择位置</button>
       <label className="project-form-field"><span>保存位置</span><input disabled={busy} type="text" value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="例如 E:\\work" /></label>
       <label className="project-form-field"><span>项目名称</span><input disabled={busy} type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 my-app" /></label>
       <label><input disabled={busy} type="checkbox" checked={git} onChange={(event) => setGit(event.target.checked)} /> 初始化 Git</label>

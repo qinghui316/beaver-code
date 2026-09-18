@@ -81,7 +81,7 @@ describe("Workbench App owner composition", () => {
     installApiFixture(createSnapshot());
     const view = render(<App />);
 
-    const toggle = await screen.findByRole("button", { name: "切换到 Agent" });
+    const toggle = await screen.findByRole("switch", { name: "切换到 Agent" });
     expect(toggle.textContent).toContain("AHO");
     expect(toggle.getAttribute("title")).toContain("直接和 Agent 一起开发");
     expect(screen.queryByText("让多个 Agent 按流程协作")).toBeNull();
@@ -328,7 +328,7 @@ describe("Workbench App owner composition", () => {
     installApiFixture(createSnapshot(undefined, "agent"));
     const view = render(<App />);
     await waitFor(() => expect(view.container.querySelector(".thread-header strong")?.textContent).toBe("Owner convergence"));
-    expect(screen.getByRole("button", { name: /^切换到 AHO/ }).textContent).toContain("Agent");
+    expect(screen.getByRole("switch", { name: /^切换到 AHO/ }).textContent).toContain("Agent");
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具" }));
     expect(await screen.findByTestId("right-tool-launcher-agent")).toBeTruthy();
@@ -374,7 +374,7 @@ describe("Workbench App owner composition", () => {
     await screen.findByText("Canonical Main reply");
 
     const requestStart = vi.mocked(fetch).mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: /^切换到 AHO/ }));
+    fireEvent.click(screen.getByRole("switch", { name: /^切换到 AHO/ }));
     await waitFor(() => expect(requestUrls("/providers/capabilities?")).toContain(
       "/api/projects/repo/providers/capabilities?productMode=harness",
     ));

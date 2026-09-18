@@ -57,7 +57,7 @@ export function ResponsiveActionMenu({ open, onOpenChange, trigger, triggerLabel
   if (actionSheet) return (
     <>
       {triggerButton}
-      <DialogSurface open={open} onClose={() => onOpenChange(false)} ariaLabel={menuLabel} panelClassName="responsive-action-sheet" returnFocusRef={triggerRef} portal>
+      <DialogSurface open={open} onClose={() => onOpenChange(false)} ariaLabel={menuLabel} overlayClassName="responsive-action-overlay" panelClassName="responsive-action-sheet" returnFocusRef={triggerRef} portal>
         <div className="responsive-action-sheet-handle" aria-hidden="true" />
         <p className="responsive-action-sheet-title">{menuLabel}</p>
         {items.map((item) => <button

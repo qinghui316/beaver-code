@@ -20,10 +20,10 @@ describe("Workbench shell layout contract", () => {
     expect(app).toContain("<WorkspaceNavigationHeader");
     expect(app).toContain("appMode.selectMode(modeToggle.targetMode)");
     expect(modeToggle).toContain('className="product-mode-toggle"');
-    expect(modeToggle).toContain('className="product-mode-toggle-content agent"');
-    expect(modeToggle).toContain('className="product-mode-toggle-content harness"');
-    expect(modeToggle).toContain("view.currentLabel");
-    expect(modeToggle).toContain("view.targetLabel");
+    expect(modeToggle).toContain('role="switch"');
+    expect(modeToggle).toContain('className="product-mode-toggle-thumb"');
+    expect(modeToggle).toContain('className="product-mode-toggle-label agent"');
+    expect(modeToggle).toContain('className="product-mode-toggle-label harness"');
     expect(modePresentation).toContain('toggleLabel: "Agent 模式"');
     expect(modePresentation).toContain('toggleLabel: "AHO 模式"');
     expect(shellCss).toContain('.product-mode-toggle[data-mode="harness"]');

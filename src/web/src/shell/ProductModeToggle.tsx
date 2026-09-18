@@ -1,4 +1,4 @@
-import { ArrowLeftRight, MessageSquareCode, Workflow } from "lucide-react";
+import { MessageSquareCode, Workflow } from "lucide-react";
 import type { ReactElement } from "react";
 import type { ProductModeToggleViewModel } from "../presentation/core-workbench-experience.js";
 
@@ -8,25 +8,20 @@ export function ProductModeToggle({ view, onToggle }: { view: ProductModeToggleV
     <button
       type="button"
       className="product-mode-toggle"
+      role="switch"
+      aria-checked={view.currentMode === "harness"}
       aria-label={view.accessibleLabel}
       title={view.title}
       onClick={onToggle}
       data-mode={view.currentMode}
     >
-      <span className="product-mode-toggle-stage" aria-hidden="true">
-        <span className="product-mode-toggle-content agent">
-          <MessageSquareCode size={16} />
-          <strong>{view.currentMode === "agent" ? view.currentLabel : view.targetLabel}</strong>
-        </span>
-        <span className="product-mode-toggle-content harness">
-          <Workflow size={16} />
-          <strong>{view.currentMode === "harness" ? view.currentLabel : view.targetLabel}</strong>
-        </span>
+      <span className="product-mode-toggle-endpoint agent" aria-hidden="true"><MessageSquareCode size={16} /></span>
+      <span className="product-mode-toggle-endpoint harness" aria-hidden="true"><Workflow size={16} /></span>
+      <span className="product-mode-toggle-thumb" aria-hidden="true">
+        <span className="product-mode-toggle-label agent">Agent 模式</span>
+        <span className="product-mode-toggle-label harness">AHO 模式</span>
       </span>
-      <span className="product-mode-toggle-affordance" aria-hidden="true">
-        <ArrowLeftRight size={14} />
-        {activity ? <span className={`product-mode-toggle-activity ${activity}`} /> : null}
-      </span>
+      {activity ? <span className={`product-mode-toggle-activity ${activity}`} aria-hidden="true" /> : null}
     </button>
   );
 }

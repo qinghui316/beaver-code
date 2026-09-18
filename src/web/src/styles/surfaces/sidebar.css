@@ -126,21 +126,27 @@
 
 .project-form-dialog,
 .rename-conversation-dialog {
-  width: min(460px, calc(100vw - 32px));
+  width: min(680px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
   padding: 20px;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-panel);
   box-shadow: var(--shadow-lg);
 }
-.project-form-dialog h2,
+.task-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.task-dialog-header h2,
 .rename-conversation-dialog h2 { margin: 0 0 16px; font-size: 18px; }
+.task-dialog-header h2 { margin: 0; }
+.project-form-dialog-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 .rename-conversation-dialog form,
 .rename-conversation-dialog label { display: grid; gap: 8px; }
 .rename-conversation-dialog input { min-height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); }
 .rename-conversation-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
-.responsive-action-sheet { position: absolute; inset: auto 0 0; display: grid; gap: 4px; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; background: var(--bg-panel); box-shadow: var(--shadow-lg); }
+.responsive-action-overlay { align-items: flex-end; padding: 0; }
+.responsive-action-sheet { width: 100%; display: grid; gap: 4px; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; background: var(--bg-panel); box-shadow: var(--shadow-lg); }
 .responsive-action-sheet-handle { width: 36px; height: 4px; margin: 2px auto 6px; border-radius: 3px; background: var(--border-strong); }
 .responsive-action-sheet-title { margin: 0 6px 6px; color: var(--text-muted); font-size: 12px; }
 .responsive-action-sheet .responsive-action-item { min-height: 48px; }

@@ -415,13 +415,21 @@
   font-size: 12px;
 }
 
-.settings-overlay {
+.dialog-overlay {
   position: fixed;
   inset: 0;
   z-index: 40;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
   background: var(--overlay);
+}
+
+.settings-drawer-overlay {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
 }
 
 .settings-panel {
@@ -625,6 +633,19 @@
   gap: 20px;
   max-width: 760px;
 }
+
+.provider-project-issue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+.provider-project-issue strong { color: var(--text-strong); }
+.provider-project-issue p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 
 .provider-settings-summary {
   display: grid;
