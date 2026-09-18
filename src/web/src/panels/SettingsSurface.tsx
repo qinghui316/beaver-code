@@ -41,7 +41,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
     catch (cause) { setMessage(userFacingErrorMessage(cause, "settings")); }
   }
 
-  const health = providerHealthViewModel({ snapshot: capabilitySnapshot, diagnostics, hasSelectedProject: Boolean(selectedProjectId) });
+  const health = providerHealthViewModel({ snapshot: capabilitySnapshot, diagnostics, hasSelectedProject: Boolean(selectedProjectId), productMode });
   const status = health.serviceState === "connected" ? "ready" : health.serviceState === "attention" ? "degraded" : "unavailable";
   const diagnosticsAvailable = status !== "ready" || Boolean(health.projectIssue) || health.featureIssues.length > 0 || Boolean(diagnostics?.lastError);
   return (

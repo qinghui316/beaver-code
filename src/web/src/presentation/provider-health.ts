@@ -1,4 +1,4 @@
-import type { ProviderCapabilityItem, ProviderCapabilitySnapshot, ProviderDiagnostics } from "../types.js";
+import type { ProductMode, ProviderCapabilityItem, ProviderCapabilitySnapshot, ProviderDiagnostics } from "../types.js";
 import type { UserFacingFailure } from "./user-facing-language.js";
 
 const PROJECT_CAPABILITY_KEYS = new Set<ProviderCapabilityItem["key"]>(["skill.native-load"]);
@@ -12,10 +12,11 @@ export interface ProviderHealthViewModel {
   readonly featureIssues: readonly UserFacingFailure[];
 }
 
-export function providerHealthViewModel({ snapshot, diagnostics, hasSelectedProject }: {
+export function providerHealthViewModel({ snapshot, diagnostics, hasSelectedProject, productMode }: {
   snapshot: ProviderCapabilitySnapshot | null;
   diagnostics: ProviderDiagnostics | null;
   hasSelectedProject: boolean;
+  productMode: ProductMode;
 }): ProviderHealthViewModel {
   const capabilities = snapshot?.capabilities ?? diagnostics?.capabilities.capabilities ?? [];
   const skill = capabilities.find((item) => item.key === "skill.native-load");
@@ -26,10 +27,11 @@ export function providerHealthViewModel({ snapshot, diagnostics, hasSelectedProj
     .filter((item) => item.runtime !== "ready" && !PROJECT_CAPABILITY_KEYS.has(item.key) && !SERVICE_CORE_CAPABILITY_KEYS.has(item.key))
     .map(featureIssue);
   const coreCapabilities = capabilities.filter((item) => SERVICE_CORE_CAPABILITY_KEYS.has(item.key));
+  const directAgent = productMode === "agent";
   const serviceUnavailable = diagnostics?.installation.available === false
-    || diagnostics?.sessionHealth === "unavailable"
+    || (directAgent && diagnostics?.sessionHealth === "unavailable")
     || snapshot?.status === "unavailable"
-    || coreCapabilities.some((item) => item.runtime === "unavailable");
+    || (directAgent && coreCapabilities.some((item) => item.runtime === "unavailable"));
   const nonProjectBlockingIssue = capabilities.some((item) =>
     item.runtime !== "ready"
     && !PROJECT_CAPABILITY_KEYS.has(item.key)
@@ -37,9 +39,9 @@ export function providerHealthViewModel({ snapshot, diagnostics, hasSelectedProj
   );
   const serviceAttention = !serviceUnavailable && (
     diagnostics === null
-    || diagnostics.sessionHealth === "degraded"
+    || (directAgent && diagnostics.sessionHealth === "degraded")
     || diagnostics.models.available === false
-    || coreCapabilities.some((item) => item.runtime === "degraded")
+    || (directAgent && coreCapabilities.some((item) => item.runtime === "degraded"))
     || (snapshot?.runnable === false && nonProjectBlockingIssue)
   );
   const displayName = diagnostics?.displayName ?? snapshot?.displayName ?? "当前 AI 服务";
