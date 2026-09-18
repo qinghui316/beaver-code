@@ -20,6 +20,16 @@ describe("provider health presentation", () => {
     expect(health.featureIssues).toEqual([expect.objectContaining({ summary: "计划模式暂不可用。" })]);
   });
 
+  it("keeps an optional model catalog failure separate from service health", () => {
+    const health = healthView({
+      snapshot: snapshot([capability("model.list", "degraded")], { runnable: true, status: "degraded" }),
+      diagnostics: diagnostics({ modelAvailable: false }),
+      hasSelectedProject: true,
+    });
+    expect(health.serviceState).toBe("connected");
+    expect(health.featureIssues).toEqual([expect.objectContaining({ summary: "模型列表暂不可用。" })]);
+  });
+
   it("marks the service unavailable only when the runtime is unavailable", () => {
     const health = healthView({ snapshot: snapshot([]), diagnostics: diagnostics({ available: false, sessionHealth: "unavailable" }), hasSelectedProject: false });
     expect(health).toMatchObject({ serviceState: "unavailable", serviceSummary: "Codex 当前不可用。" });
@@ -56,15 +66,22 @@ function healthView(input: Omit<Parameters<typeof providerHealthViewModel>[0], "
   return providerHealthViewModel({ ...input, productMode: "agent" });
 }
 
-function capability(key: "skill.native-load" | "turn.plan" | "turn.start", runtime: "ready" | "degraded" | "unavailable") {
-  return { key, label: key === "skill.native-load" ? "技能" : key === "turn.plan" ? "计划模式" : "启动回合", spec: "supported" as const, runtime, summary: "检测结果", reason: "project scoped" };
+function capability(key: "skill.native-load" | "turn.plan" | "turn.start" | "model.list", runtime: "ready" | "degraded" | "unavailable") {
+  const label = key === "skill.native-load"
+    ? "技能"
+    : key === "turn.plan"
+      ? "计划模式"
+      : key === "model.list"
+        ? "模型列表"
+        : "启动回合";
+  return { key, label, spec: "supported" as const, runtime, summary: "检测结果", reason: "project scoped" };
 }
 
 function snapshot(capabilities: ProviderCapabilitySnapshot["capabilities"], override: Partial<Pick<ProviderCapabilitySnapshot, "runnable" | "status" | "productMode">> = {}): ProviderCapabilitySnapshot {
   return { providerId: "codex", displayName: "Codex", productMode: override.productMode ?? "agent", status: override.status ?? "degraded", runnable: override.runnable ?? false, checkedAt: "2026-09-18T00:00:00.000Z", snapshotHash: "hash", snapshotVersion: 1, effectiveModel: null, effectiveModelSource: "provider-default", degradedReasons: [], capabilities };
 }
 
-function diagnostics(override: { available?: boolean; sessionHealth?: ProviderDiagnostics["sessionHealth"] } = {}): ProviderDiagnostics {
+function diagnostics(override: { available?: boolean; sessionHealth?: ProviderDiagnostics["sessionHealth"]; modelAvailable?: boolean } = {}): ProviderDiagnostics {
   const available = override.available ?? true;
-  return { providerId: "codex", displayName: "Codex", installation: { available, version: "0.155.0" }, adapter: { id: "codex-app-server", version: "1" }, capabilities: snapshot([]), models: { providerId: "codex", selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: true }, sessionHealth: override.sessionHealth ?? "ready", lastError: null, rawEvidenceRefs: [], projectActions: [] };
+  return { providerId: "codex", displayName: "Codex", installation: { available, version: "0.155.0" }, adapter: { id: "codex-app-server", version: "1" }, capabilities: snapshot([]), models: { providerId: "codex", selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: override.modelAvailable ?? true }, sessionHealth: override.sessionHealth ?? "ready", lastError: null, rawEvidenceRefs: [], projectActions: [] };
 }

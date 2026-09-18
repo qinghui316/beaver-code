@@ -65,6 +65,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
               <span className={`provider-status-pill ${status}`}>{providerStatusLabel(status)}</span>
             </div>
             {health.projectIssue ? <div className="provider-project-issue" role="status"><div><strong>{health.projectIssue.summary}</strong><p>{health.projectIssue.recoveryAction}</p></div><div className="settings-inline-actions"><button className="outline-button" onClick={() => void refresh()} disabled={modelSettingsBusy}>重新检测</button><button className="outline-button" onClick={() => onSectionChange("skills")}>打开技能</button></div></div> : null}
+            {health.featureIssues.length > 0 ? <div className="provider-feature-issues" role="status" aria-label="功能可用性">{health.featureIssues.map((issue) => <div className="provider-feature-issue" key={issue.summary}><strong>{issue.summary}</strong>{issue.recoveryAction ? <p>{issue.recoveryAction}</p> : null}</div>)}</div> : null}
             <dl className="settings-definition-list">
               <div><dt>默认模型</dt><dd className="settings-identity" tabIndex={0} title={modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}>{modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`}</dd></div>
               <div><dt>模型来源</dt><dd>{modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)}</dd></div>

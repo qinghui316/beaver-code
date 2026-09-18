@@ -644,6 +644,27 @@
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
 }
+
+.provider-feature-issues {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-feature-issue {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+
+.provider-feature-issue strong {
+  color: var(--text-strong);
+}
+
+.provider-feature-issue p {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
 .provider-project-issue strong { color: var(--text-strong); }
 .provider-project-issue p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 

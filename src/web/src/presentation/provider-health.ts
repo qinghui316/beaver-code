@@ -40,7 +40,6 @@ export function providerHealthViewModel({ snapshot, diagnostics, hasSelectedProj
   const serviceAttention = !serviceUnavailable && (
     diagnostics === null
     || (directAgent && diagnostics.sessionHealth === "degraded")
-    || diagnostics.models.available === false
     || (directAgent && coreCapabilities.some((item) => item.runtime === "degraded"))
     || (snapshot?.runnable === false && nonProjectBlockingIssue)
   );
@@ -53,7 +52,7 @@ export function providerHealthViewModel({ snapshot, diagnostics, hasSelectedProj
 
 function featureIssue(item: ProviderCapabilityItem): UserFacingFailure {
   return {
-    summary: item.key === "turn.plan" ? "计划模式暂不可用。" : `${item.label}暂不可用。`,
+    summary: item.key === "turn.plan" ? "计划模式暂不可用。" : item.key === "model.list" ? "模型列表暂不可用。" : `${item.label}暂不可用。`,
     recoveryAction: "可重新检测，或查看诊断了解详情。",
     technicalDetail: item.reason,
   };

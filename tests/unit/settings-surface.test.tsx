@@ -41,6 +41,16 @@ describe("SettingsSurface clarity", () => {
     fireEvent.keyDown(close, { key: "Tab" });
     expect(document.activeElement).toBe(close);
   });
+
+  it("shows optional feature recovery copy without changing service health", () => {
+    const optional = snapshot("degraded");
+    optional.capabilities = [{ key: "turn.plan", label: "计划模式", spec: "supported", runtime: "unavailable", summary: "Plan unavailable" }];
+    optional.runnable = true;
+    render(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={diagnostics()} modelSettings={null} providerCapabilities={[optional]} onClose={vi.fn()} onRefresh={vi.fn()} />);
+    expect(screen.getByText("Codex 已连接。")).toBeTruthy();
+    expect(screen.getByText("计划模式暂不可用。")).toBeTruthy();
+    expect(screen.getByText("可重新检测，或查看诊断了解详情。")).toBeTruthy();
+  });
 });
 
 function snapshot(status: ProviderCapabilitySnapshot["status"]): ProviderCapabilitySnapshot {
