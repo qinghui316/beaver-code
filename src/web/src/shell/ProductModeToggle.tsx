@@ -11,6 +11,7 @@ export function ProductModeToggle({ view, onToggle }: { view: ProductModeToggleV
       role="switch"
       aria-checked={view.currentMode === "harness"}
       aria-label={view.accessibleLabel}
+      aria-description={`当前为 ${view.currentLabel}，点击切换到 ${productModeControlLabel(view.targetLabel, activity)}`}
       title={view.title}
       onClick={onToggle}
       data-mode={view.currentMode}
@@ -24,4 +25,11 @@ export function ProductModeToggle({ view, onToggle }: { view: ProductModeToggleV
       {activity ? <span className={`product-mode-toggle-activity ${activity}`} aria-hidden="true" /> : null}
     </button>
   );
+}
+
+function productModeControlLabel(targetLabel: string, activity: string | null): string {
+  if (activity === "attention") return `${targetLabel}，需要你处理`;
+  if (activity === "failed") return `${targetLabel}，需要处理`;
+  if (activity === "running") return `${targetLabel}，正在执行`;
+  return targetLabel;
 }

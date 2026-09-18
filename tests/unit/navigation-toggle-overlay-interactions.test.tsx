@@ -11,14 +11,15 @@ import type { ProjectStatus, Snapshot } from "../../src/web/src/types.js";
 afterEach(cleanup);
 
 describe("navigation toggle and overlay interactions", () => {
-  it("projects one direct mode toggle whose label describes the next action", () => {
+  it("projects one mode switch with a stable name and current state", () => {
     const onToggle = vi.fn();
     const view = productModeToggleViewModel("agent", { harness: "attention" });
     const rendered = render(<ProductModeToggle view={view} onToggle={onToggle} />);
 
-    const toggle = screen.getByRole("switch", { name: "切换到 AHO，需要你处理" });
+    const toggle = screen.getByRole("switch", { name: "产品模式" });
     expect(toggle.getAttribute("data-mode")).toBe("agent");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.getAttribute("aria-description")).toBe("当前为 Agent 模式，点击切换到 AHO 模式，需要你处理");
     expect(toggle.querySelector(".product-mode-toggle-label.agent")?.textContent).toBe("Agent 模式");
     expect(toggle.querySelector(".product-mode-toggle-label.harness")?.textContent).toBe("AHO 模式");
     expect(toggle.querySelector(".product-mode-toggle-thumb")).toBeTruthy();
@@ -27,10 +28,25 @@ describe("navigation toggle and overlay interactions", () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
 
     rendered.rerender(<ProductModeToggle view={productModeToggleViewModel("harness", { agent: "running" })} onToggle={onToggle} />);
-    const harnessToggle = screen.getByRole("switch", { name: "切换到 Agent，正在执行" });
+    const harnessToggle = screen.getByRole("switch", { name: "产品模式" });
     expect(harnessToggle.getAttribute("data-mode")).toBe("harness");
     expect(harnessToggle.getAttribute("aria-checked")).toBe("true");
+    expect(harnessToggle.getAttribute("aria-description")).toBe("当前为 AHO 模式，点击切换到 Agent 模式，正在执行");
     expect(harnessToggle.querySelector(".product-mode-toggle-activity.running")).toBeTruthy();
+  });
+
+  it("uses a native keyboard-operable button and supports rapid reversals", () => {
+    function ToggleHarness() {
+      const [mode, setMode] = useState<"agent" | "harness">("agent");
+      return <ProductModeToggle view={productModeToggleViewModel(mode, {})} onToggle={() => setMode((current) => current === "agent" ? "harness" : "agent")} />;
+    }
+    render(<ToggleHarness />);
+    const toggle = screen.getByRole("switch", { name: "产品模式" });
+    expect(toggle.tagName).toBe("BUTTON");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("data-mode")).toBe("harness");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("data-mode")).toBe("agent");
   });
 
   it("keeps the selected project first and searches active and archived conversations", () => {

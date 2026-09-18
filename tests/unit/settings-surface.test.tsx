@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsSurface } from "../../src/web/src/panels/SettingsSurface.js";
-import type { ProviderCapabilitySnapshot } from "../../src/web/src/types.js";
+import type { ProviderCapabilitySnapshot, ProviderDiagnostics } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
@@ -23,11 +23,11 @@ describe("SettingsSurface clarity", () => {
   });
 
   it("keeps capability keys inside diagnostics and contains keyboard focus", async () => {
-    const view = render(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[snapshot("ready")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
+    const view = render(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={diagnostics()} modelSettings={null} providerCapabilities={[snapshot("ready")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "查看诊断" })).toBeNull();
     expect(screen.queryByText("turn.review")).toBeNull();
 
-    view.rerender(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[snapshot("degraded")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
+    view.rerender(<SettingsSurface section="provider" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={diagnostics()} modelSettings={null} providerCapabilities={[snapshot("degraded")]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "查看诊断" }));
     const dialog = screen.getByRole("dialog", { name: "服务诊断" });
     const close = screen.getByRole("button", { name: "关闭服务诊断" });
@@ -57,5 +57,20 @@ function snapshot(status: ProviderCapabilitySnapshot["status"]): ProviderCapabil
     effectiveModelSource: "provider-default",
     degradedReasons: status === "degraded" ? ["Review unavailable"] : [],
     capabilities: [{ key: "turn.review", label: "Code Review", spec: "supported", runtime: status === "ready" ? "ready" : "degraded", summary: "Review support" }],
+  };
+}
+
+function diagnostics(): ProviderDiagnostics {
+  return {
+    providerId: "codex",
+    displayName: "Codex",
+    installation: { available: true, version: "0.155.0" },
+    adapter: { id: "codex-app-server", version: "1" },
+    capabilities: snapshot("ready"),
+    models: { providerId: "codex", selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: true },
+    sessionHealth: "ready",
+    lastError: null,
+    rawEvidenceRefs: [],
+    projectActions: [],
   };
 }

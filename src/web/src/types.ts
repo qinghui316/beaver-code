@@ -8,6 +8,12 @@ export type { ConversationDeleteConfirmation, ConversationLifecycleReceipt, Conv
 export type { ProviderReviewTarget } from "../../provider-runtime/index.js";
 import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
 import type { DesktopShellCapability } from "../../types/desktop-shell.js";
+import type {
+  ProviderCapabilityItem as RuntimeProviderCapabilityItem,
+  ProviderCapabilityKey as RuntimeProviderCapabilityKey,
+  ProviderCapabilitySnapshot as RuntimeProviderCapabilitySnapshot,
+  ProviderDiagnosticsSnapshot,
+} from "../../provider-runtime/index.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
 export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";
@@ -23,19 +29,7 @@ export type ProjectGitReviewOptions = {
   generation: string;
   message?: string;
 };
-export type ProviderDiagnostics = {
-  providerId: string;
-  displayName: string;
-  installation: { available: boolean; version: string | null; path?: string };
-  adapter: { id: string; version: string };
-  capabilities: ProviderCapabilitySnapshot;
-  models: ProviderModelSettingsSnapshot;
-  sessionHealth: "ready" | "degraded" | "unavailable";
-  lastError: string | null;
-  rawEvidenceRefs: string[];
-  projectActions: Array<{ id: string; label: string; status: "available" | "completed" | "blocked"; requiresConfirmation: boolean; reason?: string }>;
-  details?: Record<string, unknown>;
-};
+export type ProviderDiagnostics = ProviderDiagnosticsSnapshot;
 export type ProviderEffectiveModelSource = "selected" | "config" | "provider-default";
 export type ProviderModelCandidate = {
   providerId: string;
@@ -63,49 +57,13 @@ export type ProviderModelCatalogGroup = {
   snapshot: ProviderModelSettingsSnapshot | null;
   message?: string;
 };
-export type ProviderCapabilityKey =
-  | "streaming.text"
-  | "streaming.reasoning"
-  | "streaming.tool-output"
-  | "tool.use"
-  | "tool.mcp"
-  | "reasoning.effort"
-  | "collaboration.mode"
-  | "session.continuation"
-  | "image.input"
-  | "file.reference"
-  | "model.list"
-  | "skills"
-  | "context.usage"
-  | "context.compact"
-  | "session.archive"
-  | "turn.plan";
-export type ProviderCapabilityItem = {
-  key: ProviderCapabilityKey;
-  label: string;
-  spec: "supported" | "compat-input" | "unsupported" | "unknown";
-  runtime: "ready" | "degraded" | "unavailable";
-  summary: string;
-  reason?: string;
-};
+export type ProviderCapabilityKey = RuntimeProviderCapabilityKey;
+export type ProviderCapabilityItem = RuntimeProviderCapabilityItem;
 export type ProviderId = string;
 export type ProductMode = "harness" | "agent";
 export type AgentTurnMode = "default" | "plan";
 export type HarnessExecutionMode = "stepwise" | "scoped-auto";
-export type ProviderCapabilitySnapshot = {
-  providerId: ProviderId;
-  displayName: string;
-  productMode: ProductMode;
-  status: "ready" | "degraded" | "unavailable";
-  runnable: boolean;
-  checkedAt: string;
-  snapshotHash: string;
-  snapshotVersion: number;
-  effectiveModel: string | null;
-  effectiveModelSource: ProviderEffectiveModelSource;
-  degradedReasons: string[];
-  capabilities: ProviderCapabilityItem[];
-};
+export type ProviderCapabilitySnapshot = RuntimeProviderCapabilitySnapshot;
 export type ProviderRuntimeSummary = {
   providerId: ProviderId;
   productMode: ProductMode;
