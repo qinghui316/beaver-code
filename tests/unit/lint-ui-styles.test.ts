@@ -11,6 +11,19 @@ afterEach(async () => {
 });
 
 describe("UI style drift lint", () => {
+  it.each(["matching", "weak", "missing"])("allows only the shared quiet text contract with platform focus retained: %s", async (platformFocus) => {
+    const root = await createFixture({
+      "src/web/src/main.tsx": 'import "./styles/index.css";',
+      "src/web/src/styles/index.css": '@import "./base.css";',
+      "src/web/src/styles/base.css": [
+        'textarea:focus, input:not([type]):focus, input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="password"], [type="tel"], [type="number"]):focus { outline: none; }',
+        platformFocus === "matching" ? '@media (forced-colors: active) { textarea:focus, input:not([type]):focus, input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="password"], [type="tel"], [type="number"]):focus { outline: 1px solid Highlight; } }'
+          : platformFocus === "weak" ? '@media (forced-colors: active) { textarea:focus, input:focus-visible { outline: 1px solid Highlight; } }' : "",
+        'button:focus-visible { outline: none; }',
+      ].join("\n"),
+    });
+    expect((await lintUiStyles(root)).violations).toHaveLength(platformFocus === "matching" ? 1 : 2);
+  });
   it("accepts one style entry, token-owned colors, runtime dimensions, and same-file variants", async () => {
     const root = await createFixture({
       "src/web/src/main.tsx": 'import "./styles/index.css";',

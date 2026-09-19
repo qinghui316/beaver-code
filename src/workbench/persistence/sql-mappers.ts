@@ -1,4 +1,5 @@
 import type { ProviderSkillInput } from "../../project-harness/contracts.js";
+import { parseAgentAccessMode, parseAgentAccessPolicy } from "../../provider-runtime/agent-access-policy.js";
 import {
   assertAgentTurnMode,
   assertProductMode,
@@ -44,6 +45,8 @@ export function mapMessageRow(row: SqliteRow): StoredTopicMessage {
 
 export function mapConversationRow(row: SqliteRow): StoredConversation {
   return {
+    agentAccessMode: row.productMode === "agent" ? parseAgentAccessMode(row.agentAccessMode) : null,
+    agentAccessRevision: Number(row.agentAccessRevision ?? 0),
     projectId: String(row.projectId),
     conversationId: String(row.conversationId),
     productMode: assertProductMode(row.productMode, "Stored Conversation productMode"),
@@ -146,6 +149,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     operationProfile: String(row.operationProfile),
     operationKind: row.operationKind === "review" ? "review" : "conversation-turn",
     executionContract,
+    accessPolicy: parseAgentAccessPolicy(row.accessPolicyJson == null ? null : JSON.parse(String(row.accessPolicyJson))),
     providerId: String(row.providerId),
     nativeSessionId: nullableString(row.nativeSessionId),
     model: parseJsonObject<ProviderModelRef>(row.modelJson),

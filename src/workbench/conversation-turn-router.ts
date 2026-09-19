@@ -1,4 +1,5 @@
 import type { ProductMode, ProviderRegistry } from "../provider-runtime/index.js";
+import { resolveAgentAccessPolicy } from "../provider-runtime/agent-access-policy.js";
 import type { ProjectRuntimeCoordinatorPort, ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { DirectAgentConversationTurnStrategy } from "./direct-agent-conversation-turn-strategy.js";
@@ -135,6 +136,7 @@ export class ConversationTurnRouter {
   async admit(input: ConversationTurnAdmissionRequest): Promise<ConversationTurnAdmission> {
     const runtimeState = await this.requireRuntimeState(input.project);
     if (input.productMode === "harness") {
+      if (input.agentAccessMode !== undefined) throw conflict("AHO Turn cannot carry Agent access settings.");
       if (input.agentTurnMode !== null) throw conflict("Harness Turn cannot carry an Agent Turn mode.");
       const resolved = await this.providerRegistry.requireProfiles(
         input.providerId,
@@ -188,6 +190,14 @@ export class ConversationTurnRouter {
       requireResolvedModel: agentTurnMode === "plan",
     });
     requireAttachmentCapabilities(resolved.snapshot, attachmentResolution);
+    const accessPolicy = resolveAgentAccessPolicy({
+      productMode: "agent",
+      accessMode: input.agentAccessMode ?? "default",
+      turnMode: agentTurnMode,
+      projectRoot: input.project.path,
+      supportsFullAccess: resolved.snapshot.capabilities.some((item) => item.key === "workspace.full-access" && item.runtime === "ready"),
+      supportsApproval: resolved.snapshot.capabilities.some((item) => item.key === "turn.approval" && item.runtime === "ready"),
+    });
     return freezeAdmission({
       projectId: input.project.id,
       productMode: "agent",
@@ -199,8 +209,9 @@ export class ConversationTurnRouter {
         ? { providerId: input.providerId, modelId: modelAdmission.resolvedModelId }
         : null,
       modelAdmission,
-      sandboxPolicy: agentTurnMode === "plan" ? "read-only" : "workspace-write",
-      writableRoots: agentTurnMode === "plan" ? [] : [input.project.path],
+      accessPolicy,
+      sandboxPolicy: accessPolicy.sandboxPolicy,
+      writableRoots: accessPolicy.writableRoots,
       runtimeState,
       attachmentResolution,
     });

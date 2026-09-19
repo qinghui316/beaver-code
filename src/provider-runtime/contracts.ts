@@ -423,7 +423,7 @@ export interface ProviderTurnRequest {
   cwd: string;
   prompt: string;
   agentTurnMode?: AgentTurnMode;
-  sandboxPolicy: "read-only" | "workspace-write";
+  sandboxPolicy: "read-only" | "workspace-write" | "full-access";
   paths: ProviderArtifactPaths;
   existingSession?: ProviderSessionRef | null;
   timeoutMs?: number;

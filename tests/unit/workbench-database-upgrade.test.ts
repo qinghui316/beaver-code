@@ -71,7 +71,7 @@ describe("Workbench database upgrade safety", () => {
     const previousDir = join(dirname(paths.workbenchDbPath), "schema-upgrades", "previous");
     const receipt = JSON.parse(await readFile(join(previousDir, "receipt.json"), "utf8")) as Record<string, unknown>;
     expect(receipt).toMatchObject({ fromSchema: revision, toSchema: WORKBENCH_SCHEMA_VERSION, result: "completed" });
-    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19, 20] : [18, 19, 20]);
+    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19, 20, 21] : [18, 19, 20, 21]);
     expect(receipt.preservedRecordCounts).toMatchObject({ canonical_timeline_items: 1 });
     expect(receipt.preservedIdentityDigest).toMatch(/^[a-f0-9]{64}$/);
     await expect(stat(join(previousDir, "workbench.sqlite"))).resolves.toBeTruthy();

@@ -42,7 +42,7 @@ export interface CodexAppServerSessionRecord {
   threadId: string;
   activeTurnId: string | null;
   cwd: string;
-  sandboxPolicy: "read-only" | "workspace-write";
+  sandboxPolicy: "read-only" | "workspace-write" | "full-access";
   status: "started" | "running" | "completed" | "interrupted" | "failed";
   startedAt: string;
   updatedAt: string;
@@ -199,7 +199,7 @@ export interface CodexAppServerTurnOptions {
   runId: string;
   cwd: string;
   prompt: string;
-  sandboxPolicy: "read-only" | "workspace-write";
+  sandboxPolicy: "read-only" | "workspace-write" | "full-access";
   paths: CodexAppServerArtifactPaths;
   existingThreadId?: string | null;
   timeoutMs?: number;
@@ -773,7 +773,7 @@ async function runCodexAppServerOperation(
         ? await sendRequest("thread/resume", {
           threadId,
           cwd: options.cwd,
-          sandbox: options.sandboxPolicy,
+          sandbox: options.sandboxPolicy === "full-access" ? "danger-full-access" : options.sandboxPolicy,
           approvalPolicy: options.approvalMode ?? "never",
           ...(codexThreadFeatureConfig(options) ? { config: codexThreadFeatureConfig(options) } : {}),
           ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
@@ -781,7 +781,7 @@ async function runCodexAppServerOperation(
         : await sendRequest("thread/start", {
           ...(options.reviewTarget && options.model?.trim() ? { model: options.model.trim() } : {}),
           cwd: options.cwd,
-          sandbox: options.sandboxPolicy,
+          sandbox: options.sandboxPolicy === "full-access" ? "danger-full-access" : options.sandboxPolicy,
           approvalPolicy: options.approvalMode ?? "never",
           ...(codexThreadFeatureConfig(options) ? { config: codexThreadFeatureConfig(options) } : {}),
           ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
@@ -1767,7 +1767,8 @@ function canonicalPathForRedaction(value: string): string {
   return value.replace(/\//g, "\\").replace(/\\+$/g, "").toLowerCase();
 }
 
-function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string, writableRoots?: string[]): Record<string, unknown> {
+function sandboxPolicyFor(policy: "read-only" | "workspace-write" | "full-access", cwd: string, writableRoots?: string[]): Record<string, unknown> {
+  if (policy === "full-access") return { type: "dangerFullAccess" };
   if (policy === "workspace-write") {
     return {
       type: "workspaceWrite",

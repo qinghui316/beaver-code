@@ -40,6 +40,7 @@ export class WorkbenchUnitOfWork {
     expectedQueueRevision: number;
     expectedExecutionRevision: string;
     expectedDraftUpdatedAt: string | null;
+    expectedAccessRevision?: number;
   }): { queue: StoredConversationTurnQueue; item: StoredConversationQueuedTurn } {
     return this.db.transaction(() => {
       const existing = this.conversationTurnQueues.readByClientRequestId(
@@ -62,6 +63,11 @@ export class WorkbenchUnitOfWork {
       });
       if (queue.revision !== input.expectedQueueRevision) throw conflict("Conversation Turn queue changed in another window.");
       const conversation = this.conversations.readConversation(input.item.projectId, input.item.conversationId);
+      if (input.expectedAccessRevision !== undefined && (!conversation
+        || (conversation.agentAccessRevision ?? 0) !== input.expectedAccessRevision
+        || (conversation.agentAccessMode ?? "default") !== (input.item.agentAccessMode ?? "default"))) {
+        throw conflict("Conversation access changed before the queued Turn was accepted.");
+      }
       const activeAttemptIds = this.providerAttempts.listProviderAttempts(input.item.projectId, input.item.conversationId)
         .filter((attempt) => attempt.graphScopeId === conversation?.currentGraphScopeId
           && (attempt.status === "queued" || attempt.status === "running"))
@@ -243,6 +249,7 @@ export class WorkbenchUnitOfWork {
     expectedAgentTurnMode: AgentTurnMode;
     expectedAgentModelId: string | null;
     expectedAgentReasoningEffort: string | null;
+    expectedAccessSelection?: { providerId: string; revision: number; accessMode: import("../../provider-runtime/agent-access-policy.js").AgentAccessMode };
     agentTurnMode: AgentTurnMode;
     agentModelId: string | null;
     agentReasoningEffort: string | null;
@@ -255,6 +262,16 @@ export class WorkbenchUnitOfWork {
     return this.db.transaction(() => {
       const replay = this.timeline.readCanonicalRequestReplay(input.message);
       if (replay) return { message: replay, graphScopeRows: [], replayed: true };
+      if (input.expectedAccessSelection) {
+        const selected = input.expectedAccessSelection;
+        const current = this.conversations.readConversation(input.projectId, input.conversationId);
+        if (!current || current.productMode !== "agent" || current.state !== "active" || current.deletedAt
+          || current.selectedProviderId !== selected.providerId
+          || (current.agentAccessRevision ?? 0) !== selected.revision
+          || (current.agentAccessMode ?? "default") !== selected.accessMode) {
+          throw conflict("Conversation access changed before the submission was accepted.");
+        }
+      }
       this.assertConversationQueueCommit(
         input.projectId,
         input.conversationId,

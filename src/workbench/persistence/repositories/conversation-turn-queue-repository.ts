@@ -1,3 +1,4 @@
+import { parseAgentAccessMode } from "../../../provider-runtime/agent-access-policy.js";
 import type Database from "better-sqlite3";
 import { validateStoredExecutionContractRef, type ProductMode } from "../../../provider-runtime/index.js";
 import type {
@@ -52,7 +53,7 @@ export class ConversationTurnQueueRepository {
         item_kind AS itemKind, review_target_json AS reviewTargetJson,
         text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
-        provider_id AS providerId, agent_turn_mode AS agentTurnMode,
+        provider_id AS providerId, agent_turn_mode AS agentTurnMode, agent_access_mode AS agentAccessMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         diagnostic, created_at AS createdAt, updated_at AS updatedAt, dispatched_at AS dispatchedAt
       FROM conversation_turn_queue_items
@@ -74,7 +75,7 @@ export class ConversationTurnQueueRepository {
         item_kind AS itemKind, review_target_json AS reviewTargetJson,
         text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
-        provider_id AS providerId, agent_turn_mode AS agentTurnMode,
+        provider_id AS providerId, agent_turn_mode AS agentTurnMode, agent_access_mode AS agentAccessMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         diagnostic, created_at AS createdAt, updated_at AS updatedAt, dispatched_at AS dispatchedAt
       FROM conversation_turn_queue_items
@@ -96,7 +97,7 @@ export class ConversationTurnQueueRepository {
         item_kind AS itemKind, review_target_json AS reviewTargetJson,
         text, context_refs_json AS contextRefsJson,
         attachment_ids_json AS attachmentIdsJson, skill_overrides_json AS skillOverridesJson,
-        provider_id AS providerId, agent_turn_mode AS agentTurnMode,
+        provider_id AS providerId, agent_turn_mode AS agentTurnMode, agent_access_mode AS agentAccessMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
         diagnostic, created_at AS createdAt, updated_at AS updatedAt, dispatched_at AS dispatchedAt
       FROM conversation_turn_queue_items
@@ -131,8 +132,8 @@ export class ConversationTurnQueueRepository {
         item_kind, review_target_json,
         text, context_refs_json, attachment_ids_json, skill_overrides_json, provider_id,
         agent_turn_mode, agent_model_id, agent_reasoning_effort, diagnostic,
-        created_at, updated_at, dispatched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, updated_at, dispatched_at, agent_access_mode
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       item.projectId, item.conversationId, item.productMode, item.queueItemId, item.clientRequestId,
       item.requestHash, item.position, item.status, item.retryCount, item.predecessorExecutionRevision,
@@ -140,6 +141,7 @@ export class ConversationTurnQueueRepository {
       item.itemKind ?? "conversation-turn", item.reviewTargetJson ?? null, item.text, item.contextRefsJson, item.attachmentIdsJson,
       item.skillOverridesJson, item.providerId, item.agentTurnMode, item.agentModelId,
       item.agentReasoningEffort, item.diagnostic, item.createdAt, item.updatedAt, item.dispatchedAt,
+      item.productMode === "agent" && item.itemKind !== "review" ? parseAgentAccessMode(item.agentAccessMode) : null,
     );
   }
 
@@ -295,6 +297,7 @@ function mapItem(row: SqliteRow): StoredConversationQueuedTurn {
     reviewTargetJson: row.reviewTargetJson === null ? null : String(row.reviewTargetJson), text: String(row.text),
     contextRefsJson: String(row.contextRefsJson), attachmentIdsJson: String(row.attachmentIdsJson),
     skillOverridesJson: String(row.skillOverridesJson), providerId: String(row.providerId),
+    agentAccessMode: row.productMode === "agent" && row.itemKind !== "review" ? parseAgentAccessMode(row.agentAccessMode) : null,
     agentTurnMode: row.agentTurnMode === null ? null : String(row.agentTurnMode) as StoredConversationQueuedTurn["agentTurnMode"],
     agentModelId: row.agentModelId === null ? null : String(row.agentModelId),
     agentReasoningEffort: row.agentReasoningEffort === null ? null : String(row.agentReasoningEffort),

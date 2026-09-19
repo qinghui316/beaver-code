@@ -389,6 +389,8 @@ export interface WorkbenchAssistantEvent extends Omit<ProviderReadableEvent, "it
 }
 
 export interface TopicMessageInput {
+  agentAccessMode?: import("../provider-runtime/agent-access-policy.js").AgentAccessMode;
+  expectedAccessRevision?: number;
   clientRequestId?: string;
   mode?: WorkbenchMessageMode;
   message?: string;

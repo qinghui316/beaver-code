@@ -182,6 +182,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
     { key: "structured-output", label: "结构化输出", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持 output schema。" },
     { key: "workspace.read", label: "工作区读取", spec: "supported", runtime: safeExecReady ? "ready" : "unavailable", summary: "Codex 可读取分配工作区。" },
     { key: "workspace.multiroot", label: "多根工作区", spec: "supported", runtime: safeExecReady ? "ready" : "unavailable", summary: "Codex 可接收项目和外部记忆根。" },
+    { key: "workspace.full-access", label: "完全访问", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "可在用户明确选择后使用完全访问。" },
     { key: "tool.web", label: "网络工具", spec: "supported", runtime: cliReady ? "ready" : "unavailable", summary: "网络工具由Codex运行能力和AHO策略共同约束。" },
   );
 

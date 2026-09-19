@@ -214,7 +214,11 @@ export class ConversationTurnRetryOwner {
       modelId,
       reasoningEffort,
       attachments,
+      agentAccessMode: failedAttempt.accessPolicy?.requestedAccess ?? "default",
     });
+    if (failedAttempt.accessPolicy && JSON.stringify(admission.accessPolicy) !== JSON.stringify(failedAttempt.accessPolicy)) {
+      throw conflict("The failed Turn access policy cannot be reproduced safely. Start a new Turn.");
+    }
     const skillResolution = await this.turnRouter.resolveTurnSkills(project, conversation, []);
     assertSkillEvidence(failedAttempt.effectiveSkillInputs, skillResolution);
     return freezePrepared({
@@ -353,6 +357,7 @@ function retryRequestHash(
     contextRefs: source.contextRefs ?? [],
     attachments: (source.attachments ?? []).map((item) => ({ id: item.id, hash: item.hash, size: item.size, kind: item.kind, mediaType: item.mediaType })).sort((a, b) => a.id.localeCompare(b.id)),
     skills: stableSkillInputs(attempt.effectiveSkillInputs),
+    ...(attempt.accessPolicy ? { accessPolicy: attempt.accessPolicy } : {}),
   })).digest("hex");
 }
 

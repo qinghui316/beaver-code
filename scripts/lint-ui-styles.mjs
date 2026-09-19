@@ -179,6 +179,11 @@ function collectOutlineResetViolations(content, relativePath, violations) {
   visitStyleRules(text, 0, text.length, (selector, body, bodyOffset) => {
     const reset = /\boutline\s*:\s*(?:none|0)(?:\s*!important)?\s*;/i.exec(body);
     if (!reset || selector.includes(":not(:focus-visible)")) return;
+    const quietTextSelector = 'textarea:focus,input:not([type]):focus,input:is([type="text"],[type="search"],[type="email"],[type="url"],[type="password"],[type="tel"],[type="number"]):focus';
+    const platformFocus = /@media\s*\(forced-colors:\s*active\)\s*\{\s*([^{}]+)\{\s*outline:\s*1px solid Highlight;/i.exec(text);
+    const hasPlatformFocus = platformFocus?.[1].replace(/\s+/g, "") === quietTextSelector;
+    if (relativePath === "src/web/src/styles/base.css"
+      && selector.replace(/\s+/g, "") === quietTextSelector && hasPlatformFocus) return;
     violations.push(`${relativePath}:${lineAt(content, bodyOffset + reset.index)} suppresses focus outline; use the shared :focus-visible contract`);
   });
 }

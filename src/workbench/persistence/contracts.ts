@@ -31,6 +31,8 @@ export type StoredTopicMessageWrite = Omit<StoredTopicMessage, "position" | "rev
 };
 
 export interface StoredConversation {
+  agentAccessMode?: import("../../provider-runtime/agent-access-policy.js").AgentAccessMode | null;
+  agentAccessRevision?: number;
   projectId: string;
   conversationId: string;
   productMode: ProductMode;
@@ -114,6 +116,7 @@ export interface StoredConversationProviderBinding {
 }
 
 export interface StoredProviderAttempt {
+  accessPolicy?: import("../../provider-runtime/agent-access-policy.js").AgentAccessPolicy | null;
   projectId: string;
   conversationId: string | null;
   attemptId: string;
@@ -170,6 +173,7 @@ export interface StoredConversationTurnQueue {
 }
 
 export interface StoredConversationQueuedTurn {
+  agentAccessMode?: import("../../provider-runtime/agent-access-policy.js").AgentAccessMode | null;
   projectId: string;
   conversationId: string;
   productMode: ProductMode;

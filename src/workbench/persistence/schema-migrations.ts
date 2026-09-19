@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { applyCurrentWorkbenchSchema, ensureColumn, hasAnyWorkbenchUserTables, hasWorkbenchRuntimeTables, WORKBENCH_SCHEMA_VERSION } from "./schema.js";
+import { applyCurrentWorkbenchSchema, applyWorkbenchSchema20, applyWorkbenchAccessSchema21, ensureColumn, hasAnyWorkbenchUserTables, hasWorkbenchRuntimeTables, WORKBENCH_SCHEMA_VERSION } from "./schema.js";
 import type { SqliteRow } from "./sql-mappers.js";
 
 export const MINIMUM_AUTOMATIC_WORKBENCH_SCHEMA_VERSION = 16;
@@ -174,10 +174,22 @@ const schema19To20: WorkbenchSchemaMigration = {
   from: 19,
   to: 20,
   migrate(db) {
-    applyCurrentWorkbenchSchema(db);
+    applyWorkbenchSchema20(db);
   },
   validate(db) {
     assertSchemaShape(db, 20, { historicalSource: true });
+  },
+};
+
+const schema20To21: WorkbenchSchemaMigration = {
+  from: 20,
+  to: 21,
+  migrate: applyWorkbenchAccessSchema21,
+  validate(db) {
+    assertColumns(db, "conversations", ["agent_access_mode", "agent_access_revision"]);
+    assertColumns(db, "conversation_turn_queue_items", ["agent_access_mode"]);
+    assertColumns(db, "provider_attempts", ["access_policy_json"]);
+    assertSchemaShape(db, 21, { historicalSource: true });
   },
 };
 
@@ -186,6 +198,7 @@ export const WORKBENCH_SCHEMA_MIGRATIONS: readonly WorkbenchSchemaMigration[] = 
   schema17To18,
   schema18To19,
   schema19To20,
+  schema20To21,
 ];
 
 export function inspectWorkbenchSchema(db: Database.Database): {
@@ -343,7 +356,7 @@ function compatibleDefaultValue(
 function expectedSchemaShape(version: number): SchemaShape {
   const cached = schemaShapeCache.get(version);
   if (cached) return cached;
-  if (version !== 16 && version !== 17 && version !== 18 && version !== 19 && version !== 20) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
+  if (version !== 16 && version !== 17 && version !== 18 && version !== 19 && version !== 20 && version !== 21) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
   const reference = new Database(":memory:");
   try {
     applyCurrentWorkbenchSchema(reference);
@@ -437,7 +450,15 @@ function readSchemaShape(db: Database.Database): SchemaShape {
   return { tables, indexes, triggers };
 }
 
-export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19 | 20): void {
+export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19 | 20 | 21): void {
+  if (version < 21) {
+    db.exec(`
+      ALTER TABLE conversations DROP COLUMN agent_access_mode;
+      ALTER TABLE conversations DROP COLUMN agent_access_revision;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN agent_access_mode;
+      ALTER TABLE provider_attempts DROP COLUMN access_policy_json;
+    `);
+  }
   if (version < 20) {
     db.exec(LEGACY_MODEL_SELECTION_TRIGGER_SQL);
   }

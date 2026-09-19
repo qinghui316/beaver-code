@@ -7,6 +7,7 @@ import {
   type ProviderTurnResult,
 } from "../provider-runtime/index.js";
 import { resolveStoredExecutionContract } from "../provider-runtime/execution-contract.js";
+import { parseAgentAccessPolicy } from "../provider-runtime/agent-access-policy.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
@@ -78,19 +79,26 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
     ports: ConversationTurnExecutionPorts,
   ): Promise<TopicMessageResult> {
     this.preflight(input);
+    const accessPolicy = parseAgentAccessPolicy(input.admission.accessPolicy);
+    if (!accessPolicy || accessPolicy.sandboxPolicy !== input.admission.sandboxPolicy
+      || JSON.stringify(accessPolicy.writableRoots) !== JSON.stringify(input.admission.writableRoots)
+      || (input.admission.agentTurnMode === "plan" && accessPolicy.sandboxPolicy !== "read-only")) {
+      throw conflict("Agent Turn requires consistent admitted access evidence.");
+    }
     const activityKey = `${input.project.id}:${input.conversation.conversationId}`;
     if (activeDirectAgentConversations.has(activityKey)) {
       throw conflict("Direct Agent Conversation already has an active Turn.");
     }
     activeDirectAgentConversations.add(activityKey);
     return defaultProjectRuntimeActivityRegistry
-      .run(input.project.id, () => this.executeActivity(input, ports))
+      .run(input.project.id, () => this.executeActivity(input, ports, accessPolicy))
       .finally(() => activeDirectAgentConversations.delete(activityKey));
   }
 
   private async executeActivity(
     input: ConversationTurnStrategyInput,
     _ports: ConversationTurnExecutionPorts,
+    accessPolicy: import("../provider-runtime/agent-access-policy.js").AgentAccessPolicy,
   ): Promise<TopicMessageResult> {
     const user = fromStoredThreadMessage(input.committedMessage);
 
@@ -349,6 +357,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         reasoningEffort,
         capabilitySnapshot,
         effectiveSkillInputs: skillInputs,
+        accessPolicy,
         handoffHash,
         deliveredThroughCompletedTurn: conversation.completedTurnSequence,
         worktreeId: null,
@@ -471,9 +480,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         },
         onUserInputRequest: providerInputLifecycle.onRequest,
         onUserInputResolved: providerInputLifecycle.onResolved,
-        approvalMode: capabilitySnapshot.capabilities.some((capability) => capability.key === "turn.approval" && capability.runtime === "ready")
-          ? "on-request"
-          : "never",
+        approvalMode: accessPolicy.approvalMode,
         onApprovalRequest: providerInputLifecycle.onApprovalRequest,
         onApprovalResolved: providerInputLifecycle.onApprovalResolved,
         onError: (error) => {

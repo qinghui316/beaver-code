@@ -51,6 +51,40 @@ afterEach(async () => {
 });
 
 describe("ConversationTurnQueueOwner", () => {
+  it("captures access independently of subsequent Composer selection and preserves enqueue identity", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.conversations.updateAgentAccess({ projectId, conversationId, providerId: "codex",
+        expectedRevision: 0, accessMode: "full-access", updatedAt: now });
+    } finally { database.close(); }
+    const request = { ...queueRequest(initial.revision, initial.executionRevision!),
+      agentAccessMode: "full-access" as const, expectedAccessRevision: 1 };
+    const queued = await owner.enqueue(project, request);
+    expect(queued.items[0]?.agentAccessMode).toBe("full-access");
+    const after = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      after.conversations.updateAgentAccess({ projectId, conversationId, providerId: "codex",
+        expectedRevision: 1, accessMode: "default", updatedAt: now });
+      expect(after.conversationTurnQueues.listItems(projectId, conversationId)[0]?.agentAccessMode).toBe("full-access");
+    } finally { after.close(); }
+    expect((await owner.enqueue(project, request)).items[0]?.agentAccessMode).toBe("full-access");
+    await expect(owner.enqueue(project, { ...request, agentAccessMode: "default" })).rejects.toThrow();
+  });
+
+  it("rejects stale access selection atomically without clearing the draft", async () => {
+    const owner = createOwner();
+    const initial = await owner.read(project, "agent", conversationId);
+    await expect(owner.enqueue(project, { ...queueRequest(initial.revision, initial.executionRevision!),
+      agentAccessMode: "full-access", expectedAccessRevision: 0 })).rejects.toThrow(/access changed/);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.conversationTurnQueues.listItems(projectId, conversationId)).toEqual([]);
+      expect(database.drafts.readDraft(projectId, "agent")?.text).not.toBe("");
+    } finally { database.close(); }
+  });
+
   it("exposes managed execution admission before a queued long Turn completes", async () => {
     let finish!: () => void;
     const held = new Promise<void>((resolve) => { finish = resolve; });

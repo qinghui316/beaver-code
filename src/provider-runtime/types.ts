@@ -20,6 +20,7 @@ export type ProviderCapabilityKey =
   | "structured-output"
   | "workspace.read"
   | "workspace.write"
+  | "workspace.full-access"
   | "workspace.multiroot"
   | "skill.native-load"
   | "tool.dynamic"

@@ -16,6 +16,7 @@ import {
   type ProviderTurnResult,
 } from "../../src/provider-runtime/index.js";
 import { PROVIDER_OPERATION_CAPABILITIES } from "../../src/provider-runtime/types.js";
+import { resolveAgentAccessPolicy } from "../../src/provider-runtime/agent-access-policy.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { ProjectRuntimeCoordinator } from "../../src/project-runtime/coordinator.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
@@ -1893,6 +1894,9 @@ async function storedTurnInput(current: typeof fixture, conversationId: string):
       attachments: [],
       providerId: conversation.selectedProviderId,
       admission: {
+        accessPolicy: resolveAgentAccessPolicy({ productMode: "agent", accessMode: "default",
+          turnMode: conversation.agentTurnMode ?? "default", projectRoot: current.project.path,
+          supportsFullAccess: false, supportsApproval: capabilitySnapshot("agent").capabilities.some((item) => item.key === "turn.approval" && item.runtime === "ready") }),
         projectId: current.project.id,
         productMode: "agent",
         conversationId,

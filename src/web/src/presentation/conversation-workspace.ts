@@ -15,12 +15,14 @@ import type {
 import type { FeatureSurface } from "./feature-surface.js";
 
 interface ComposerConfigurationViewModel {
+  accessView?: import("../controllers/conversation-access-contract.js").ConversationAccessView;
   providerDisplayName?: string;
   modelLabel: string;
   selectedProviderId?: string;
   productMode?: ProductMode;
   agentTurnMode?: AgentTurnMode;
   agentTurnModeDisabledReason?: string | null;
+  planModeDisabledReason?: string | null;
   agentModelId?: string | null;
   agentReasoningEffort?: string | null;
   providerModelCatalogs?: ProviderModelCatalogGroup[];
@@ -34,6 +36,8 @@ interface ComposerConfigurationViewModel {
 }
 
 interface ComposerConfigurationActions {
+  onSelectAccess?: (mode: import("../controllers/conversation-access-contract.js").AgentAccessMode, confirmed?: boolean) => Promise<void>;
+  onRefreshAccess?: () => Promise<void>;
   onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
   onSelectAgentProviderModel?: (providerId: string, modelId: string | null) => void | Promise<void>;
   onSelectAgentReasoningEffort?: (effort: string | null) => void | Promise<void>;

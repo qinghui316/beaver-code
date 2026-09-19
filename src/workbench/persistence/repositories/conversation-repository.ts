@@ -1,10 +1,38 @@
 import type Database from "better-sqlite3";
+import { parseAgentAccessMode, type AgentAccessMode } from "../../../provider-runtime/agent-access-policy.js";
 import type { AgentTurnMode, ProductMode, ProviderId } from "../../../provider-runtime/index.js";
 import type { StoredConversation, StoredConversationGraphScope } from "../contracts.js";
 import { mapConversationRow, nullableString, type SqliteRow } from "../sql-mappers.js";
 
 export class ConversationRepository {
 constructor(private readonly db: Database.Database) {}
+
+  updateAgentAccess(input: {
+    projectId: string;
+    conversationId: string;
+    providerId: ProviderId;
+    expectedRevision: number;
+    accessMode: AgentAccessMode;
+    updatedAt: string;
+  }): StoredConversation {
+    const accessMode = parseAgentAccessMode(input.accessMode);
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new Error("Invalid Agent access revision.");
+    return this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE conversations
+        SET agent_access_mode = ?, agent_access_revision = agent_access_revision + 1, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ? AND product_mode = 'agent'
+          AND selected_provider_id = ? AND agent_access_revision = ?
+          AND state = 'active' AND surface_kind = 'user' AND deleted_at IS NULL
+      `).run(accessMode, input.updatedAt, input.projectId, input.conversationId, input.providerId, input.expectedRevision);
+      if (result.changes !== 1) {
+        const error = new Error("Conversation access changed concurrently.");
+        error.name = "Conflict";
+        throw error;
+      }
+      return this.readConversation(input.projectId, input.conversationId)!;
+    }).immediate();
+  }
 
   updateConversationTitle(projectId: string, conversationId: string, title: string, updatedAt: string): StoredConversation {
     return this.db.transaction(() => {
@@ -152,9 +180,11 @@ constructor(private readonly db: Database.Database) {}
     updatedAt: string,
   ): void {
     const selected = this.db.prepare(`
-      UPDATE conversations SET selected_provider_id = ?, updated_at = ?
+      UPDATE conversations SET agent_access_mode = CASE WHEN selected_provider_id = ? THEN agent_access_mode ELSE NULL END,
+        agent_access_revision = agent_access_revision + CASE WHEN selected_provider_id = ? THEN 0 ELSE 1 END,
+        selected_provider_id = ?, updated_at = ?
       WHERE project_id = ? AND conversation_id = ? AND selected_provider_id = ? AND deleted_at IS NULL
-    `).run(targetProviderId, updatedAt, projectId, conversationId, expectedProviderId);
+    `).run(targetProviderId, targetProviderId, targetProviderId, updatedAt, projectId, conversationId, expectedProviderId);
     if (selected.changes !== 1) {
       throw new Error(`Conversation provider changed concurrently: ${conversationId}`);
     }
@@ -214,8 +244,9 @@ createConversation(
       INSERT INTO conversations (
         project_id, conversation_id, product_mode, agent_turn_mode, agent_model_id, agent_reasoning_effort, client_create_request_id, client_create_request_hash,
         title, state, archive_origin, archived_at, lifecycle_revision, surface_kind, bound_change_id, current_graph_scope_id,
-        selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at, deleted_at,
+        agent_access_mode, agent_access_revision
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       conversation.projectId,
       conversation.conversationId,
@@ -240,6 +271,8 @@ createConversation(
       conversation.createdAt,
       conversation.updatedAt,
       conversation.deletedAt,
+      conversation.productMode === "agent" ? parseAgentAccessMode(conversation.agentAccessMode) : null,
+      conversation.agentAccessRevision ?? 0,
     );
   }
 
@@ -248,6 +281,7 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
       ? this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
           agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+          agent_access_mode AS agentAccessMode, agent_access_revision AS agentAccessRevision,
           client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
           title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
           lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind,
@@ -263,6 +297,7 @@ listConversations(projectId: string, productMode: ProductMode, options: { includ
       : this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
           agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+          agent_access_mode AS agentAccessMode, agent_access_revision AS agentAccessRevision,
           client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
           title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
           lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind,
@@ -282,6 +317,7 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+          agent_access_mode AS agentAccessMode, agent_access_revision AS agentAccessRevision,
         client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
         title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
         lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind,
@@ -300,6 +336,7 @@ readConversation(projectId: string, conversationId: string, options: { includeDe
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, product_mode AS productMode, agent_turn_mode AS agentTurnMode,
         agent_model_id AS agentModelId, agent_reasoning_effort AS agentReasoningEffort,
+          agent_access_mode AS agentAccessMode, agent_access_revision AS agentAccessRevision,
         client_create_request_id AS clientCreateRequestId, client_create_request_hash AS clientCreateRequestHash,
         title, state, archive_origin AS archiveOrigin, archived_at AS archivedAt,
         lifecycle_revision AS lifecycleRevision, surface_kind AS surfaceKind, bound_change_id AS boundChangeId,
@@ -424,9 +461,11 @@ restoreConversationAfterAbandonment(
 
 selectConversationProvider(projectId: string, conversationId: string, providerId: ProviderId, updatedAt: string): void {
     const result = this.db.prepare(`
-      UPDATE conversations SET selected_provider_id = ?, updated_at = ?
+      UPDATE conversations SET agent_access_mode = CASE WHEN selected_provider_id = ? THEN agent_access_mode ELSE NULL END,
+        agent_access_revision = agent_access_revision + CASE WHEN selected_provider_id = ? THEN 0 ELSE 1 END,
+        selected_provider_id = ?, updated_at = ?
       WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
-    `).run(providerId, updatedAt, projectId, conversationId);
+    `).run(providerId, providerId, providerId, updatedAt, projectId, conversationId);
     if (result.changes !== 1) throw new Error(`Conversation not found: ${conversationId}`);
   }
 

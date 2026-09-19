@@ -89,6 +89,7 @@ export interface ComposerActionRequest {
 }
 
 export interface ConversationComposerPorts {
+  access?: import("./conversation-access-contract.js").ConversationAccessApi;
   operation: {
     begin(key: string): WorkbenchOperationToken;
     release(token: WorkbenchOperationToken): void;

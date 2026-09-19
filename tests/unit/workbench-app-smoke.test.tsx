@@ -619,6 +619,7 @@ function installApiFixture(snapshot: Snapshot, options: {
     const requestedProductMode = parsed.searchParams.get("productMode") === "agent" ? "agent" : parsed.searchParams.get("productMode") === "harness" ? "harness" : productMode;
     if (url === "/agent-office/config/office-calibration.json") return json(officeCalibration);
     if (url === "/api/app/status") return json({ mode: "project", directProjectId: "repo" });
+    if (parsed.pathname.endsWith("/access")) return json({ accessMode: "default", revision: 0, providerId: "codex" });
     if (url === "/api/projects") {
       const projectManaged = options.projectManaged ?? true;
       return json({ projects: [{

@@ -40,12 +40,27 @@ button:disabled {
 }
 
 button:focus-visible,
-textarea:focus-visible,
-input:focus-visible,
+input:is([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"]):focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+textarea:focus,
+input:not([type]):focus,
+input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="password"], [type="tel"], [type="number"]):focus {
+  outline: none;
+  box-shadow: none;
+}
+
+@media (forced-colors: active) {
+  textarea:focus,
+  input:not([type]):focus,
+  input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="password"], [type="tel"], [type="number"]):focus {
+    outline: 1px solid Highlight;
+    outline-offset: 2px;
+  }
 }
 
 input::placeholder,

@@ -3,6 +3,7 @@ import { assertProductMode, legacyExecutionContract, type ProviderId } from "../
 import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
 import type { StoredConversationProviderBinding, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink } from "../contracts.js";
 import { mapConversationProviderBindingRow, mapProviderAttemptRow, mapProviderResumePointRow, mapProviderThreadRow, nullableString, type SqliteRow } from "../sql-mappers.js";
+import { parseAgentAccessPolicy } from "../../../provider-runtime/agent-access-policy.js";
 
 export class ProviderAttemptRepository {
 constructor(private readonly db: Database.Database) {}
@@ -184,12 +185,16 @@ createProviderAttempt(
     } else if (productMode !== "harness") {
       throw new Error("Provider attempts without a Conversation must explicitly use harness mode.");
     }
+    const accessPolicy = parseAgentAccessPolicy(attempt.accessPolicy);
+    if (accessPolicy && (productMode !== "agent" || attempt.operationKind === "review")) {
+      throw new Error("Agent access evidence is not applicable to this execution.");
+    }
     const columns = `(
       project_id, conversation_id, attempt_id, product_mode, agent_turn_mode, graph_scope_id, provider_id,
       change_id, agent_task_id, role_id, parent_agent_surface_id, operation_profile, operation_kind,
       execution_contract_family, execution_contract_epoch, execution_policy_hash, provider_adapter_version,
       native_session_id, model_json, reasoning_effort, capability_snapshot_json, effective_skill_inputs_json, handoff_hash,
-      delivered_through_completed_turn, worktree_id, status, created_at, updated_at
+      delivered_through_completed_turn, worktree_id, status, created_at, updated_at, access_policy_json
     )`;
     const values = [
       attempt.projectId,
@@ -220,6 +225,7 @@ createProviderAttempt(
       attempt.status,
       attempt.createdAt,
       attempt.updatedAt,
+      accessPolicy ? JSON.stringify(accessPolicy) : null,
     ] as const;
     if (!attempt.conversationId) {
       this.db.prepare(`INSERT INTO provider_attempts ${columns} VALUES (${values.map(() => "?").join(", ")})`).run(...values);
@@ -320,7 +326,7 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
         execution_policy_hash AS executionPolicyHash,
         provider_adapter_version AS providerAdapterVersion,
         model_json AS modelJson, reasoning_effort AS reasoningEffort, capability_snapshot_json AS capabilitySnapshotJson,
-        effective_skill_inputs_json AS effectiveSkillInputsJson,
+        effective_skill_inputs_json AS effectiveSkillInputsJson, access_policy_json AS accessPolicyJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
       FROM provider_attempts WHERE project_id = ? AND attempt_id = ?
@@ -540,7 +546,7 @@ listProviderAttempts(projectId: string, conversationId: string): StoredProviderA
         execution_policy_hash AS executionPolicyHash,
         provider_adapter_version AS providerAdapterVersion,
         model_json AS modelJson, reasoning_effort AS reasoningEffort, capability_snapshot_json AS capabilitySnapshotJson,
-        effective_skill_inputs_json AS effectiveSkillInputsJson,
+        effective_skill_inputs_json AS effectiveSkillInputsJson, access_policy_json AS accessPolicyJson,
         handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
         worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
       FROM provider_attempts

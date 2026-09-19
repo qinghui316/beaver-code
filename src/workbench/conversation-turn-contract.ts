@@ -98,6 +98,7 @@ export interface ConversationTurnRequest {
 }
 
 export interface ConversationTurnAdmissionRequest {
+  agentAccessMode?: import("../provider-runtime/agent-access-policy.js").AgentAccessMode;
   project: ManagedProject;
   productMode: ProductMode;
   conversationId: string;
@@ -125,6 +126,7 @@ export interface ConversationModelAdmission {
 }
 
 export interface ConversationTurnAdmission {
+  accessPolicy?: import("../provider-runtime/agent-access-policy.js").AgentAccessPolicy;
   projectId: string;
   productMode: ProductMode;
   conversationId: string;
@@ -133,7 +135,7 @@ export interface ConversationTurnAdmission {
   capabilitySnapshot: ProviderCapabilitySnapshot | null;
   model: ProviderModelRef | null;
   modelAdmission: ConversationModelAdmission | null;
-  sandboxPolicy: "read-only" | "workspace-write";
+  sandboxPolicy: "read-only" | "workspace-write" | "full-access";
   writableRoots: readonly string[];
   runtimeState: ProjectRuntimeState;
   attachmentResolution: TurnAttachmentResolution | null;

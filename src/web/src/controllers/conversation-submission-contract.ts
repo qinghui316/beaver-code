@@ -3,6 +3,8 @@ import type { ComposerDraftCheckpoint, ComposerDraftContent } from "./ComposerDr
 import type { WorkbenchOperationToken } from "./useGlobalOperationGate.js";
 
 export interface DraftSubmissionSnapshot {
+  agentAccessMode?: import("./conversation-access-contract.js").AgentAccessMode;
+  expectedAccessRevision?: number;
   projectId: string;
   productMode: ProductMode;
   conversationId: string | null;
@@ -24,6 +26,7 @@ export interface ComposerSkillOverride {
 }
 
 export interface ComposerCreateConversationRequest {
+  agentAccessMode?: import("./conversation-access-contract.js").AgentAccessMode;
   projectId: string;
   productMode: ProductMode;
   clientRequestId: string;
@@ -44,6 +47,8 @@ export interface ComposerCreatedConversation {
 }
 
 export interface ComposerMessageRequest {
+  agentAccessMode?: import("./conversation-access-contract.js").AgentAccessMode;
+  expectedAccessRevision?: number;
   clientRequestId: string;
   projectId: string;
   productMode: ProductMode;

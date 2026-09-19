@@ -1,4 +1,5 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
+import type { ConversationAccessCapturePort } from "./conversation-access-contract.js";
 import type { ComposerDraftSnapshot, SkillListItem } from "../types.js";
 import type {
   ComposerDraftCheckpoint,
@@ -66,8 +67,10 @@ export function useConversationExecutionActions(
   draft: ConversationExecutionDraftPort,
   resources: ConversationExecutionResourcePort,
   submission: ConversationSubmissionPort,
+  access?: ConversationAccessCapturePort,
 ): ConversationExecutionActions {
   const steerRetryRef = useRef<{ key: string; clientRequestId: string } | null>(null);
+  const queueIntentsRef = useRef(new Set<string>());
 
   const enqueue = useCallback(async (): Promise<void> => {
     const currentScope = scopeRef.current;
@@ -108,6 +111,13 @@ export function useConversationExecutionActions(
     }
     try {
       const draftCheckpoint: ComposerDraftCheckpoint = draft.syncOwner.checkpoint(currentScope.projectId, productMode);
+      let accessSnapshot: Awaited<ReturnType<ConversationAccessCapturePort["capture"]>>;
+      try { accessSnapshot = await access?.capture() ?? {}; }
+      catch {
+        if (ownsAction(generation, currentScope)) portsRef.current.onError("权限设置尚未就绪，请重新检测后发送。");
+        return;
+      }
+      if (!ownsAction(generation, currentScope)) return;
       const acceptedDraft = composerDraftContent({
         projectId: currentScope.projectId,
         productMode,
@@ -122,6 +132,7 @@ export function useConversationExecutionActions(
       });
       const expectedDraftUpdatedAt = await draft.flushDraft();
       const queued = await queue.enqueue({
+        ...accessSnapshot,
         text: prepared.text || defaultAttachmentPrompt(attachmentIds.length),
         contextRefs: prepared.contextRefs,
         attachmentIds,
@@ -190,7 +201,7 @@ export function useConversationExecutionActions(
     const generation = scopeGenerationRef.current;
     const captured = draft.controller.read();
     if (!currentScope.running) {
-      if (portsRef.current.queue?.snapshot?.items?.length) return enqueue();
+      if (portsRef.current.queue?.snapshot?.items?.length) return enqueueOnce();
       if (portsRef.current.queue && !portsRef.current.queue.snapshot) {
         portsRef.current.onError("当前会话队列状态不可用，校准完成前不能发送新的回合。");
         return;
@@ -213,7 +224,7 @@ export function useConversationExecutionActions(
       && steerIdentityReady
       && currentScope.runControlState.state !== "stopping"
       && currentScope.runControlState.steerState !== "submitting");
-    if (!canSteer) return enqueue();
+    if (!canSteer) return enqueueOnce();
     const stopIdentity = composerStopIdentity(currentScope);
     const retryKey = `${stopIdentity}\0${prepared.text}`;
     const clientRequestId = steerRetryRef.current?.key === retryKey
@@ -378,5 +389,14 @@ export function useConversationExecutionActions(
     }
   }
 
-  return { send, enqueue, reclaimQueuedTurn, stop, cleanupTransition };
+  async function enqueueOnce(): Promise<void> {
+    const scope = scopeRef.current;
+    const key = JSON.stringify([scope.projectId, composerProductMode(scope), scope.conversation?.id,
+      effectiveComposerProviderId(scope), draft.controller.read().mutationToken]);
+    if (queueIntentsRef.current.has(key)) return;
+    queueIntentsRef.current.add(key);
+    try { await enqueue(); } finally { queueIntentsRef.current.delete(key); }
+  }
+
+  return { send, enqueue: enqueueOnce, reclaimQueuedTurn, stop, cleanupTransition };
 }

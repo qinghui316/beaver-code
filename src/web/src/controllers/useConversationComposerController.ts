@@ -11,6 +11,7 @@ import {
   type ConversationComposerScope,
 } from "./conversation-composer-contract.js";
 import { useConversationComposerResources } from "./useConversationComposerResources.js";
+import { useConversationAccessController } from "./useConversationAccessController.js";
 import { createConversationComposerPortViews } from "./conversation-composer-port-views.js";
 import { useConversationDraftLifecycle } from "./useConversationDraftLifecycle.js";
 import { useConversationExecutionActions } from "./useConversationExecutionActions.js";
@@ -61,12 +62,14 @@ export function useConversationComposerController(
 
   const draft = useConversationDraftLifecycle(scope, draftPortsRef, scopeRef, scopeGenerationRef);
   const resources = useConversationComposerResources(scope, resourcePortsRef, scopeRef, scopeGenerationRef, draft);
+  const access = useConversationAccessController(scope, ports.access);
   const submission = useConversationSubmissionCoordinator(
     submissionPortsRef,
     scopeRef,
     scopeGenerationRef,
     draft,
     resources,
+    access,
   );
   const execution = useConversationExecutionActions(
     executionPortsRef,
@@ -75,6 +78,7 @@ export function useConversationComposerController(
     draft,
     resources,
     submission,
+    access,
   );
   const latestForUpdate = useRef({ draft, resources });
   latestForUpdate.current = { draft, resources };
@@ -119,6 +123,9 @@ export function useConversationComposerController(
   });
 
   return {
+    accessView: access.view,
+    selectAccess: access.select,
+    refreshAccess: access.refresh,
     composerText: draft.composerText,
     setComposerText: draft.setComposerText,
     skillItems: resources.skillItems,
@@ -140,6 +147,7 @@ export function useConversationComposerController(
     selectAgentReasoningEffort: draft.selectAgentReasoningEffort,
     selectProvider: draft.selectProvider,
     agentTurnModeDisabledReason,
+    planModeDisabledReason: resolveAgentTurnModeDisabledReason({ ...scope, running: false }, "plan"),
     setAttachments: resources.setAttachments,
     reloadSkills: resources.reloadSkills,
     toggleSkill: resources.toggleSkill,

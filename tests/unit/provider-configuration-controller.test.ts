@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   providerCapabilitiesPath,
@@ -28,6 +28,31 @@ afterEach(() => {
 });
 
 describe("provider configuration controller", () => {
+  it.each([null, "codex"])("restores draft provider %s while capabilities are loading without losing the catalog", async (savedProvider) => {
+    let resolveInitial!: (response: Response) => void;
+    const initialResponse = new Promise<Response>((resolve) => { resolveInitial = resolve; });
+    let capabilityRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("capabilities")) return ++capabilityRequests === 1
+        ? initialResponse : json({ providers: [provider("codex", "agent")] });
+      if (url.endsWith("/diagnostics")) return json(diagnostics("codex"));
+      if (url.endsWith("/models")) return json(models("codex"));
+      return json({});
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode: "agent", projectDefaultProviderId: null,
+      conversationProviderId: null, onError: vi.fn(),
+    }));
+    act(() => result.current.restoreDraftProvider(savedProvider));
+    await waitFor(() => expect(result.current.capabilities.map((item) => item.providerId)).toEqual(["codex"]));
+    expect(result.current.selectedProviderId).toBe("codex");
+    expect(result.current.modelSettings?.providerId).toBe("codex");
+    expect(result.current.modelCatalogs[0]?.status).toBe("ready");
+    await act(async () => { resolveInitial(json({ providers: [provider("stale", "agent")] })); });
+    expect(result.current.capabilities.map((item) => item.providerId)).toEqual(["codex"]);
+  });
+
   it("keeps the conversation provider ahead of local and project defaults", () => {
     expect(selectEffectiveProviderId({
       conversationProviderId: "claude",

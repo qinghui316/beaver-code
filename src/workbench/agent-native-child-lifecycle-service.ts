@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveAgentAccessPolicy } from "../provider-runtime/agent-access-policy.js";
 import type {
   ProviderCapabilitySnapshot,
   ProviderChildLifecycleEvent,
@@ -50,6 +51,7 @@ export class AgentNativeChildLifecycleService {
     graphScopeId: string;
     runId: string;
     parentAttemptId: string;
+    followupAccessPolicy?: import("../provider-runtime/agent-access-policy.js").AgentAccessPolicy;
     providerId: string;
     providerAdapterVersion: string;
     capabilitySnapshot: ProviderCapabilitySnapshot;
@@ -324,6 +326,7 @@ export class AgentNativeChildLifecycleService {
     const rows = this.input.database.unitOfWork.createProviderChildCallback({
       parentAttemptId: lineage.parentAttempt.attemptId,
       attempt: {
+        accessPolicy: this.input.followupAccessPolicy ?? null,
         projectId: this.input.projectId,
         conversationId: this.input.conversationId,
         attemptId,
@@ -634,6 +637,12 @@ export async function runAgentNativeChildFollowup(input: {
       input.project.path,
     );
     const runId = `agent-child-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+    // Follow-up remains within the existing child workspace ceiling and its parent's read-only constraint.
+    const followupAccessPolicy = resolveAgentAccessPolicy({ productMode: "agent", accessMode: "default",
+      turnMode: parentAttempt.agentTurnMode ?? "default", projectRoot: input.project.path,
+      readOnlyRole: parentAttempt.accessPolicy?.sandboxPolicy === "read-only" || previousAttempt.accessPolicy?.sandboxPolicy === "read-only",
+      supportsFullAccess: false, supportsApproval: false,
+    });
     const activityId = `followup:${runId}`;
     const runRoot = join(paths.runsRoot, "agent-conversations", conversation.conversationId, runId);
     await mkdir(runRoot, { recursive: true });
@@ -674,6 +683,7 @@ export async function runAgentNativeChildFollowup(input: {
       graphScopeId: conversation.currentGraphScopeId,
       runId,
       parentAttemptId: parentAttempt.attemptId,
+      followupAccessPolicy,
       providerId: conversation.selectedProviderId,
       providerAdapterVersion: resolvedProvider.descriptor.adapter.version,
       capabilitySnapshot: resolvedProvider.snapshot,
@@ -743,8 +753,9 @@ export async function runAgentNativeChildFollowup(input: {
       attemptId: child.attemptId,
       cwd: input.project.path,
       prompt: input.message,
-      sandboxPolicy: "workspace-write",
-      writableRoots: [input.project.path],
+      sandboxPolicy: followupAccessPolicy.sandboxPolicy,
+      writableRoots: [...followupAccessPolicy.writableRoots],
+      approvalMode: followupAccessPolicy.approvalMode,
       runtimeWorkspaceRoots: [input.project.path],
       paths: providerArtifactPaths(runRoot),
       parentSession: { providerId: conversation.selectedProviderId, sessionId: child.parentThreadId },

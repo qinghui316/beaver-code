@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { parseAgentAccessMode, type AgentAccessMode } from "../provider-runtime/agent-access-policy.js";
 import { assertAgentTurnMode, assertProductMode, type AgentTurnMode, type ProductMode } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { readProjectHarnessChangeContext } from "../project-harness/change.js";
@@ -39,11 +40,14 @@ export interface CreateWorkbenchConversationInput {
   clientRequestId: string;
   skillOverrides?: NewConversationSkillOverride[];
   agentTurnMode?: AgentTurnMode;
+  agentAccessMode?: AgentAccessMode;
+  expectedAccessRevision?: number;
   modelId?: string | null;
   reasoningEffort?: string | null;
 }
 
 export interface PreparedWorkbenchConversation {
+  agentAccessMode?: AgentAccessMode;
   projectId: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
@@ -76,6 +80,8 @@ type NormalizedTopicMessageInput = Required<Pick<TopicMessageInput, "mode" | "me
   providerSwitchIntent: "resume-workflow" | "conversation-only";
   agentSurfaceId?: string;
   agentTurnMode?: AgentTurnMode;
+  agentAccessMode?: AgentAccessMode;
+  expectedAccessRevision?: number;
   modelId?: string | null;
   reasoningEffort?: string | null;
   skillOverrides: NewConversationSkillOverride[];
@@ -184,6 +190,8 @@ export async function createWorkbenchConversation(
           agentTurnMode,
           agentModelId: modelId,
           agentReasoningEffort: reasoningEffort,
+          agentAccessMode: prepared.agentAccessMode ?? null,
+          agentAccessRevision: 0,
           clientCreateRequestId: clientRequestId,
           clientCreateRequestHash: requestHash,
           title,
@@ -276,6 +284,8 @@ export async function prepareWorkbenchConversation(
   options: { runMainAgent?: boolean; turnRouter?: ConversationTurnRoutingPort; runtimeStateResolver?: (project: ManagedProject) => Promise<ProjectRuntimeState> } = {},
 ): Promise<PreparedWorkbenchConversation> {
   const productMode = assertProductMode(input.productMode);
+  if (productMode !== "agent" && (input.agentAccessMode !== undefined || input.expectedAccessRevision !== undefined)) throw conflict("AHO does not accept Agent access settings.");
+  const agentAccessMode = productMode === "agent" ? parseAgentAccessMode(input.agentAccessMode) : undefined;
   const agentTurnMode = normalizeRequestedAgentTurnMode(productMode, input.agentTurnMode);
   const selection = normalizeRequestedAgentModelSelection(productMode, input.modelId, input.reasoningEffort);
   const clientRequestId = normalizeClientRequestId(input.clientRequestId);
@@ -317,6 +327,7 @@ export async function prepareWorkbenchConversation(
         providerId: selectedProviderId,
         skillOverrides,
         agentTurnMode,
+        agentAccessMode,
         modelId: selection.modelId,
         reasoningEffort: selection.reasoningEffort,
       });
@@ -324,6 +335,7 @@ export async function prepareWorkbenchConversation(
         project,
         productMode,
         agentTurnMode,
+        agentAccessMode,
         modelId: selection.modelId,
         reasoningEffort: selection.reasoningEffort,
         clientRequestId,
@@ -354,6 +366,7 @@ export async function prepareWorkbenchConversation(
       project,
       productMode,
       agentTurnMode,
+      agentAccessMode,
       modelId: selection.modelId,
       reasoningEffort: selection.reasoningEffort,
       clientRequestId,
@@ -375,6 +388,7 @@ export async function prepareWorkbenchConversation(
         providerId: selectedProviderId,
         skillOverrides,
         agentTurnMode,
+        agentAccessMode,
         modelId: selection.modelId,
         reasoningEffort: selection.reasoningEffort,
       }),
@@ -398,6 +412,7 @@ export async function prepareWorkbenchConversation(
     providerId: selectedProviderId,
     skillOverrides,
     agentTurnMode,
+    agentAccessMode,
     modelId: selection.modelId,
     reasoningEffort: selection.reasoningEffort,
   });
@@ -409,6 +424,7 @@ export async function prepareWorkbenchConversation(
       conversationId,
       providerId: selectedProviderId,
       agentTurnMode,
+      agentAccessMode,
       modelId: selection.modelId,
       reasoningEffort: selection.reasoningEffort,
       attachments,
@@ -417,6 +433,7 @@ export async function prepareWorkbenchConversation(
     project,
     productMode,
     agentTurnMode,
+    agentAccessMode,
     modelId: selection.modelId,
     reasoningEffort: selection.reasoningEffort,
     clientRequestId,
@@ -510,6 +527,10 @@ export async function postConversationMessage(
   const parsed = options.prepared?.parsed
     ?? await normalizeTopicMessageInput(project, input, turnRouter.resolveAttachments);
   const runtimeState = identity.runtimeState;
+  if ((identity.conversation.productMode !== "agent" || parsed.agentSurfaceId)
+    && (parsed.agentAccessMode !== undefined || parsed.expectedAccessRevision !== undefined)) {
+    throw conflict("This execution cannot accept Agent access overrides.");
+  }
   if (identity.conversation.productMode === "agent" && parsed.planHandoffIntent) {
     const error = new Error("Agent mode does not accept AHO child feedback or planning handoffs.");
     error.name = "Conflict";
@@ -583,6 +604,7 @@ export async function postConversationMessage(
     const concurrentReplay = await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
     if (concurrentReplay) return concurrentReplay;
     await assertConversationQueueAdmission(identity, parsed);
+    await assertConversationAccessSelection(identity, parsed);
     let providerSwitch: ProviderSwitchResult | null = null;
     if (parsed.providerId && identity.conversation.productMode === "harness" && runtimeState.state === "ready") {
       if (!turnRouter.switchProviderAtSafePoint) {
@@ -612,6 +634,7 @@ export async function postConversationMessage(
       modelId,
       reasoningEffort,
       attachments: parsed.attachments ?? [],
+      agentAccessMode: parsed.agentAccessMode,
     });
     if (!admission) throw new Error("Prepared Conversation Turn is missing admission evidence.");
     const committed = await commitTopLevelConversationMessage(identity, {
@@ -750,6 +773,8 @@ async function normalizeTopicMessageInput(
     providerId: typeof input === "string" ? undefined : input.providerId,
     providerSwitchIntent: typeof input === "string" ? "conversation-only" : input.providerSwitchIntent ?? (input.providerId ? "resume-workflow" : "conversation-only"),
     agentSurfaceId: typeof input === "string" ? undefined : input.agentSurfaceId?.trim() || undefined,
+    agentAccessMode: typeof input === "string" || input.agentAccessMode === undefined ? undefined : parseAgentAccessMode(input.agentAccessMode),
+    expectedAccessRevision: typeof input === "string" ? undefined : input.expectedAccessRevision,
     agentTurnMode: typeof input === "string" || input.agentTurnMode === undefined
       ? undefined
       : assertAgentTurnMode(input.agentTurnMode),
@@ -893,6 +918,9 @@ async function commitTopLevelConversationMessage(
         expectedAgentTurnMode: conversation.agentTurnMode ?? "default",
         expectedAgentModelId: conversation.agentModelId,
         expectedAgentReasoningEffort: conversation.agentReasoningEffort,
+        expectedAccessSelection: parsed.queuedTurnDispatch || (parsed.agentAccessMode === undefined && parsed.expectedAccessRevision === undefined)
+          ? undefined : { providerId: conversation.selectedProviderId, revision: parsed.expectedAccessRevision!,
+            accessMode: parseAgentAccessMode(parsed.agentAccessMode) },
         agentTurnMode: parsed.agentTurnMode ?? conversation.agentTurnMode ?? "default",
         agentModelId: parsed.modelId ?? null,
         agentReasoningEffort: parsed.reasoningEffort ?? null,
@@ -996,6 +1024,7 @@ function normalizeSkillOverrides(value: NewConversationSkillOverride[] | undefin
 }
 
 function stableConversationCreateRequestHash(input: {
+  agentAccessMode?: AgentAccessMode;
   productMode: ProductMode;
   body: string;
   contextRefs: TopicMessageInput["contextRefs"];
@@ -1008,6 +1037,7 @@ function stableConversationCreateRequestHash(input: {
 }): string {
   return createHash("sha256").update(JSON.stringify({
     version: 4,
+    ...(input.agentAccessMode === "full-access" ? { agentAccessMode: "full-access" } : {}),
     productMode: input.productMode,
     body: input.body,
     contextRefs: input.contextRefs ?? [],
@@ -1084,7 +1114,10 @@ export async function prepareConversationMessage(
   const requestHash = conversationMessageRequestHash(identity.conversation, parsed, agentTurnMode, modelId, reasoningEffort);
   return runConversationMessagePreparationSingleFlight(identity, parsed.clientRequestId, requestHash, async () => {
     const replay = await readConversationMessageReplay(identity, parsed.clientRequestId, requestHash);
-    if (!replay) await assertConversationQueueAdmission(identity, parsed);
+    if (!replay) {
+      await assertConversationQueueAdmission(identity, parsed);
+      await assertConversationAccessSelection(identity, parsed);
+    }
     const admission = replay ? null : await turnRouter.admit({
       project,
       productMode: "agent",
@@ -1094,6 +1127,7 @@ export async function prepareConversationMessage(
       modelId,
       reasoningEffort,
       attachments: parsed.attachments ?? [],
+      agentAccessMode: parsed.agentAccessMode,
     });
     return Object.freeze({
       projectId: project.id,
@@ -1151,6 +1185,7 @@ function stableConversationCreateRequestHashV3(input: Omit<Parameters<typeof sta
 }
 
 function createPreparedConversation(input: {
+  agentAccessMode?: AgentAccessMode;
   project: ManagedProject;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode | null;
@@ -1174,6 +1209,7 @@ function createPreparedConversation(input: {
 }): PreparedWorkbenchConversation {
   return Object.freeze({
     projectId: input.project.id,
+    agentAccessMode: input.agentAccessMode,
     productMode: input.productMode,
     agentTurnMode: input.agentTurnMode,
     modelId: input.modelId,
@@ -1230,9 +1266,9 @@ function assertExistingCreateReplay(
     skillOverrides: prepared.skillOverrides,
   });
   const requestMatches = existing.clientCreateRequestHash === prepared.requestHash
-    || existing.clientCreateRequestHash === attachmentRequestHash
-    || existing.clientCreateRequestHash === previousRequestHash
-    || (existing.agentTurnMode === prepared.agentTurnMode && existing.clientCreateRequestHash === legacyRequestHash);
+    || (prepared.agentAccessMode !== "full-access" && (existing.clientCreateRequestHash === attachmentRequestHash
+      || existing.clientCreateRequestHash === previousRequestHash
+      || (existing.agentTurnMode === prepared.agentTurnMode && existing.clientCreateRequestHash === legacyRequestHash)));
   if (existing.productMode !== prepared.productMode
     || !requestMatches) {
     throw conflict("clientRequestId was already used for a different Conversation request.");
@@ -1249,6 +1285,8 @@ function stableCreatePreparationSignature(input: CreateWorkbenchConversationInpu
     clientRequestId: input.clientRequestId,
     skillOverrides: input.skillOverrides ?? [],
     agentTurnMode: input.agentTurnMode ?? null,
+    agentAccessMode: input.agentAccessMode ?? null,
+    expectedAccessRevision: input.expectedAccessRevision ?? null,
     modelId: input.modelId ?? null,
     reasoningEffort: input.reasoningEffort ?? null,
   })).digest("hex");
@@ -1298,6 +1336,8 @@ function stableMessagePreparationSignature(input: string | TopicMessageInput): s
     providerSwitchIntent: input.providerSwitchIntent ?? null,
     agentSurfaceId: input.agentSurfaceId ?? null,
     agentTurnMode: input.agentTurnMode ?? null,
+    agentAccessMode: input.agentAccessMode ?? null,
+    expectedAccessRevision: input.expectedAccessRevision ?? null,
     modelId: input.modelId ?? null,
     reasoningEffort: input.reasoningEffort ?? null,
     skillOverrides: input.skillOverrides ?? [],
@@ -1335,6 +1375,7 @@ function conversationMessageRequestHash(
     providerSwitchIntent: input.providerSwitchIntent,
     agentSurfaceId: input.agentSurfaceId ?? null,
     agentTurnMode,
+    ...(input.agentAccessMode === "full-access" ? { agentAccessMode: "full-access" } : {}),
     modelId,
     reasoningEffort,
     skillOverrides: input.skillOverrides,
@@ -1519,6 +1560,8 @@ async function assertConversationQueueAdmission(
     }
     if (parsed.queuedTurnDispatch) {
       if (parsed.planHandoffIntent || head.status !== "dispatching"
+        || head.providerId !== (parsed.providerId ?? identity.conversation.selectedProviderId)
+        || (head.agentAccessMode ?? "default") !== parseAgentAccessMode(parsed.agentAccessMode)
         || head.queueItemId !== parsed.queuedTurnDispatch.queueItemId
         || head.dispatchRequestId !== parsed.queuedTurnDispatch.dispatchRequestId
         || head.requestHash !== parsed.queuedTurnDispatch.requestHash) {
@@ -1582,4 +1625,64 @@ function normalizeNullableSelection(value: string | null, field: string): string
   const error = new Error(`${field} must be a non-empty string or null.`);
   error.name = "BadRequest";
   throw error;
+}
+/** Read and mutate access through the existing Conversation application boundary. */
+export async function configureConversationAccess(
+  project: ManagedProject,
+  conversationId: string,
+  input: { productMode: unknown; providerId: unknown; accessMode?: unknown; expectedRevision?: unknown; confirmFullAccess?: unknown },
+  options: { runtimeStateResolver: (project: ManagedProject) => Promise<ProjectRuntimeState>; providerRegistry: import("../provider-runtime/index.js").ProviderRegistry },
+): Promise<{ accessMode: AgentAccessMode; revision: number; providerId: string }> {
+  if (input.productMode !== "agent" || typeof input.providerId !== "string") throw conflict("Agent access requires an Agent conversation and AI service.");
+  const persistence = await openProjectConversationDatabase(project, options.runtimeStateResolver);
+  try {
+    let conversation = persistence.database.conversations.readConversation(persistence.projectId, conversationId);
+    if (!conversation || conversation.productMode !== "agent" || conversation.selectedProviderId !== input.providerId
+      || conversation.deletedAt || conversation.state !== "active") throw conflict("Conversation access identity changed.");
+    if (input.accessMode !== undefined) {
+      const accessMode = parseAgentAccessMode(input.accessMode);
+      if (accessMode === "full-access") {
+        if (input.confirmFullAccess !== true) throw conflict("Full access requires explicit confirmation.");
+        const resolved = await options.providerRegistry.requireProfiles(input.providerId, ["agent"], "agent", project, project.path);
+        if (!resolved.snapshot.capabilities.some((item) => item.key === "workspace.full-access" && item.runtime === "ready")) {
+          throw conflict("Selected AI service does not support full access.");
+        }
+      }
+      if (typeof input.expectedRevision !== "number") throw conflict("Access update requires the current revision.");
+      conversation = persistence.database.conversations.updateAgentAccess({
+        projectId: persistence.projectId, conversationId, providerId: input.providerId,
+        accessMode, expectedRevision: input.expectedRevision, updatedAt: new Date().toISOString(),
+      });
+      publishProjectLiveEvent(persistence.projectId, { event: "topic.updated", data: { conversation: {
+        id: conversation.conversationId, productMode: conversation.productMode,
+        title: conversation.title, state: conversation.state, updatedAt: conversation.updatedAt,
+        selectedProviderId: conversation.selectedProviderId,
+      } } });
+    }
+    return { accessMode: conversation.agentAccessMode ?? "default", revision: conversation.agentAccessRevision ?? 0,
+      providerId: conversation.selectedProviderId };
+  } finally { persistence.database.close(); }
+}
+
+async function assertConversationAccessSelection(
+  identity: Awaited<ReturnType<typeof resolveStoredConversationIdentity>>,
+  parsed: NormalizedTopicMessageInput,
+): Promise<void> {
+  if (identity.conversation.productMode !== "agent") {
+    if (parsed.agentAccessMode !== undefined || parsed.expectedAccessRevision !== undefined) throw conflict("AHO does not accept Agent access settings.");
+    return;
+  }
+  if (parsed.agentSurfaceId && (parsed.agentAccessMode !== undefined || parsed.expectedAccessRevision !== undefined)) {
+    throw conflict("Child follow-up cannot override its execution access.");
+  }
+  // Queue dispatch is authenticated separately against its persisted accepted input.
+  if (parsed.queuedTurnDispatch) return;
+  if (parsed.agentAccessMode === undefined && parsed.expectedAccessRevision === undefined) return;
+  const db = await openProjectRuntimeWorkbenchDatabase(identity.runtimeState.state === "onboarding" ? identity.runtimeState.paths : identity.runtimeState.resolution.paths);
+  try {
+    const current = db.conversations.readConversation(identity.conversation.projectId, identity.conversationId);
+    if (!current || current.selectedProviderId !== identity.conversation.selectedProviderId
+      || current.agentAccessMode !== parseAgentAccessMode(parsed.agentAccessMode)
+      || current.agentAccessRevision !== parsed.expectedAccessRevision) throw conflict("Conversation access changed before submission.");
+  } finally { db.close(); }
 }

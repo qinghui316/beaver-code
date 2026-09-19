@@ -124,6 +124,8 @@ async function sendConversationMessageTransport(
       providerSwitchIntent: request.providerSwitchIntent,
       productMode: request.productMode,
       agentTurnMode: request.agentTurnMode,
+      agentAccessMode: request.agentAccessMode,
+      expectedAccessRevision: request.expectedAccessRevision,
       modelId: request.modelId,
       reasoningEffort: request.reasoningEffort,
     },

@@ -44,14 +44,15 @@ describe("Topic Composer height", () => {
       onSend={async () => undefined}
       actionRunning={null}
     />);
-    expect(screen.getByTestId("agent-turn-mode-control")).toBeTruthy();
-    const planButton = screen.getByRole("button", { name: "计划" });
-    expect(planButton.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "添加上下文" }));
+    const planButton = screen.getByRole("menuitemcheckbox", { name: "计划模式" });
+    expect(planButton.getAttribute("aria-checked")).toBe("true");
     expect(planButton.hasAttribute("disabled")).toBe(false);
-    expect(screen.getByRole("button", { name: "当前 Agent 不支持计划模式。" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "退出计划模式" }));
+    expect(onSelect).toHaveBeenCalledWith("default");
 
     view.rerender(composer("draft"));
-    expect(screen.queryByTestId("agent-turn-mode-control")).toBeNull();
+    expect(screen.queryByRole("button", { name: "退出计划模式" })).toBeNull();
   });
 
   it("keeps a compact input and caps content growth at 160px", () => {

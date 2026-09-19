@@ -38,6 +38,26 @@ afterEach(async () => {
 });
 
 describe("Codex persistent app-server Host", () => {
+  it("replaces access policy on every Turn when reusing a Session", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4061, false);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    for (const [index, policy] of (["full-access", "workspace-write", "read-only"] as const).entries()) {
+      const options = await turnOptions(cwd, `access-${index}`, index === 0 ? null : "thread-main");
+      await expect(runCodexAppServerTurn({ ...options, sandboxPolicy: policy,
+        approvalMode: policy === "full-access" ? "never" : "on-request", writableRoots: policy === "workspace-write" ? [cwd] : [],
+      })).resolves.toMatchObject({ status: "completed" });
+    }
+    expect(server.threadParams.map((params) => [params.sandbox, params.approvalPolicy])).toEqual([
+      ["danger-full-access", "never"], ["workspace-write", "on-request"], ["read-only", "on-request"],
+    ]);
+    expect(server.turnParams.map((params) => params.sandboxPolicy)).toEqual([
+      { type: "dangerFullAccess" },
+      expect.objectContaining({ type: "workspaceWrite", writableRoots: [cwd], networkAccess: false }),
+      expect.objectContaining({ type: "readOnly" }),
+    ]);
+  });
+
   it("routes a command approval through the exact active Turn and waits for Provider resolution", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4041, true);

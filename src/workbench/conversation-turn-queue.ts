@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parseAgentAccessMode, type AgentAccessMode } from "../provider-runtime/agent-access-policy.js";
 import {
   defaultExecutionContractRegistry,
   defaultProviderRegistry,
@@ -28,6 +29,7 @@ import { createConversationExecutionRevision } from "./conversation-execution-re
 import type { ConversationQueuedReviewDispatchPort } from "./conversation-queued-review-dispatch.js";
 
 export interface ConversationQueuedTurnInput {
+  agentAccessMode?: AgentAccessMode | null;
   itemKind?: "conversation-turn" | "review";
   reviewTarget?: ProviderReviewTarget | null;
   text: string;
@@ -81,6 +83,7 @@ export interface ConversationTurnQueueSnapshot {
 }
 
 export interface ConversationTurnEnqueueRequest extends ConversationQueuedTurnInput {
+  expectedAccessRevision?: number;
   projectId: string;
   productMode: ProductMode;
   conversationId: string;
@@ -203,6 +206,7 @@ export class ConversationTurnQueueOwner {
         expectedQueueRevision: decodeRevision(normalized.expectedRevision),
         expectedExecutionRevision: normalized.expectedExecutionRevision,
         expectedDraftUpdatedAt: normalized.expectedDraftUpdatedAt,
+        expectedAccessRevision: normalized.expectedAccessRevision,
         item: {
           projectId: paths.projectId,
           conversationId: conversation.conversationId,
@@ -224,6 +228,7 @@ export class ConversationTurnQueueOwner {
           skillOverridesJson: JSON.stringify(normalized.skillOverrides),
           providerId: normalized.providerId,
           agentTurnMode: normalized.agentTurnMode,
+          agentAccessMode: normalized.agentAccessMode ?? null,
           agentModelId: normalized.modelId,
           agentReasoningEffort: normalized.reasoningEffort,
           diagnostic: null,
@@ -455,7 +460,7 @@ export class ConversationTurnQueueOwner {
           .map(([skillId, enabled]) => ({ skillId, enabled })),
         providerId: item.providerId,
         productMode: item.productMode,
-        ...(item.productMode === "agent" ? { agentTurnMode: item.agentTurnMode ?? "default" } : {}),
+        ...(item.productMode === "agent" ? { agentTurnMode: item.agentTurnMode ?? "default", agentAccessMode: item.agentAccessMode ?? "default" } : {}),
         modelId: item.agentModelId,
         reasoningEffort: item.agentReasoningEffort,
         queuedTurnDispatch: {
@@ -767,11 +772,18 @@ function normalizeRequest(request: ConversationTurnEnqueueRequest): Conversation
   if (itemKind === "conversation-turn" && request.productMode === "agent" && request.agentTurnMode !== "default" && request.agentTurnMode !== "plan") throw conflict("Agent queued Turn requires Default or Plan mode.");
   if (itemKind === "review" && (request.agentTurnMode !== null || request.modelId !== null || request.reasoningEffort !== null)) throw conflict("Queued Review cannot carry Agent Turn settings.");
   if (request.productMode === "harness" && request.agentTurnMode !== null) throw conflict("Harness queued Turn cannot carry Agent Turn mode.");
+  if ((request.productMode !== "agent" || itemKind === "review")
+    && (request.agentAccessMode != null || request.expectedAccessRevision !== undefined)) throw conflict("This queue item cannot carry Agent access settings.");
+  const agentAccessMode = request.productMode === "agent" && itemKind === "conversation-turn"
+    ? parseAgentAccessMode(request.agentAccessMode) : null;
+  if ((request.agentAccessMode != null || request.expectedAccessRevision !== undefined)
+    && (!Number.isSafeInteger(request.expectedAccessRevision) || request.expectedAccessRevision! < 0)) throw conflict("Queued access requires the current revision.");
   const modelId = normalizeNullableValue(request.modelId, "modelId");
   const reasoningEffort = normalizeNullableValue(request.reasoningEffort, "reasoningEffort");
   return {
     ...request,
     itemKind,
+    agentAccessMode,
     reviewTarget,
     projectId,
     conversationId,
@@ -831,7 +843,7 @@ function toPublicItem(
     status: item.status, retryCount: item.retryCount, text: item.text,
     contextRefs: parseArray<TopicFileReference>(item.contextRefsJson),
     attachmentIds: parseArray<string>(item.attachmentIdsJson), skillOverrides: parseRecord(item.skillOverridesJson),
-    providerId: item.providerId, agentTurnMode: item.agentTurnMode, modelId: item.agentModelId,
+    providerId: item.providerId, agentTurnMode: item.agentTurnMode, agentAccessMode: item.agentAccessMode ?? null, modelId: item.agentModelId,
     reasoningEffort: item.agentReasoningEffort, ...(item.diagnostic ? { diagnostic: item.diagnostic } : {}),
     createdAt: item.createdAt, updatedAt: item.updatedAt,
     executionCompatibility,
@@ -844,7 +856,7 @@ function decodeRevision(value: string): number {
   if (!match) throw badRequest("Queue revision is invalid.");
   return Number(match[1]);
 }
-function hashQueuedInput(input: ConversationTurnEnqueueRequest): string { return digest(JSON.stringify({ version: 2, projectId: input.projectId, productMode: input.productMode, conversationId: input.conversationId, expectedRevision: input.expectedRevision, expectedExecutionRevision: input.expectedExecutionRevision, expectedDraftUpdatedAt: input.expectedDraftUpdatedAt, itemKind: input.itemKind, reviewTarget: input.reviewTarget, text: input.text, contextRefs: input.contextRefs, attachmentIds: input.attachmentIds, skillOverrides: input.skillOverrides, providerId: input.providerId, agentTurnMode: input.agentTurnMode, modelId: input.modelId, reasoningEffort: input.reasoningEffort })); }
+function hashQueuedInput(input: ConversationTurnEnqueueRequest): string { return digest(JSON.stringify({ version: 2, ...(input.agentAccessMode === "full-access" ? { agentAccessMode: "full-access" } : {}), projectId: input.projectId, productMode: input.productMode, conversationId: input.conversationId, expectedRevision: input.expectedRevision, expectedExecutionRevision: input.expectedExecutionRevision, expectedDraftUpdatedAt: input.expectedDraftUpdatedAt, itemKind: input.itemKind, reviewTarget: input.reviewTarget, text: input.text, contextRefs: input.contextRefs, attachmentIds: input.attachmentIds, skillOverrides: input.skillOverrides, providerId: input.providerId, agentTurnMode: input.agentTurnMode, modelId: input.modelId, reasoningEffort: input.reasoningEffort })); }
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 function sameContractRef(
   left: ConversationQueueExecutionContractRef,

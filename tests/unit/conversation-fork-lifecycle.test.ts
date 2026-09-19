@@ -40,6 +40,11 @@ afterEach(async () => {
 
 describe("ConversationForkLifecycleOwner", () => {
   it("forks through an older completed Main Turn and replays without another Provider call", async () => {
+    const sourceDatabase = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      sourceDatabase.conversations.updateAgentAccess({ projectId, conversationId, providerId: "codex",
+        expectedRevision: 0, accessMode: "full-access", updatedAt: "2026-08-27T00:00:01.000Z" });
+    } finally { sourceDatabase.close(); }
     const forkSession = vi.fn(async () => ({
       session: { providerId: "codex", sessionId: "private-child-thread" },
       inheritedThroughTurn: { providerId: "codex", sessionId: "private-child-thread", turnId: "turn-1" },
@@ -58,6 +63,8 @@ describe("ConversationForkLifecycleOwner", () => {
       expect(source).toMatchObject({ completedTurnSequence: 2, timelinePosition: 4 });
       expect(target).toMatchObject({
         productMode: "agent",
+        agentAccessMode: "default",
+        agentAccessRevision: 0,
         agentTurnMode: "plan",
         agentModelId: "gpt-test",
         agentReasoningEffort: "high",

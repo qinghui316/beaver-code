@@ -1,5 +1,7 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createWorkbenchConversation, updateWorkbenchConversationTitle } from "../../workbench/conversation-service.js";
+import { parseAgentAccessMode } from "../../provider-runtime/agent-access-policy.js";
+
 import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
 import { CanonicalTimelineDelivery } from "../../workbench/canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "../../workbench/canonical-timeline-message.js";
@@ -29,8 +31,31 @@ import type { AgentTurnMode, ProductMode } from "../../provider-runtime/index.js
 import type { TopicFileReference } from "../../workbench/types.js";
 import { conversationSteerTimelineIds } from "../../workbench/conversation-turn-control.js";
 import { sendConversationRetryLive } from "./conversation-retry.js";
+import { configureConversationAccess } from "../../workbench/conversation-service.js";
+
+function requireAccessRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    const error = new Error("Access revision is invalid.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return value;
+}
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
+  const accessMatch = rest.match(/^conversations\/([^/]+)\/access$/);
+  if ((request.method === "GET" || request.method === "POST") && accessMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = request.method === "POST"
+      ? await readJsonBody<Record<string, unknown>>(request)
+      : { productMode: url.searchParams.get("productMode"), providerId: url.searchParams.get("providerId") };
+    sendJson(response, 200, await configureConversationAccess(input.project, decodeURIComponent(accessMatch[1]), {
+      productMode: body.productMode, providerId: body.providerId,
+      ...(request.method === "POST" ? { accessMode: body.accessMode, expectedRevision: body.expectedRevision,
+        confirmFullAccess: body.confirmFullAccess } : {}),
+    }, { runtimeStateResolver: (project) => context.projectRuntimeCoordinator.resolve(project), providerRegistry: context.providerRegistry }));
+    return;
+  }
   if (request.method === "GET" && rest === "events/live") {
     assertRegisteredProject(input);
     await sendProjectLiveEvents(input, request, response);
@@ -382,6 +407,8 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       skillOverrides: requireQueueSkillOverrides(body.skillOverrides ?? {}),
       providerId: requireQueueString(body.providerId, "providerId"),
       agentTurnMode: itemKind === "review" ? null : requireQueuedAgentTurnMode(productMode, body.agentTurnMode),
+      agentAccessMode: body.agentAccessMode === undefined ? undefined : parseAgentAccessMode(body.agentAccessMode),
+      expectedAccessRevision: body.expectedAccessRevision === undefined ? undefined : requireAccessRevision(body.expectedAccessRevision),
       modelId: itemKind === "review" ? null : requireQueueNullableString(body.modelId, "modelId"),
       reasoningEffort: itemKind === "review" ? null : requireQueueNullableString(body.reasoningEffort, "reasoningEffort"),
     }));

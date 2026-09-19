@@ -301,30 +301,22 @@ export function useProviderConfigurationController(
   const restoreDraftProvider = useCallback(
     (providerId: string | null): void => {
       if (input.conversationProviderId) return;
-      const generation = ++requestGenerationRef.current;
       draftProviderIdRef.current = providerId;
       draftProviderScopeRef.current = scopeIdentity;
-      setSelectedProviderId(providerId);
-      setDiagnostics(null);
-      setModelSettings(null);
-      if (!providerId) {
-        setResolvedScopeIdentity(scopeIdentity);
-        return;
-      }
-      setResolvedScopeIdentity(null);
-      void loadProviderDetails(providerId, generation)
-        .then(() => {
-          if (generation === requestGenerationRef.current)
-            setResolvedScopeIdentity(scopeIdentity);
-        })
-        .catch((cause: unknown) => {
-          if (generation === requestGenerationRef.current) {
-            setCapabilitiesError(userFacingErrorMessage(cause, "settings"));
-            setResolvedScopeIdentity(scopeIdentity);
-          }
-        });
+      // Draft restoration can race the initial capability request. Restart the
+      // complete projection, so invalidating that request cannot strand an empty
+      // catalog while only provider details are marked resolved.
+      const pendingReload = reload();
+      const generation = requestGenerationRef.current;
+      void pendingReload.catch((cause: unknown) => {
+        if (generation === requestGenerationRef.current) {
+          setCapabilities([]);
+          setCapabilitiesError(userFacingErrorMessage(cause, "settings"));
+          setResolvedScopeIdentity(scopeIdentity);
+        }
+      });
     },
-    [input.conversationProviderId, loadProviderDetails, scopeIdentity],
+    [input.conversationProviderId, reload, scopeIdentity],
   );
 
   return {

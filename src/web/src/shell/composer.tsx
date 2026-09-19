@@ -1,3 +1,4 @@
+import { AgentAccessControl, type AgentAccessControlProps } from "./AgentAccessControl.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelCatalogGroup, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
@@ -37,8 +38,12 @@ export function TopicComposer({
   onSelectedFileRefsChange,
   disabledReason,
   agentTurnMode,
+  accessView,
+  onSelectAccess,
+  onRefreshAccess,
   onSelectAgentTurnMode,
   agentTurnModeDisabledReason,
+  planModeDisabledReason,
   agentModelId,
   agentReasoningEffort,
   providerModelCatalogs,
@@ -91,8 +96,12 @@ export function TopicComposer({
   disabledReason?: string;
   productMode?: ProductMode;
   agentTurnMode?: AgentTurnMode;
+  accessView?: AgentAccessControlProps["accessView"];
+  onSelectAccess?: AgentAccessControlProps["onSelectAccess"];
+  onRefreshAccess?: AgentAccessControlProps["onRefreshAccess"];
   onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
   agentTurnModeDisabledReason?: string | null;
+  planModeDisabledReason?: string | null;
   agentModelId?: string | null;
   agentReasoningEffort?: string | null;
   providerModelCatalogs?: ProviderModelCatalogGroup[];
@@ -203,8 +212,12 @@ export function TopicComposer({
       onToggleSkill={onToggleSkill}
       onSelectedFileRefsChange={onSelectedFileRefsChange}
       productMode={productMode}
+      accessView={accessView}
+      onSelectAccess={onSelectAccess}
+      onRefreshAccess={onRefreshAccess}
       agentTurnMode={agentTurnMode}
       onSelectAgentTurnMode={onSelectAgentTurnMode}
+      planModeDisabledReason={planModeDisabledReason}
       agentTurnModeDisabledReason={agentTurnModeDisabledReason}
       providerDisplayName={providerDisplayName}
       modelLabel={modelLabel}
@@ -273,8 +286,11 @@ export function ConversationComposerSurface({
   onSelectedFileRefsChange,
   productMode,
   agentTurnMode,
+  accessView,
+  onSelectAccess,
+  onRefreshAccess,
   onSelectAgentTurnMode,
-  agentTurnModeDisabledReason,
+  planModeDisabledReason,
   selectedProviderId,
   agentModelId,
   agentReasoningEffort,
@@ -314,8 +330,12 @@ export function ConversationComposerSurface({
   onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
   productMode?: ProductMode;
   agentTurnMode?: AgentTurnMode;
+  accessView?: AgentAccessControlProps["accessView"];
+  onSelectAccess?: AgentAccessControlProps["onSelectAccess"];
+  onRefreshAccess?: AgentAccessControlProps["onRefreshAccess"];
   onSelectAgentTurnMode?: (mode: AgentTurnMode) => void | Promise<void>;
   agentTurnModeDisabledReason?: string | null;
+  planModeDisabledReason?: string | null;
   providerDisplayName?: string;
   modelLabel: string;
   selectedProviderId?: string;
@@ -416,10 +436,11 @@ export function ConversationComposerSurface({
             <div className="composer-add-attachment"><ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={(files) => { setAddMenuOpen(false); return onAttachFiles?.(files); }} /><span><Paperclip size={14} />添加附件</span></div>
             <button type="button" role="menuitem" onClick={() => insertTrigger("@") }><File size={15} />引用项目文件</button>
             <button type="button" role="menuitem" disabled={skills.length === 0} onClick={() => insertTrigger("/")}><Sparkles size={15} />选择技能</button>
+            {productMode === "agent" ? <button type="button" role="menuitemcheckbox" aria-checked={agentTurnMode === "plan"} disabled={agentTurnMode !== "plan" && Boolean(planModeDisabledReason)} title={planModeDisabledReason ?? undefined} onClick={() => { setAddMenuOpen(false); void onSelectAgentTurnMode?.(agentTurnMode === "plan" ? "default" : "plan"); }}><ListPlus size={15} />计划模式</button> : null}
             {productMode === "agent" ? <button type="button" role="menuitem" disabled={Boolean(reviewSubmitting)} onClick={() => { setAddMenuOpen(false); void onOpenReview?.(); }}><Search size={15} />代码审查</button> : null}
           </div> : null}
         </div>
-        <AgentTurnModeControl productMode={productMode} value={agentTurnMode} onChange={onSelectAgentTurnMode} planDisabledReason={agentTurnModeDisabledReason} />
+        {productMode === "agent" ? <AgentAccessControl accessView={accessView} onSelectAccess={onSelectAccess} onRefreshAccess={onRefreshAccess} planning={agentTurnMode === "plan"} /> : null}
         <span className="composer-spacer" />
         {contextControl}
         {onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <ConversationModelSelectors
@@ -436,6 +457,8 @@ export function ConversationComposerSurface({
       </>}
     >
       {beforeEditor}
+      {productMode === "agent" && accessView?.failure ? <div className="composer-access-failure" role="status">{accessView.failure}<button type="button" onClick={() => void onRefreshAccess?.()}>重新检测</button></div> : null}
+      {productMode === "agent" && agentTurnMode === "plan" ? <div className="composer-selected-context"><span className="composer-selected-item"><ListPlus size={13} aria-hidden="true" />计划<button type="button" aria-label="退出计划模式" onClick={() => void onSelectAgentTurnMode?.("default")}><X size={12} /></button></span></div> : null}
       {productMode === "agent" && reviewOpen ? <ReviewInlineSelector options={reviewOptions ?? null} loading={Boolean(reviewLoading)} submitting={Boolean(reviewSubmitting)} onClose={() => onCloseReview?.()} onStart={(target) => onStartReview?.(target)} /> : null}
       <SkillMentionPicker value={value} onChange={onChange} skills={skills} activeSkillIds={activeSkillIds} onToggleSkill={onToggleSkill ?? (() => undefined)} />
       <FileMentionPicker projectId={projectId} value={value} onChange={onChange} selectedRefs={selectedFileRefs} onSelectedRefsChange={onSelectedFileRefsChange ?? (() => undefined)} />
@@ -575,6 +598,9 @@ export function ConversationTurnQueue({
             <small>{confirmationRequired
               ? queueExecutionCompatibilitySummary(item.executionCompatibility)
               : queuedTurnStatusLabel(item.status, item.attachmentIds.length)}</small>
+            {item.itemKind !== "review" && item.agentAccessMode != null ? <small>
+              {item.agentTurnMode === "plan" ? "计划中仅分析" : item.agentAccessMode === "full-access" ? "完全访问" : "默认权限"}
+            </small> : null}
           </span>
           <span className="conversation-turn-queue-actions">
             {confirmationRequired ? <button
@@ -806,33 +832,6 @@ function formatContextTime(value: string | null | undefined): string {
   if (!value) return "尚未压缩";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString();
-}
-
-export function AgentTurnModeControl({
-  productMode,
-  value,
-  onChange,
-  planDisabledReason,
-}: {
-  productMode?: ProductMode;
-  value?: AgentTurnMode;
-  onChange?: (mode: AgentTurnMode) => void | Promise<void>;
-  planDisabledReason?: string | null;
-}): ReactElement | null {
-  if (productMode !== "agent" || !value || !onChange) return null;
-  return (
-    <div className="agent-turn-mode-segment" role="group" aria-label="Agent 执行模式" data-testid="agent-turn-mode-control">
-      <button type="button" className={value === "default" ? "active" : ""} aria-pressed={value === "default"} onClick={() => void onChange("default")}>默认</button>
-      <button
-        type="button"
-        className={value === "plan" ? "active" : ""}
-        aria-pressed={value === "plan"}
-        disabled={Boolean(planDisabledReason) && value !== "plan"}
-        title={planDisabledReason ?? "计划"}
-        onClick={() => void onChange("plan")}
-      >计划</button>
-    </div>
-  );
 }
 
 function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {

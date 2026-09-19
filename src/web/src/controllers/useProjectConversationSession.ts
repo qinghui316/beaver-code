@@ -35,6 +35,7 @@ export type PendingDemandConversation = {
 type PendingDemandRekeyResult = "rekeyed" | "already-canonical" | "not-pending" | "rejected";
 
 export type CreateDemandConversationInput = {
+  agentAccessMode?: import("./conversation-access-contract.js").AgentAccessMode;
   projectId: string;
   productMode: ProductMode;
   agentTurnMode?: AgentTurnMode;
@@ -1009,6 +1010,7 @@ const defaultApi: ProjectConversationSessionApi = {
       providerId: input.providerId,
       productMode: input.productMode,
       agentTurnMode: input.agentTurnMode,
+      agentAccessMode: input.agentAccessMode,
       modelId: input.modelId,
       reasoningEffort: input.reasoningEffort,
       clientRequestId: input.clientRequestId,

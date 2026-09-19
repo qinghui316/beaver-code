@@ -1,4 +1,5 @@
 import { useCallback, useRef, type MutableRefObject } from "react";
+import type { ConversationAccessCapturePort } from "./conversation-access-contract.js";
 import type { SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
 import type {
   ComposerDraftCheckpoint,
@@ -69,8 +70,10 @@ export function useConversationSubmissionCoordinator(
   scopeGenerationRef: MutableRefObject<number>,
   draft: ConversationSubmissionDraftPort,
   resources: ConversationSubmissionResourcePort,
+  access?: ConversationAccessCapturePort,
 ): ConversationSubmissionCoordinator {
   const submissionOwnerRef = useRef<ConversationTurnSubmissionController | null>(null);
+  const submissionIntentsRef = useRef(new Set<string>());
 
   function submissionOwner(): ConversationTurnSubmissionController {
     if (!submissionOwnerRef.current) {
@@ -163,7 +166,18 @@ export function useConversationSubmissionCoordinator(
       return null;
     }
     const demandBody = prepared.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
+    let accessSnapshot: Awaited<ReturnType<ConversationAccessCapturePort["capture"]>>;
+    try {
+      const capturedAccess = access?.capture() ?? {};
+      accessSnapshot = capturedAccess instanceof Promise ? await capturedAccess : capturedAccess;
+    } catch {
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        portsRef.current.onError("权限设置尚未就绪，请重新检测后发送。");
+      }
+      return null;
+    }
     const snapshot = createDraftSubmissionSnapshot({
+      ...accessSnapshot,
       projectId: capturedProjectId,
       productMode: capturedProductMode,
       conversationId: null,
@@ -262,7 +276,18 @@ export function useConversationSubmissionCoordinator(
       selectedProviderId: effectiveComposerProviderId(currentScope),
     });
     const clientRequestId = (portsRef.current.ids ?? defaultComposerIds).createClientRequestId();
+    let accessSnapshot: Awaited<ReturnType<ConversationAccessCapturePort["capture"]>>;
+    try {
+      const capturedAccess = access?.capture() ?? {};
+      accessSnapshot = capturedAccess instanceof Promise ? await capturedAccess : capturedAccess;
+    } catch {
+      if (composerActionOwnsCurrentScope(generation, currentScope, scopeGenerationRef, scopeRef)) {
+        portsRef.current.onError("权限设置尚未就绪，请重新检测后发送。");
+      }
+      return;
+    }
     const snapshot = createDraftSubmissionSnapshot({
+      ...accessSnapshot,
       projectId: currentScope.projectId,
       productMode,
       conversationId: currentScope.conversation.id,
@@ -366,7 +391,21 @@ export function useConversationSubmissionCoordinator(
     portsRef.current.onError(null);
   }, [draft, resources]);
 
-  return { createConversation, submitMessage, retryPendingIntent, restorePendingIntent };
+  async function reserveSubmission<T>(action: () => Promise<T>, duplicate: T): Promise<T> {
+    const scope = scopeRef.current;
+    const key = JSON.stringify([scope.projectId, composerProductMode(scope), scope.conversation?.id,
+      effectiveComposerProviderId(scope), draft.controller.read().mutationToken]);
+    if (submissionIntentsRef.current.has(key)) return duplicate;
+    submissionIntentsRef.current.add(key);
+    try { return await action(); } finally { submissionIntentsRef.current.delete(key); }
+  }
+
+  return {
+    createConversation: (input) => reserveSubmission(() => createConversation(input), null),
+    submitMessage: () => reserveSubmission(submitMessage, undefined),
+    retryPendingIntent,
+    restorePendingIntent,
+  };
 }
 
 function pendingSubmissionDraftViewModel(submission: PendingConversationSubmission): ConversationDraftViewModel | null {

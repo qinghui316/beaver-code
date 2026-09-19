@@ -1,3 +1,4 @@
+import type { AgentAccessControlProps } from "../shell/AgentAccessControl.js";
 import { useState, type ReactElement } from "react";
 import { ArrowUp, Bot, RefreshCw } from "lucide-react";
 import { ConversationComposerSurface } from "../shell/composer.js";
@@ -74,8 +75,12 @@ export function ProjectReadinessHome({
   selectedProviderId,
   productMode,
   agentTurnMode,
+  accessView,
+  onSelectAccess,
+  onRefreshAccess,
   onSelectAgentTurnMode,
   agentTurnModeDisabledReason,
+  planModeDisabledReason,
   agentModelId,
   agentReasoningEffort,
   providerModelCatalogs,
@@ -121,8 +126,12 @@ export function ProjectReadinessHome({
   selectedProviderId?: string;
   productMode: ProductMode;
   agentTurnMode: AgentTurnMode;
+  accessView?: AgentAccessControlProps["accessView"];
+  onSelectAccess?: AgentAccessControlProps["onSelectAccess"];
+  onRefreshAccess?: AgentAccessControlProps["onRefreshAccess"];
   onSelectAgentTurnMode: (mode: AgentTurnMode) => void | Promise<void>;
   agentTurnModeDisabledReason?: string | null;
+  planModeDisabledReason?: string | null;
   agentModelId: string | null;
   agentReasoningEffort: string | null;
   providerModelCatalogs?: ProviderModelCatalogGroup[];
@@ -229,8 +238,12 @@ export function ProjectReadinessHome({
           onToggleSkill={onToggleSkill}
           onSelectedFileRefsChange={onDraftFileRefsChange}
           productMode={productMode}
+          accessView={accessView}
+          onSelectAccess={onSelectAccess}
+          onRefreshAccess={onRefreshAccess}
           agentTurnMode={agentTurnMode}
           onSelectAgentTurnMode={onSelectAgentTurnMode}
+          planModeDisabledReason={planModeDisabledReason}
           agentTurnModeDisabledReason={agentTurnModeDisabledReason}
           providerDisplayName={providerDisplayName}
           modelLabel={modelLabel}

@@ -1,9 +1,23 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 20;
+export const WORKBENCH_SCHEMA_VERSION = 21;
 
 export function applyCurrentWorkbenchSchema(db: Database.Database): void {
+  applyWorkbenchSchema20(db);
+  applyWorkbenchAccessSchema21(db);
+}
+
+/** Fixed additive contract used by the 20 -> 21 migration and new databases. */
+export function applyWorkbenchAccessSchema21(db: Database.Database): void {
+  ensureColumn(db, "conversations", "agent_access_mode", "TEXT CHECK(agent_access_mode IS NULL OR (product_mode = 'agent' AND agent_access_mode IN ('default', 'full-access')))");
+  ensureColumn(db, "conversations", "agent_access_revision", "INTEGER NOT NULL DEFAULT 0 CHECK(agent_access_revision >= 0)");
+  ensureColumn(db, "conversation_turn_queue_items", "agent_access_mode", "TEXT CHECK(agent_access_mode IS NULL OR (product_mode = 'agent' AND item_kind = 'conversation-turn' AND agent_access_mode IN ('default', 'full-access')))");
+  ensureColumn(db, "provider_attempts", "access_policy_json", "TEXT");
+}
+
+/** Historical Schema 20 builder. Do not extend this with later schema fields. */
+export function applyWorkbenchSchema20(db: Database.Database): void {
   db.exec("DROP TABLE IF EXISTS bridge_sync; DROP TABLE IF EXISTS skills;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS canonical_timeline_items (

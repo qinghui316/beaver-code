@@ -21,6 +21,41 @@ afterEach(() => {
 });
 
 describe("Conversation composer controller", () => {
+  it.each(["send", "enqueue"] as const)("reserves one %s intent while access verification is pending", async (action) => {
+    const ports = composerPorts();
+    const selected = { accessMode: "default" as const, revision: 0, providerId: "codex" };
+    let finish!: (selection: typeof selected) => void;
+    const pending = new Promise<typeof selected>((resolve) => { finish = resolve; });
+    const read = vi.fn().mockResolvedValueOnce(selected).mockImplementation(() => pending);
+    ports.access = { read, save: vi.fn() };
+    ports.queue = { snapshot: queueSnapshot("queue:0"), loading: false,
+      enqueue: vi.fn(async () => queueSnapshot("queue:1")), reclaim: vi.fn(async () => queueSnapshot("queue:1")) };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ productMode: "agent" }), ports));
+    await waitFor(() => expect(result.current.accessView.busy).toBe(false));
+    act(() => result.current.setComposerText("one intentional submission"));
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => { first = result.current[action](); second = result.current[action](); });
+    expect(read).toHaveBeenCalledTimes(2);
+    await act(async () => { finish(selected); await Promise.all([first, second]); });
+    expect(action === "send" ? ports.actions.sendMessage : ports.queue.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the draft and reports failed access reads without an unhandled submission", async () => {
+    const ports = composerPorts();
+    ports.access = { read: async () => { throw new Error("unavailable"); }, save: async () => { throw new Error("unavailable"); } };
+    ports.queue = { snapshot: queueSnapshot("queue:0"), loading: false,
+      enqueue: vi.fn(async () => queueSnapshot("queue:1")), reclaim: vi.fn(async () => queueSnapshot("queue:1")) };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ productMode: "agent" }), ports));
+    await waitFor(() => expect(result.current.accessView.failure).not.toBeNull());
+    act(() => result.current.setComposerText("keep permission failure draft"));
+    await act(async () => { await result.current.send(); await result.current.enqueue(); });
+    expect(ports.actions.sendMessage).not.toHaveBeenCalled();
+    expect(ports.queue.enqueue).not.toHaveBeenCalled();
+    expect(result.current.composerText).toBe("keep permission failure draft");
+    expect(ports.onError).toHaveBeenCalledWith("权限设置尚未就绪，请重新检测后发送。");
+  });
+
   it("passes each owner a frozen runtime view containing only its declared capabilities", async () => {
     const ports = composerPorts();
     ports.queue = {
@@ -2355,6 +2390,10 @@ function composerPorts(): ConversationComposerPorts & {
 } {
   let operationId = 0;
   return {
+    access: {
+      read: async (identity) => ({ accessMode: "default", revision: 0, providerId: identity.providerId }),
+      save: async (identity, current, accessMode) => ({ accessMode, revision: current.revision + 1, providerId: identity.providerId }),
+    },
     operation: {
       begin: vi.fn((key: string) => ({ id: ++operationId, key })),
       release: vi.fn(),

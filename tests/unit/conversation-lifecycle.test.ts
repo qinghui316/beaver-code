@@ -305,6 +305,12 @@ describe("Schema 17 lifecycle migration", () => {
   it("backfills archive origin without reviving deleted Conversations", () => {
     const db = new Database(":memory:");
     applyCurrentWorkbenchSchema(db);
+    db.exec(`
+      ALTER TABLE conversations DROP COLUMN agent_access_mode;
+      ALTER TABLE conversations DROP COLUMN agent_access_revision;
+      ALTER TABLE conversation_turn_queue_items DROP COLUMN agent_access_mode;
+      ALTER TABLE provider_attempts DROP COLUMN access_policy_json;
+    `);
     for (const row of db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as Array<{ name: string }>) {
       db.exec(`DROP TRIGGER IF EXISTS ${row.name}`);
     }

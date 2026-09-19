@@ -242,6 +242,8 @@ export interface CreateTopicRequest {
   attachmentIds?: string[];
   providerId?: TopicMessageInput["providerId"];
   agentTurnMode?: TopicMessageInput["agentTurnMode"];
+  agentAccessMode?: TopicMessageInput["agentAccessMode"];
+  expectedAccessRevision?: number;
   modelId?: TopicMessageInput["modelId"];
   reasoningEffort?: TopicMessageInput["reasoningEffort"];
 }
@@ -262,6 +264,8 @@ export interface TopicMessageRequest {
   agentSurfaceId?: TopicMessageInput["agentSurfaceId"];
   productMode: ProductMode;
   agentTurnMode?: TopicMessageInput["agentTurnMode"];
+  agentAccessMode?: TopicMessageInput["agentAccessMode"];
+  expectedAccessRevision?: number;
   modelId?: TopicMessageInput["modelId"];
   reasoningEffort?: TopicMessageInput["reasoningEffort"];
 }
@@ -298,6 +302,8 @@ export interface ConversationTurnQueueBody {
   skillOverrides?: unknown;
   providerId?: unknown;
   agentTurnMode?: unknown;
+  agentAccessMode?: unknown;
+  expectedAccessRevision?: unknown;
   modelId?: unknown;
   reasoningEffort?: unknown;
 }

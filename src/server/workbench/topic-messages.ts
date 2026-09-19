@@ -27,6 +27,7 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{
   clientRequestId: string;
   skillOverrides?: CreateTopicRequest["skillOverrides"];
   agentTurnMode?: CreateTopicRequest["agentTurnMode"];
+  agentAccessMode?: CreateTopicRequest["agentAccessMode"];
   modelId?: CreateTopicRequest["modelId"];
   reasoningEffort?: CreateTopicRequest["reasoningEffort"];
 }> {
@@ -57,6 +58,7 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{
     clientRequestId: body.clientRequestId,
     skillOverrides: body.skillOverrides,
     agentTurnMode: body.agentTurnMode,
+    agentAccessMode: body.agentAccessMode,
     modelId: body.modelId,
     reasoningEffort: body.reasoningEffort,
   };
@@ -78,6 +80,8 @@ export async function readTopicMessageBody(request: IncomingMessage): Promise<To
     agentSurfaceId: raw.agentSurfaceId,
     productMode: requireProductMode(raw.productMode),
     agentTurnMode: raw.agentTurnMode,
+    agentAccessMode: raw.agentAccessMode,
+    expectedAccessRevision: raw.expectedAccessRevision,
     modelId: raw.modelId,
     reasoningEffort: raw.reasoningEffort,
   };
