@@ -6,6 +6,7 @@ import { providerHealthViewModel } from "../presentation/provider-health.js";
 import { sanitizeTechnicalDetail, userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 import { DesktopUpdateDock } from "../shell/DesktopUpdateDock.js";
+import { useSkillsSettingsController } from "../controllers/useSkillsSettingsController.js";
 
 export type SettingsSection = "basic" | "project" | "provider" | "skills";
 type VisibleSettingsSection = "provider" | "skills";
@@ -35,6 +36,14 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   const selectedProjectId = project?.project?.id ?? null;
   const providerLabel = diagnostics?.displayName ?? "当前 AI 服务";
   const capabilitySnapshot = providerCapabilities?.find((item) => item.providerId === (diagnostics?.providerId ?? selectedProviderId)) ?? null;
+  const skillsSurface = useSkillsSettingsController({
+    active: visibleSection === "skills",
+    projectId: selectedProjectId,
+    productMode,
+    conversationId,
+    providerId: selectedProviderId,
+    onRefresh,
+  });
 
   async function refresh(): Promise<void> {
     setMessage(null);
@@ -54,12 +63,12 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
       </aside>
 
       <div className="settings-surface-content">
-        <header className="settings-surface-header">
+        {visibleSection === "provider" ? <><header className="settings-surface-header">
           <div><h1>{visibleSection === "provider" ? "AI 服务" : "技能"}</h1><p>{settingsDescription(visibleSection)}</p></div>
           <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
         </header>
 
-        {visibleSection === "provider" ? (
+        {(
           <section className="provider-settings-section" aria-label="AI 服务">
             <div className="provider-settings-summary">
               <span className={`provider-connection-mark ${status}`}><Bot size={19} aria-hidden="true" /></span>
@@ -77,7 +86,7 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
               {diagnosticsAvailable ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
             </div>
           </section>
-        ) : <SkillsSettingsView projectId={selectedProjectId} productMode={productMode} conversationId={conversationId} providerId={selectedProviderId} onRefresh={onRefresh} />}
+        )}</> : <SkillsSettingsView surface={skillsSurface} onBack={onClose} />}
         {message ? <p className="diagnostic-errors" role="alert">{message}</p> : null}
       </div>
 
