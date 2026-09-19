@@ -3,6 +3,18 @@ import { projectSkillsCatalog } from "../../src/web/src/controllers/skills-catal
 import type { SkillListItem } from "../../src/web/src/types.js";
 
 describe("projectSkillsCatalog", () => {
+  it("projects total source-scan failure as an error instead of an empty catalog", () => {
+    const view = projectSkillsCatalog({
+      ...input([]),
+      catalogErrors: [{ path: "C:/skills/broken/SKILL.md", message: "unreadable" }],
+    });
+
+    expect(view.state.status).toBe("error");
+    if (view.state.status !== "error") throw new Error("Expected an error state.");
+    expect(view.state.failure.summary).toBe("技能目录暂时无法读取。");
+    expect(view.state.actions.map((action) => action.id)).toEqual(["retry", "diagnostics"]);
+  });
+
   it("deduplicates stable identities and derives factual filter counts", () => {
     const provider = skill("provider", { sourceKind: "provider-native", scope: "user", providerEnabled: false });
     const project = skill("project", { sourceKind: "project-harness", scope: "repo", providerEnabled: false });

@@ -22,6 +22,32 @@ afterEach(() => {
 });
 
 describe("SkillsSettingsView request identity", () => {
+  it("shows a refresh failure while an empty catalog remains visible", async () => {
+    fetchJson.mockResolvedValue({ skills: [] });
+    postJson.mockRejectedValueOnce(new TypeError("network unavailable"));
+    render(<TestSkillsSettings projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+
+    await screen.findByText("还没有发现技能");
+    fireEvent.click(screen.getAllByRole("button", { name: "重新检测" })[0]!);
+
+    await waitFor(() => expect(screen.getByText("暂时无法连接到本地服务。")).toBeTruthy());
+    expect(screen.getByText("还没有发现技能")).toBeTruthy();
+  });
+
+  it("shows diagnostics instead of an empty message when every Skill source fails", async () => {
+    fetchJson.mockResolvedValue({
+      skills: [],
+      errors: [{ path: "C:/skills/broken/SKILL.md", message: "unreadable" }],
+    });
+    render(<TestSkillsSettings projectId="repo" productMode="agent" conversationId="conversation-1" providerId="codex" onRefresh={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("技能目录暂时无法读取。")).toBeTruthy());
+    expect(screen.queryByText("还没有发现技能")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "查看诊断" }));
+    expect(screen.getByRole("dialog", { name: "技能扫描诊断" })).toBeTruthy();
+    expect(screen.getByText("…/broken/SKILL.md")).toBeTruthy();
+  });
+
   it("renders a load failure with local recovery instead of an empty catalog", async () => {
     fetchJson
       .mockRejectedValueOnce(new TypeError("network unavailable"))

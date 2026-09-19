@@ -428,6 +428,15 @@
   gap: 8px;
 }
 
+.skill-sync-state {
+  padding: 3px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .skill-sync-state.ready {
   color: var(--success);
 }
@@ -929,6 +938,13 @@
   color: var(--text-muted);
 }
 
+.skills-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .skill-task-dialog {
   width: min(700px, calc(100vw - 40px));
   max-height: min(760px, calc(100vh - 40px));
@@ -1182,6 +1198,7 @@
   .skills-empty-results button,
   .settings-inline-actions > button,
   .settings-panel .icon-button,
+  .skill-task-dialog .icon-button,
   .skill-source-add {
     min-width: 44px;
     min-height: 44px;

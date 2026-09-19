@@ -75,7 +75,7 @@ export function SkillsSettingsView({ surface, onBack }: { surface: SkillsSetting
         </div>
       ) : null}
 
-      {view.actionFailure && view.state.status === "ready" && !view.selectedSkill && !view.sourcesOpen ? (
+      {view.actionFailure && view.state.status !== "loading" && view.state.status !== "error" && !view.selectedSkill && !view.sourcesOpen ? (
         <div className="skills-state-notice" role="alert">
           <CircleAlert size={16} aria-hidden="true" />
           <div><strong>{view.actionFailure.summary}</strong>{view.actionFailure.recoveryAction ? <span>{view.actionFailure.recoveryAction}</span> : null}</div>
@@ -95,7 +95,16 @@ export function SkillsSettingsView({ surface, onBack }: { surface: SkillsSetting
             <CircleAlert size={22} />
             <strong>{view.state.failure.summary}</strong>
             {view.state.failure.recoveryAction ? <span>{view.state.failure.recoveryAction}</span> : null}
-            <button type="button" className="primary-button" onClick={() => void actions.refresh()}>重新加载</button>
+            <div className="skills-empty-actions">
+              {view.state.actions.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  className={action.emphasis === "primary" ? "primary-button" : "outline-button"}
+                  onClick={() => action.id === "diagnostics" ? actions.openDiagnostics() : void actions.refresh()}
+                >{action.label}</button>
+              ))}
+            </div>
           </div>
         ) : view.state.status === "empty" ? (
           <div className="skills-empty-results">

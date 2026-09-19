@@ -74,6 +74,19 @@ function projectState(
   if (input.failure && input.skills.length === 0) {
     return { status: "error", failure: input.failure, actions: [{ id: "retry", label: "重新加载", emphasis: "primary" }] };
   }
+  if (input.catalogErrors.length > 0 && input.skills.length === 0) {
+    return {
+      status: "error",
+      failure: {
+        summary: "技能目录暂时无法读取。",
+        recoveryAction: "查看诊断并处理技能来源后重新检测。",
+      },
+      actions: [
+        { id: "retry", label: "重新加载", emphasis: "primary" },
+        { id: "diagnostics", label: "查看诊断", emphasis: "secondary" },
+      ],
+    };
+  }
   if (cards.length === 0) {
     const narrowed = Boolean(input.query.trim()) || input.filter !== "all";
     return {
