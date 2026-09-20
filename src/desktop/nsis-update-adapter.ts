@@ -5,8 +5,13 @@ import { verifyDesktopUpdateHash, verifyDesktopUpdateSignature } from "./update-
 import type { DesktopSignedProduct } from "./update-signature.js";
 import { GitHubBeaverUpdateManifestClient, type BeaverUpdateManifestPort, type VerifiedBeaverUpdateManifest } from "./update-manifest.js";
 import { stat } from "node:fs/promises";
+import { dirname } from "node:path";
 
 type EnabledPolicy = Exclude<DesktopUpdatePolicy, { mode: "disabled" }>;
+interface NsisInstallArgumentOptions {
+  isSilent: boolean;
+  isForceRunAfter: boolean;
+}
 type NsisPort = Pick<NsisUpdater,
   "autoDownload" | "autoInstallOnAppQuit" | "autoRunAppAfterInstall" | "allowPrerelease" |
   "allowDowngrade" | "disableWebInstaller" | "verifyUpdateCodeSignature" | "logger" |
@@ -16,6 +21,20 @@ export interface DesktopArtifactVerifier {
   signature(file: string, publisherSubject: string, product: DesktopSignedProduct): Promise<void>;
   hash(file: string, sha512: string): Promise<void>;
   size(file: string): Promise<number>;
+}
+
+/** Preserve the pinned electron-updater NSIS command-line contract without shell interpolation. */
+export function buildNsisInstallArguments(
+  options: NsisInstallArgumentOptions,
+  installDirectory?: string,
+  packageFile?: string | null,
+): string[] {
+  const args = ["--updated"];
+  if (options.isSilent) args.push("/S");
+  if (options.isForceRunAfter) args.push("--force-run");
+  if (installDirectory) args.push(`/D=${installDirectory}`);
+  if (packageFile) args.push(`--package-file=${packageFile}`);
+  return args;
 }
 
 /** All electron-updater calls and its default-policy overrides belong here. */
@@ -158,7 +177,10 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
   }
 }
 
-export async function createNsisUpdateAdapter(policy: EnabledPolicy): Promise<NsisUpdateAdapter> {
+export async function createNsisUpdateAdapter(
+  policy: EnabledPolicy,
+  installDirectory = dirname(process.execPath),
+): Promise<NsisUpdateAdapter> {
   // Load the CJS package only inside the Electron host, never the Workbench process.
   const module = await import("electron-updater");
   const sdk = module.default;
@@ -170,7 +192,11 @@ export async function createNsisUpdateAdapter(policy: EnabledPolicy): Promise<Ns
       // launch boundary: no elevation/ShellExecute fallback and no early quit.
       const installer = this.installerPath;
       if (!installer || options.isAdminRightsRequired || !options.isSilent || !options.isForceRunAfter) return false;
-      this.launchReceipt = super.spawnLog(installer, ["--updated", "/S", "--force-run"]);
+      const packageFile = this.downloadedUpdateHelper?.packageFile ?? null;
+      this.launchReceipt = super.spawnLog(
+        installer,
+        buildNsisInstallArguments(options, this.installDirectory, packageFile),
+      );
       return true;
     }
 
@@ -185,6 +211,7 @@ export async function createNsisUpdateAdapter(policy: EnabledPolicy): Promise<Ns
   const nsis = new ReceiptNsisUpdater(policy.mode === "stable"
     ? { provider: "github", owner: policy.owner, repo: policy.repo }
     : { provider: "generic", url: policy.feedUrl });
+  nsis.installDirectory = installDirectory;
   const manifests = policy.mode === "stable" ? new GitHubBeaverUpdateManifestClient(policy.trustedKeys) : null;
   return new NsisUpdateAdapter(nsis, policy, undefined, manifests);
 }
