@@ -11,6 +11,7 @@ describe("Windows update acceptance boundary", () => {
   it("runs only for canonical or the exact candidate branch on a GitHub-hosted runner", () => {
     expect(workflow).toContain("github.ref == 'refs/heads/master'");
     expect(workflow).toContain("github.ref == 'refs/heads/codex/aho-windows-github-independent-update-signing-v1'");
+    expect(workflow).toContain("github.ref == 'refs/heads/codex/aho-windows-desktop-update-auto-relaunch-v1'");
     expect(workflow).toContain("BEAVER_UPDATE_ACCEPTANCE_SHA: ${{ github.sha }}");
     for (const source of [runner, fixture, feed]) {
       expect(source).toContain('RUNNER_ENVIRONMENT');
@@ -19,6 +20,7 @@ describe("Windows update acceptance boundary", () => {
       expect(source).toContain('GITHUB_REF');
       expect(source).toContain('GITHUB_SHA');
       expect(source).toContain('BEAVER_UPDATE_ACCEPTANCE_SHA');
+      expect(source).toContain('refs/heads/codex/aho-windows-desktop-update-auto-relaunch-v1');
     }
   });
 
@@ -50,6 +52,11 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).toContain('$newMain.Count -eq 1');
     expect(runner).toContain('if ($newStart -lt $oldExit)');
     expect(runner).toContain('acceptance-relaunch: oldPid=');
+    expect(runner).toContain('function Capture-UpdateInstallerProcess');
+    expect(runner).toContain('$script:updateInstallerProcess.Handle');
+    expect(runner).toContain('$installerExitCode -ne 0');
+    expect(runner).toContain('installerExitUtc=');
+    expect(runner).toContain('installerExitCode=');
   });
 
   it("injects a controlled installed-app fault and proves repair restores code without changing data", () => {
