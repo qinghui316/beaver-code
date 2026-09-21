@@ -41,6 +41,7 @@ interface FixtureNsis {
   installDirectory: string | undefined;
   downloadedUpdateHelper: { packageFile: string | null } | null;
   elevated: boolean;
+  autoRunAppAfterInstall: boolean;
   launchVerifiedUpdate(): Promise<void>;
 }
 beforeEach(() => {
@@ -59,32 +60,32 @@ async function fixture(installDirectory = "E:\\beaver code\\BeaverCode"): Promis
 }
 
 describe("actual NSIS launch-boundary adapter", () => {
-  it("builds the pinned upstream argument order without shell quoting", () => {
+  it("keeps the NSIS /D directory parameter last without shell quoting", () => {
     expect(buildNsisInstallArguments(
-      { isSilent: true, isForceRunAfter: true },
+      { isSilent: true, isForceRunAfter: false },
       "E:\\Beaver Code\\应用",
       "C:\\更新缓存\\package.7z",
     )).toEqual([
       "--updated",
       "/S",
-      "--force-run",
-      "/D=E:\\Beaver Code\\应用",
       "--package-file=C:\\更新缓存\\package.7z",
+      "/D=E:\\Beaver Code\\应用",
     ]);
   });
   it("forwards the exact custom directory and package file to the verified installer", async () => {
     const nsis = await fixture("E:\\beaver code\\BeaverCode");
     expect(nsis.installDirectory).toBe("E:\\beaver code\\BeaverCode");
+    expect(nsis.autoRunAppAfterInstall).toBe(false);
     nsis.downloadedUpdateHelper = { packageFile: "C:\\更新缓存\\payload.7z" };
     await nsis.launchVerifiedUpdate();
     expect(state.spawnCommand).toBe("C:/verified/installer.exe");
     expect(state.spawnArgs).toEqual([
       "--updated",
       "/S",
-      "--force-run",
-      "/D=E:\\beaver code\\BeaverCode",
       "--package-file=C:\\更新缓存\\payload.7z",
+      "/D=E:\\beaver code\\BeaverCode",
     ]);
+    expect(state.spawnArgs).not.toContain("--force-run");
   });
   it("waits for asynchronous launch failure without invoking the library quit path", async () => {
     const nsis = await fixture();
@@ -106,5 +107,10 @@ describe("actual NSIS launch-boundary adapter", () => {
     state.spawn = () => Promise.resolve(false);
     await expect(nsis.launchVerifiedUpdate()).rejects.toThrow("not confirmed");
     expect(state.prematureQuit).toBe(0);
+  });
+  it("does not request the default NSIS force-run path", async () => {
+    const nsis = await fixture();
+    await nsis.launchVerifiedUpdate();
+    expect(state.spawnArgs).toEqual(["--updated", "/S", "/D=E:\\beaver code\\BeaverCode"]);
   });
 });

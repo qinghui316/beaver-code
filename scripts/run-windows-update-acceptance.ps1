@@ -14,7 +14,7 @@ $runnerRoot = (Resolve-Path -LiteralPath $env:RUNNER_TEMP).Path
 $acceptanceRoot = Join-Path $runnerRoot "beaver-update-acceptance"
 $oldRoot = Join-Path $acceptanceRoot "old"
 $newRoot = Join-Path $acceptanceRoot "new"
-$installRoot = Join-Path $acceptanceRoot "installed"
+$installRoot = Join-Path $acceptanceRoot "installed with spaces"
 $fixtureHome = Join-Path $env:USERPROFILE ".beaver-code-update-test\data"
 $fixtureProject = Join-Path $acceptanceRoot "project"
 $feedReady = Join-Path $acceptanceRoot "feed-ready.txt"
@@ -106,6 +106,13 @@ function Get-AcceptanceProcesses {
   @(Get-Process -Name "BeaverCodeUpdateTest" -ErrorAction SilentlyContinue | Where-Object {
     try { $_.Path -and [System.IO.Path]::GetFullPath($_.Path).StartsWith($installRoot, [System.StringComparison]::OrdinalIgnoreCase) }
     catch { $false }
+  })
+}
+
+function Get-AcceptanceMainProcesses {
+  @(Get-CimInstance Win32_Process -Filter "Name='BeaverCodeUpdateTest.exe'" -ErrorAction SilentlyContinue | Where-Object {
+    $_.ExecutablePath -and $_.ExecutablePath.Equals($installedExecutable, [System.StringComparison]::OrdinalIgnoreCase) `
+      -and $_.CommandLine -notmatch '--type='
   })
 }
 
@@ -299,9 +306,20 @@ try {
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
     $content = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
     if ($content.Contains(" update failed")) { throw "The installed application reported an update failure." }
-    return $content.Contains("update installing") `
-      -and $content.Contains("workbench-ready version=$newVersion commit=$expectedCommit")
+    if (-not ($content.Contains("update installing") `
+      -and $content.Contains("workbench-ready version=$newVersion commit=$expectedCommit"))) { return $false }
+    $oldProcess.Refresh()
+    if (-not $oldProcess.HasExited) { return $false }
+    $newMain = @(Get-AcceptanceMainProcesses | Where-Object ProcessId -NE $oldProcess.Id)
+    return $newMain.Count -eq 1
   } 600 "The signed prompted update did not install and restart the application."
+
+  $newMain = @(Get-AcceptanceMainProcesses | Where-Object ProcessId -NE $oldProcess.Id)
+  if ($newMain.Count -ne 1) { throw "The updated application does not have exactly one live main process." }
+  $oldExit = $oldProcess.ExitTime.ToUniversalTime()
+  $newStart = $newMain[0].CreationDate.ToUniversalTime()
+  if ($newStart -lt $oldExit) { throw "The updated application started before the old process exited." }
+  Write-Output "acceptance-relaunch: oldPid=$($oldProcess.Id) oldExitUtc=$($oldExit.ToString('o')) newPid=$($newMain[0].ProcessId) newStartUtc=$($newStart.ToString('o'))"
 
   $version = (Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion
   if ($version -ne "${newVersion}.0" -and $version -ne $newVersion) { throw "Installed executable version is not the update version." }
@@ -364,6 +382,11 @@ try {
     signedPublisher = $publisher
     promptedUpdate = $true
     explicitInstallEntryPointObserved = $true
+    oldMainPid = $oldProcess.Id
+    newMainPid = $newMain[0].ProcessId
+    oldExitUtc = $oldExit.ToString("o")
+    newStartUtc = $newStart.ToString("o")
+    spacedCustomInstallPath = $true
     persistedConversation = $true
     persistedDraft = $true
     persistedQueue = $true
