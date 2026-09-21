@@ -12,10 +12,11 @@ export function ProjectConversationSearchPalette({ surface, triggerRef }: {
   const results = useMemo(() => search ? projectNavigationSearchResults({
     projects: view.projects,
     snapshots: view.snapshots,
+    navigation: view.navigation,
     selectedProjectId: view.selectedProjectId,
     selectedConversationId: view.selectedTopicId,
     query: search.query,
-  }) : [], [search, view.projects, view.selectedProjectId, view.selectedTopicId, view.snapshots]);
+  }) : [], [search, view.projects, view.selectedProjectId, view.selectedTopicId, view.snapshots, view.navigation]);
   if (!search) return null;
   const activeIndex = results.length ? Math.min(search.activeIndex, results.length - 1) : 0;
   const activeResultId = results.length ? `navigation-search-result-${activeIndex}` : undefined;

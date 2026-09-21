@@ -23,6 +23,8 @@ export interface ProjectNavigationViewModel {
   selectedProjectId: string | null;
   selectedTopicId: string | null;
   snapshots: Record<string, Snapshot>;
+  navigation?: Readonly<Record<string, readonly ProjectNavigationConversation[]>>;
+  navigationErrors?: Readonly<Record<string, string>>;
   snapshot: Snapshot;
   expandedProjects: Set<string>;
   overlay: ProjectNavigationOverlayState;
@@ -42,6 +44,7 @@ export interface ProjectNavigationActions {
   onNewConversation: (projectId?: string) => Promise<void>;
   onOpenProject: (projectId: string) => Promise<void>;
   onToggleProject: (projectId: string) => Promise<void>;
+  onRetryNavigation?: (projectId: string) => Promise<void>;
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
   onArchiveConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
   onRestoreConversation: (projectId: string, conversationId: string, lifecycleRevision: string) => Promise<void>;
@@ -61,6 +64,7 @@ export type ProjectNavigationSearchResult =
 export function projectNavigationSearchResults(input: {
   readonly projects: readonly ProjectStatus[];
   readonly snapshots: Readonly<Record<string, Snapshot>>;
+  readonly navigation?: Readonly<Record<string, readonly ProjectNavigationConversation[]>>;
   readonly selectedProjectId: string | null;
   readonly selectedConversationId: string | null;
   readonly query: string;
@@ -83,7 +87,8 @@ export function projectNavigationSearchResults(input: {
     if (!query || `${title} ${context ?? ""} ${status}`.toLocaleLowerCase().includes(query)) {
       results.push({ kind: "project", key: `project:${projectId}`, projectId, title, context, statusLabel: status });
     }
-    const conversations = projectNavigationConversations(input.snapshots[projectId], input.selectedConversationId);
+    const conversations = projectNavigationConversations(input.navigation ? undefined : input.snapshots[projectId],
+      projectId === input.selectedProjectId ? input.selectedConversationId : null, input.navigation?.[projectId]);
     for (const conversation of conversations) {
       const archived = conversation.state === "archive";
       const searchable = `${conversation.title} ${title} ${conversation.userStatusLabel} ${archived ? "已归档" : ""}`.toLocaleLowerCase();
@@ -126,6 +131,8 @@ export interface ProjectNavigationConversationViewModel {
   readonly lifecycle?: ConversationLifecycleSnapshot;
 }
 
+export type ProjectNavigationConversation = Omit<ProjectNavigationConversationViewModel, "selected"> & { readonly updatedAt?: string };
+
 export interface ProjectNavigationConversationGroups {
   readonly active: readonly ProjectNavigationConversationViewModel[];
   readonly archived: readonly ProjectNavigationConversationViewModel[];
@@ -135,7 +142,20 @@ export interface ProjectNavigationConversationGroups {
 export function projectNavigationConversations(
   snapshot: Snapshot | undefined,
   selectedConversationId: string | null,
+  navigation?: readonly ProjectNavigationConversation[],
 ): readonly ProjectNavigationConversationViewModel[] {
+  if (navigation) return navigation.map((conversation) => {
+    const selected = conversation.id === selectedConversationId;
+    const workpad = selected && snapshot?.center.selectedTopic?.id === conversation.id
+      ? snapshot.left.workpads?.find((item) => item.id === conversation.id)
+      : undefined;
+    return {
+      ...conversation,
+      selected,
+      userStatusLabel: workpad?.userStatusLabel ?? conversation.userStatusLabel,
+      waitingDecisionCount: workpad?.waitingDecisionCount ?? conversation.waitingDecisionCount,
+    };
+  });
   if (!snapshot) return [];
   const workpads = snapshot.left.workpads?.length
     ? snapshot.left.workpads

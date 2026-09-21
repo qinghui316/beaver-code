@@ -1423,7 +1423,7 @@
   width: 34px;
   height: 34px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: var(--text-strong);
   color: var(--bg-panel);
 }
@@ -1462,8 +1462,17 @@
 .composer-toolbar {
   position: relative;
   min-height: 36px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.composer-end-controls {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .composer-spacer {
@@ -1590,8 +1599,7 @@
 }
 
 .composer-action-group {
-  display: grid;
-  grid-template-columns: 126px 34px;
+  display: inline-flex;
   gap: 5px;
 }
 
@@ -1600,8 +1608,8 @@
   display: flex;
   width: 126px;
   justify-content: flex-end;
-  visibility: hidden;
-  pointer-events: none;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .composer-context-action-slot.is-visible {
@@ -1730,10 +1738,6 @@
     padding: 0 7px;
   }
 
-  .composer-action-group {
-    grid-template-columns: 44px 44px;
-  }
-
   .composer-context-action-slot {
     width: 44px;
   }
@@ -1775,23 +1779,12 @@
   }
 }
 
-@media (pointer: coarse) and (min-width: 681px) {
-  .composer-action-group {
-    grid-template-columns: 126px 44px;
-  }
-}
-
 @media (max-width: 420px) {
   .composer-toolbar {
     flex-wrap: wrap;
     row-gap: 4px;
   }
 
-  .composer-spacer {
-    flex: 0 0 100%;
-    height: 0;
-    min-width: 100%;
-  }
 }
 .agent-model-selectors {
   display: inline-flex;

@@ -2,7 +2,7 @@ import { fetchJson, postJson } from "../api.js";
 import type { ConversationAccessApi, ConversationAccessIdentity, ConversationAccessSelection } from "./conversation-access-contract.js";
 
 function path(identity: ConversationAccessIdentity): string {
-  return `/api/projects/${encodeURIComponent(identity.projectId)}/conversations/${encodeURIComponent(identity.conversationId!)}/access`;
+  return `/api/projects/${encodeURIComponent(identity.projectId)}/workbench/conversations/${encodeURIComponent(identity.conversationId!)}/access`;
 }
 
 export const conversationAccessApi: ConversationAccessApi = {

@@ -14,7 +14,7 @@ export function ProjectConversationSidebarFeature({ surface, onLocalDialogOpenCh
 }
 
 export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps & { onLocalDialogOpenChange?: (open: boolean) => void }): ReactElement {
-  const { projects, selectedProjectId, selectedTopicId, snapshots, snapshot, expandedProjects, overlay } = props;
+  const { projects, selectedProjectId, selectedTopicId, snapshots, navigation, snapshot, expandedProjects, overlay } = props;
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [archivedProjects, setArchivedProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteState | null>(null);
@@ -59,9 +59,12 @@ export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps 
           const expanded = selected || expandedProjects.has(projectId);
           const projectSnapshot = selected ? snapshot : concreteProjectId ? snapshots[concreteProjectId] : undefined;
           const harnessReady = projectSnapshot?.harness.harnessReady ?? item.harness.readiness === "ready";
+          const canNavigateConversations = harnessReady || snapshot.productMode === "agent";
           const projectUnavailable = item.runtimeAvailability?.state === "unavailable";
           const issue = harnessStatusIssue(item, projectSnapshot);
-          const conversations = projectNavigationConversations(projectSnapshot, selectedTopicId);
+          const projectNavigation = concreteProjectId ? navigation?.[concreteProjectId] : undefined;
+          const navigationError = concreteProjectId ? props.navigationErrors?.[concreteProjectId] : undefined;
+          const conversations = projectNavigationConversations(selected ? projectSnapshot : undefined, selected ? selectedTopicId : null, projectNavigation);
           const grouped = groupProjectNavigationConversations(conversations, "");
           const archivedOpen = archivedProjects.has(projectId);
           const projectItems: ResponsiveActionMenuItem[] = [
@@ -81,8 +84,9 @@ export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps 
             </div>
             {expanded ? <div className="conversation-list">
               {lifecycleError && selected ? <div className="conversation-lifecycle-error" role="alert">{lifecycleError}</div> : null}
-              {harnessReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
-              {!projectUnavailable && !harnessReady && !projectSnapshot ? <div className="conversation-placeholder">创建第一条会话即可开始使用。</div> : null}
+              {!projectUnavailable && canNavigateConversations && !projectNavigation && !navigationError ? <div className="conversation-placeholder">正在加载对话。</div> : null}
+              {navigationError ? <div className="conversation-placeholder" role="status">{navigationError} <button type="button" onClick={() => concreteProjectId && void props.onRetryNavigation?.(concreteProjectId)}>重试</button></div> : null}
+              {!projectUnavailable && !canNavigateConversations && !projectSnapshot && !projectNavigation && !navigationError ? <div className="conversation-placeholder">创建第一条会话即可开始使用。</div> : null}
               {grouped.active.map((conversation) => <ConversationRow key={conversation.id} projectId={concreteProjectId} conversation={conversation} archived={false} props={props} runLifecycleAction={runLifecycleAction} onDelete={setDeleteConfirmation} onLifecycleError={setLifecycleError} />)}
               {grouped.archived.length ? <button className="conversation-archive-toggle" aria-expanded={archivedOpen} onClick={() => setArchivedProjects((current) => {
                 const next = new Set(current);
@@ -91,7 +95,7 @@ export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps 
                 return next;
               })}>{archivedOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}已归档</button> : null}
               {archivedOpen ? grouped.archived.map((conversation) => <ConversationRow key={conversation.id} projectId={concreteProjectId} conversation={conversation} archived props={props} runLifecycleAction={runLifecycleAction} onDelete={setDeleteConfirmation} onLifecycleError={setLifecycleError} />) : null}
-              {harnessReady && projectSnapshot && conversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
+              {canNavigateConversations && projectNavigation && conversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
             </div> : null}
           </div>;
         })}

@@ -441,19 +441,20 @@ export function ConversationComposerSurface({
           </div> : null}
         </div>
         {productMode === "agent" ? <AgentAccessControl accessView={accessView} onSelectAccess={onSelectAccess} onRefreshAccess={onRefreshAccess} planning={agentTurnMode === "plan"} /> : null}
-        <span className="composer-spacer" />
-        {contextControl}
-        {onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <ConversationModelSelectors
-          catalogs={providerModelCatalogs ?? []}
-          selectedProviderId={selectedProviderId ?? null}
-          modelId={agentModelId ?? null}
-          reasoningEffort={agentReasoningEffort ?? null}
-          loading={providerModelCatalogsBusy}
-          onRefresh={onRefreshProviderModels}
-          onSelectProviderModel={onSelectAgentProviderModel}
-          onSelectReasoningEffort={onSelectAgentReasoningEffort}
-        /> : null}
-        {trailingControls}
+        <div className="composer-end-controls">
+          {contextControl}
+          {onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <ConversationModelSelectors
+            catalogs={providerModelCatalogs ?? []}
+            selectedProviderId={selectedProviderId ?? null}
+            modelId={agentModelId ?? null}
+            reasoningEffort={agentReasoningEffort ?? null}
+            loading={providerModelCatalogsBusy}
+            onRefresh={onRefreshProviderModels}
+            onSelectProviderModel={onSelectAgentProviderModel}
+            onSelectReasoningEffort={onSelectAgentReasoningEffort}
+          /> : null}
+          {trailingControls}
+        </div>
       </>}
     >
       {beforeEditor}
@@ -535,7 +536,7 @@ function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onSt
     else if (contextIntent === "queue") onQueue();
   };
   return <div className="composer-action-group" data-primary-intent={primaryIntent}>
-    <div className={`composer-context-action-slot ${contextIntent ? "is-visible" : ""}`} aria-hidden={contextIntent ? undefined : "true"}>
+    {contextIntent ? <div className="composer-context-action-slot is-visible">
       <div className={`composer-context-action-wrap ${projection.alternativeIntent ? "has-alternative" : ""}`}>
         <button type="button" className="composer-context-action" tabIndex={contextIntent ? undefined : -1} disabled={!contextIntent || mutationBusy || !projection.canSubmitDraft} title={contextLabel} aria-label={contextLabel || "当前没有其他操作"} onClick={invokeContext}>
           {contextIntent === "wait" ? <LoaderCircle size={14} className="spin" /> : contextIntent === "queue" ? <ListPlus size={14} /> : <ArrowUp size={14} />}
@@ -546,7 +547,7 @@ function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onSt
           {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />稍后发送</button></div> : null}
         </> : null}
       </div>
-    </div>
+    </div> : null}
     <div className="composer-primary-action">
       <button type="button" className="composer-send" disabled={primaryIntent === "stop" ? false : mutationBusy || !projection.canSubmitDraft} title={primaryLabel} aria-label={primaryLabel} onClick={invokePrimary}>
         {primaryIntent === "stop" ? <Square size={14} fill="currentColor" /> : primaryIntent === "queue" ? <ListPlus size={16} /> : primaryIntent === "wait" ? <LoaderCircle size={16} className={mutationBusy ? "spin" : undefined} /> : <ArrowUp size={17} />}

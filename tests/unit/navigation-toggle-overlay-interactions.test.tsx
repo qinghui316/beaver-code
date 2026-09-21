@@ -6,6 +6,7 @@ import { productModeToggleViewModel } from "../../src/web/src/presentation/core-
 import { projectNavigationSearchResults, type ProjectNavigationActions, type ProjectNavigationFeatureSurface, type ProjectNavigationOverlayState, type ProjectNavigationViewModel } from "../../src/web/src/presentation/project-navigation.js";
 import { ProductModeToggle } from "../../src/web/src/shell/ProductModeToggle.js";
 import { WorkspaceNavigationHeader } from "../../src/web/src/shell/WorkspaceNavigationHeader.js";
+import { ProjectConversationSidebar } from "../../src/web/src/shell/sidebar.js";
 import type { ProjectStatus, Snapshot } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
@@ -74,6 +75,23 @@ describe("navigation toggle and overlay interactions", () => {
       projects: [selected], snapshots: { selected: snapshot("selected", [{ id: "archive", title: "历史会话", state: "archive" }]) },
       selectedProjectId: "selected", selectedConversationId: null, query: "已归档",
     })).toEqual([expect.objectContaining({ kind: "conversation", conversationId: "archive" })]);
+  });
+
+  it("selects a conversation row only inside its selected project when ids collide", () => {
+    const view: ProjectNavigationViewModel = {
+      projects: [project("first", "First", "C:/work/first"), project("second", "Second", "C:/work/second")],
+      selectedProjectId: "second", selectedTopicId: "shared",
+      snapshots: {}, snapshot: snapshot("second", []),
+      navigation: {
+        first: [{ id: "shared", title: "First shared", state: "active", userStatusLabel: "稍后处理", waitingDecisionCount: 0 }],
+        second: [{ id: "shared", title: "Second shared", state: "active", userStatusLabel: "稍后处理", waitingDecisionCount: 0 }],
+      },
+      expandedProjects: new Set(["first", "second"]), overlay: { kind: "closed" },
+    };
+    render(<ProjectConversationSidebar {...view} {...({} as ProjectNavigationActions)} />);
+    const selected = document.querySelectorAll(".conversation-row-wrap.selected .conversation-row");
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.textContent).toContain("Second shared");
   });
 
   it("opens with Ctrl+K, supports keyboard selection, and restores focus after Escape", async () => {

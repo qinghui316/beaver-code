@@ -179,9 +179,9 @@ describe("Workbench shell layout contract", () => {
       /@media \(max-width: 720px\), \(pointer: coarse\)[\s\S]*\.settings-inline-actions > button/,
     );
     expect(terminalCss).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(composerCss).toMatch(
-      /@media \(pointer: coarse\) and \(min-width: 681px\)[\s\S]*grid-template-columns: 126px 44px/,
-    );
+    expect(composerCss).toContain(".composer-end-controls {");
+    expect(composerCss).toMatch(/\.composer-action-group \{[\s\S]*?display: inline-flex;/);
+    expect(composerCss).not.toMatch(/grid-template-columns: 126px 44px/);
     expect(decisionCss).toContain("font-family: var(--font-sans)");
   });
 });

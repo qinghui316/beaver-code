@@ -210,6 +210,30 @@ describe("ConversationLifecycleOwner", () => {
     }
   });
 
+  it("reports pending user input while a Provider turn is still running", async () => {
+    await seedConversation("awaiting-running", "agent");
+    const db = new Database(paths.workbenchDbPath);
+    try {
+      const insert = db.prepare(`INSERT INTO canonical_timeline_items
+        (id,project_id,conversation_id,change_id,position,revision,agent_surface_id,type,timestamp,text,raw_json)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+      insert.run("malformed-diagnostic", projectId, "awaiting-running", "", 1, 1, "main-agent", "provider.user-input",
+        "2026-08-31T00:00:01.000Z", "", "{");
+      insert.run(
+        "pending-input", projectId, "awaiting-running", "", 2, 2, "main-agent", "provider.user-input",
+        "2026-08-31T00:00:01.000Z", "", JSON.stringify({ providerUserInput: { status: "pending" } }),
+      );
+    } finally { db.close(); }
+    const owner = createOwner(vi.fn(), { turnState: "running" });
+    await expect(owner.read(project, "agent", "awaiting-running")).resolves.toMatchObject({
+      activity: "awaiting-input", canArchive: false,
+      disabledReason: "当前会话仍在运行、停止或实时引导中。",
+    });
+    await expect(owner.readMany(project, "agent")).resolves.toEqual([
+      expect.objectContaining({ conversationId: "awaiting-running", activity: "awaiting-input" }),
+    ]);
+  });
+
   it("atomically fences Provider Attempt creation against a pending lifecycle operation", async () => {
     await seedConversation("lifecycle-race", "agent");
     const database = await openProjectRuntimeWorkbenchDatabase(paths);

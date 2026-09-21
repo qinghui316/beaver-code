@@ -264,6 +264,23 @@ listConversationMessages(projectId: string, conversationId: string): StoredTopic
     `).all(projectId, conversationId) as SqliteRow[]).map(mapMessageRow);
   }
 
+  inspectLifecycleInteractionState(projectId: string, conversationId: string): { compacting: boolean; awaitingInput: boolean } {
+    const row = this.db.prepare(`
+      SELECT
+        EXISTS(SELECT 1 FROM canonical_timeline_items
+          WHERE project_id = ? AND conversation_id = ?
+            AND type = 'provider.context-compaction' AND status IN ('submitting', 'compacting')) AS compacting,
+        EXISTS(SELECT 1 FROM canonical_timeline_items
+          WHERE project_id = ? AND conversation_id = ?
+            AND CASE WHEN json_valid(raw_json) THEN
+              json_extract(raw_json, '$.providerUserInput.status') IN ('pending', 'submitting')
+              OR json_extract(raw_json, '$.providerApproval.status') IN ('pending', 'submitting')
+              OR json_extract(raw_json, '$.clarification.status') IN ('pending', 'submitting')
+            ELSE 0 END) AS awaitingInput
+    `).get(projectId, conversationId, projectId, conversationId) as { compacting: number; awaitingInput: number };
+    return { compacting: Boolean(row.compacting), awaitingInput: Boolean(row.awaitingInput) };
+  }
+
 listRecentSemanticMessages(projectId: string, conversationId: string, limit: number): StoredTopicMessage[] {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, revision,

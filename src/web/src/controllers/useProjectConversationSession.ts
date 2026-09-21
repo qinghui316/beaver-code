@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import { projectDisplayName } from "../formatters.js";
+import type { ProjectNavigationConversation } from "../presentation/project-navigation.js";
 import type {
   AgentTurnMode,
   AppStatus,
@@ -85,6 +86,7 @@ export interface ProjectConversationSessionApi {
     status?: ProjectStatus;
   }>;
   loadSnapshot(projectId: string, productMode: ProductMode, conversationId: string | null): Promise<Snapshot>;
+  loadNavigation(projectId: string, productMode: ProductMode): Promise<{ productMode: ProductMode; conversations: ProjectNavigationConversation[] }>;
   loadStream(projectId: string, runId: string): Promise<StreamPacket>;
   prepareProjectRemoval(projectId: string): Promise<ProjectRemovalConfirmation>;
   removeProject(projectId: string, confirmationToken: string): Promise<void>;
@@ -145,14 +147,22 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>(() => emptySnapshotForMode(requestedProductMode));
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectModeSnapshots, setProjectModeSnapshots] = useState<Record<string, Snapshot>>({});
+  const [navigationLists, setNavigationLists] = useState<Record<string, ProjectNavigationConversation[]>>({});
+  const [navigationErrors, setNavigationErrors] = useState<Record<string, string>>({});
+  const navigationListsRef = useRef(navigationLists);
+  navigationListsRef.current = navigationLists;
+  const navigationRequestsRef = useRef(new Map<string, Promise<void>>());
+  const navigationGenerationsRef = useRef(new Map<string, number>());
+  const navigationDirtyRef = useRef(new Set<string>());
+  const projectRequestGenerationRef = useRef(0);
   const [pendingDemandConversation, setPendingDemandConversation] = useState<PendingDemandConversation | null>(null);
   const requestGenerationRef = useRef(0);
   const productModeRef = useRef<ProductMode>(requestedProductMode);
-  const folderRequestGenerationsRef = useRef(new Map<string, number>());
   const streamEffectGenerationRef = useRef(0);
   const pendingDemandRef = useRef<PendingDemandConversation | null>(null);
   const stateRef = useRef({ projects, productMode, selectedProjectId, snapshot, selectedTopic, selectedRun, pendingDemandConversation });
@@ -161,9 +171,74 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     () => snapshotsForMode(projectModeSnapshots, productMode),
     [productMode, projectModeSnapshots],
   );
+  const projectNavigation = useMemo(
+    () => Object.fromEntries(Object.entries(navigationLists)
+      .filter(([key]) => key.endsWith(`\0${productMode}`))
+      .map(([key, value]) => [key.slice(0, -productMode.length - 1), value])),
+    [navigationLists, productMode],
+  );
+  const projectNavigationErrors = useMemo(
+    () => Object.fromEntries(Object.entries(navigationErrors)
+      .filter(([key]) => key.endsWith(`\0${productMode}`))
+      .map(([key, value]) => [key.slice(0, -productMode.length - 1), value])),
+    [navigationErrors, productMode],
+  );
 
   const reportError = useCallback((cause: unknown): void => {
     portsRef.current.onError?.(userFacingErrorMessage(cause, "load"));
+  }, []);
+
+  const loadNavigation = useCallback((projectId: string, mode: ProductMode, force = false): Promise<void> => {
+    const key = snapshotCacheKey(projectId, mode);
+    if (!force && navigationListsRef.current[key]) return Promise.resolve();
+    const active = navigationRequestsRef.current.get(key);
+    if (active) {
+      if (force) {
+        navigationDirtyRef.current.add(key);
+        navigationGenerationsRef.current.set(key, (navigationGenerationsRef.current.get(key) ?? 0) + 1);
+      }
+      return active;
+    }
+    const generation = (navigationGenerationsRef.current.get(key) ?? 0) + 1;
+    navigationGenerationsRef.current.set(key, generation);
+    setNavigationErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+    const request = sessionApi(portsRef.current).loadNavigation(projectId, mode)
+      .then((result) => {
+        if (navigationGenerationsRef.current.get(key) !== generation || result.productMode !== mode) return;
+        setNavigationLists((current) => ({ ...current, [key]: result.conversations }));
+      })
+      .catch((cause: unknown) => {
+        if (navigationGenerationsRef.current.get(key) !== generation) return;
+        setNavigationErrors((current) => ({ ...current, [key]: userFacingErrorMessage(cause, "load") }));
+        throw cause;
+      })
+      .finally(() => {
+        if (navigationRequestsRef.current.get(key) !== request) return;
+        navigationRequestsRef.current.delete(key);
+        if (navigationDirtyRef.current.delete(key)) {
+          void loadNavigation(projectId, mode, true).catch(reportError);
+        }
+      });
+    navigationRequestsRef.current.set(key, request);
+    return request;
+  }, [reportError]);
+
+  const invalidateNavigation = useCallback((projectId: string, mode?: ProductMode): void => {
+    const modes: ProductMode[] = mode ? [mode] : ["agent", "harness"];
+    for (const candidate of modes) {
+      const key = snapshotCacheKey(projectId, candidate);
+      if (mode || navigationListsRef.current[key] || navigationRequestsRef.current.has(key)) {
+        void loadNavigation(projectId, candidate, true).catch(reportError);
+      }
+    }
+  }, [loadNavigation, reportError]);
+  const retryNavigation = useCallback((projectId: string): Promise<void> => loadNavigation(projectId, productModeRef.current, true).catch(() => undefined), [loadNavigation]);
+
+  const refreshProjects = useCallback(async (): Promise<{ list: ProjectStatus[]; generation: number }> => {
+    const generation = ++projectRequestGenerationRef.current;
+    const list = await sessionApi(portsRef.current).loadProjects();
+    if (generation === projectRequestGenerationRef.current) setProjects(list);
+    return { list, generation };
   }, []);
 
   const beginTransition = useCallback((
@@ -190,8 +265,11 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   }, []);
 
   const commitProjectSelection = useCallback((projectId: string, conversationId: string | null): void => {
+    stateRef.current.selectedProjectId = projectId;
+    stateRef.current.selectedTopic = conversationId;
     setSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
+    setSnapshotError(null);
     setExpandedProjects((current) => new Set([...current, projectId]));
     navigation(portsRef.current).persistProjectId(projectId);
     navigation(portsRef.current).syncLocation(projectId, conversationId);
@@ -202,13 +280,12 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     conversationId: string | null,
     generation: number,
     requestProductMode: ProductMode = productModeRef.current,
+    allowDeepLinkFallback = true,
   ): Promise<Snapshot | void> => {
     const api = sessionApi(portsRef.current);
-    const list = await api.loadProjects();
     if (!isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) return;
-    setProjects(list);
     if (!projectId) return;
-    const status = findProject(list, projectId);
+    const status = findProject(stateRef.current.projects, projectId);
     if (!canLoadWorkbenchSnapshot(status, requestProductMode)) {
       const next = snapshotForProject(status, requestProductMode);
       setSnapshot(next);
@@ -217,10 +294,17 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
       return next;
     }
-    const next = await loadSnapshotWithDeepLinkFallback(api, projectId, requestProductMode, conversationId);
-    if (!isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)
-      || !snapshotMatchesMode(next, requestProductMode)) return;
+    void loadNavigation(projectId, requestProductMode).catch(reportError);
+    const next = await loadSnapshotWithDeepLinkFallback(api, projectId, requestProductMode, conversationId, allowDeepLinkFallback);
+    if (!allowDeepLinkFallback && conversationId && next.center.selectedTopic?.id !== conversationId) {
+      throw new Error("目标会话的内容与选择不一致。");
+    }
+    if (!isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) return;
+    if (!snapshotMatchesMode(next, requestProductMode) || next.project?.id !== projectId) {
+      throw new Error("目标会话的项目或模式与选择不一致。");
+    }
     setSnapshot(next);
+    setSnapshotError(null);
     setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
     const resolvedConversationId = next.center.selectedTopic?.id ?? null;
     const pending = pendingDemandRef.current;
@@ -245,7 +329,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     const nextStream = await api.loadStream(projectId, runId);
     if (isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) setStream(nextStream);
     return isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef) ? next : undefined;
-  }, []);
+  }, [loadNavigation, reportError]);
 
   const refresh = useCallback(async (
     projectId = stateRef.current.selectedProjectId,
@@ -261,8 +345,10 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     const currentPorts = portsRef.current;
     const restore = navigation(currentPorts).readRestoreParams();
     const api = sessionApi(currentPorts);
-    const [status, list] = await Promise.all([api.loadAppStatus(), api.loadProjects()]);
-    if (!isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) return;
+    const [status, projectRead] = await Promise.all([api.loadAppStatus(), refreshProjects()]);
+    if (!isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)
+      || projectRead.generation !== projectRequestGenerationRef.current) return;
+    const list = projectRead.list;
     setProjects(list);
     const urlProjectStatus = findProject(list, restore.projectId);
     if (restore.projectId && !urlProjectStatus) {
@@ -299,6 +385,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setSelectedTopic(conversationId);
     setExpandedProjects(new Set([projectId]));
     navigation(currentPorts).persistProjectId(projectId);
+    stateRef.current.projects = list;
     if (canLoadWorkbenchSnapshot(selectedStatus, requestProductMode)) {
       await refreshAtGeneration(projectId, conversationId, generation, requestProductMode);
     } else if (isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) {
@@ -306,7 +393,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       setSnapshot(next);
       setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
     }
-  }, [refreshAtGeneration]);
+  }, [refreshAtGeneration, refreshProjects]);
 
   const openProject = useCallback(async (projectId: string): Promise<void> => {
     const kind: SessionTransitionKind = stateRef.current.selectedProjectId === projectId
@@ -352,7 +439,6 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
 
   const toggleProjectFolder = useCallback(async (projectId: string): Promise<void> => {
     const requestProductMode = productModeRef.current;
-    const cacheKey = snapshotCacheKey(projectId, requestProductMode);
     const shouldOpen = !expandedProjects.has(projectId);
     setExpandedProjects((current) => {
       const next = new Set(current);
@@ -360,39 +446,21 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       else next.delete(projectId);
       return next;
     });
-    if (!shouldOpen || projectModeSnapshots[cacheKey]) return;
+    if (!shouldOpen) return;
     const status = findProject(stateRef.current.projects, projectId);
     if (!canLoadWorkbenchSnapshot(status, requestProductMode)) return;
-    const generation = (folderRequestGenerationsRef.current.get(cacheKey) ?? 0) + 1;
-    const selectionGeneration = requestGenerationRef.current;
-    folderRequestGenerationsRef.current.set(cacheKey, generation);
-    const next = await sessionApi(portsRef.current).loadSnapshot(projectId, requestProductMode, null);
-    if (folderRequestGenerationsRef.current.get(cacheKey) !== generation
-      || !isCurrentSelection(selectionGeneration, requestProductMode, requestGenerationRef, productModeRef)
-      || !snapshotMatchesMode(next, requestProductMode)) return;
-    setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
-  }, [expandedProjects, projectModeSnapshots]);
+    await loadNavigation(projectId, requestProductMode).catch(() => undefined);
+  }, [expandedProjects, loadNavigation]);
 
   const prepareProjectNavigationSearch = useCallback(async (): Promise<void> => {
     const requestProductMode = productModeRef.current;
-    const selectionGeneration = requestGenerationRef.current;
     const requests = stateRef.current.projects.flatMap((status) => {
       const projectId = status.project?.id;
       if (!projectId || !canLoadWorkbenchSnapshot(status, requestProductMode)) return [];
-      const cacheKey = snapshotCacheKey(projectId, requestProductMode);
-      if (projectModeSnapshots[cacheKey]) return [];
-      const generation = (folderRequestGenerationsRef.current.get(cacheKey) ?? 0) + 1;
-      folderRequestGenerationsRef.current.set(cacheKey, generation);
-      return [sessionApi(portsRef.current).loadSnapshot(projectId, requestProductMode, null)
-        .then((next) => {
-          if (folderRequestGenerationsRef.current.get(cacheKey) !== generation
-            || !isCurrentSelection(selectionGeneration, requestProductMode, requestGenerationRef, productModeRef)
-            || !snapshotMatchesMode(next, requestProductMode)) return;
-          setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
-        })];
+      return [loadNavigation(projectId, requestProductMode)];
     });
     await Promise.allSettled(requests);
-  }, [projectModeSnapshots]);
+  }, [loadNavigation]);
 
   const chooseConversation = useCallback(async (projectId: string, conversationId: string): Promise<void> => {
     const kind: SessionTransitionKind = stateRef.current.selectedProjectId === projectId
@@ -404,7 +472,12 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setStream(null);
     setPendingDemandConversation(null);
     pendingDemandRef.current = null;
-    await refreshAtGeneration(projectId, conversationId, generation);
+    try {
+      await refreshAtGeneration(projectId, conversationId, generation, productModeRef.current, false);
+    } catch (cause) {
+      if (generation === requestGenerationRef.current && stateRef.current.selectedProjectId === projectId
+        && stateRef.current.selectedTopic === conversationId) setSnapshotError(userFacingErrorMessage(cause, "conversation"));
+    }
   }, [beginTransition, commitProjectSelection, refreshAtGeneration]);
 
   const removeProject = useCallback(async (projectId: string): Promise<void> => {
@@ -416,8 +489,16 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       ?? defaultConfirmRemoveProject(name, confirmation))) return;
     ++requestGenerationRef.current;
     await api.removeProject(projectId, confirmation.token);
+    for (const key of navigationGenerationsRef.current.keys()) {
+      if (key.startsWith(`${projectId}\0`)) {
+        navigationGenerationsRef.current.set(key, (navigationGenerationsRef.current.get(key) ?? 0) + 1);
+        navigationDirtyRef.current.delete(key);
+      }
+    }
     portsRef.current.timeline?.clearProject(projectId);
     setProjectModeSnapshots((current) => withoutProjectSnapshots(current, projectId));
+    setNavigationLists((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${projectId}\0`))));
+    setNavigationErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${projectId}\0`))));
     setExpandedProjects((current) => withoutSetValue(current, projectId));
     if (stateRef.current.selectedProjectId === projectId) {
       portsRef.current.operations?.invalidate();
@@ -432,8 +513,9 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       setPendingDemandConversation(null);
       pendingDemandRef.current = null;
     }
+    await refreshProjects();
     await refresh(null, null);
-  }, [refresh]);
+  }, [refresh, refreshProjects]);
 
   const settleConversationLifecycle = useCallback(async (input: {
     projectId: string;
@@ -450,6 +532,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       productMode,
       clientRequestId: `conversation-lifecycle-${crypto.randomUUID()}`,
     });
+    void loadNavigation(input.projectId, productMode, true).catch(reportError);
     if (input.action === "delete") portsRef.current.timeline?.clearConversation(input.projectId, input.conversationId);
     if (productModeRef.current !== productMode
       || selectedProjectIdAtStart !== input.projectId
@@ -476,7 +559,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       navigation(portsRef.current).syncLocation(input.projectId, null);
     }
     await refreshAtGeneration(input.projectId, conversationToRefresh, generation, productMode);
-  }, [beginTransition, refreshAtGeneration]);
+  }, [beginTransition, loadNavigation, refreshAtGeneration, reportError]);
 
   const prepareConversationDelete = useCallback(async (
     projectId: string,
@@ -531,6 +614,10 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     if (status.managed) return status.project.id;
     const saved = await sessionApi(portsRef.current).registerProject(status.path);
     if (saved.status) {
+      stateRef.current.projects = [
+        ...stateRef.current.projects.filter((candidate) => candidate.project?.id !== projectId && candidate.project?.id !== saved.project.id),
+        saved.status,
+      ];
       setProjects((current) => [
         ...current.filter((candidate) => candidate.project?.id !== projectId && candidate.project?.id !== saved.project.id),
         saved.status!,
@@ -628,6 +715,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
             if (!eventConversationId
               || (boundConversationId && boundConversationId !== eventConversationId)) return;
             if (!boundConversationId) {
+              invalidateNavigation(request.projectId, request.productMode);
               if (canApplyToCurrentSelection()) {
                 const rekeyResult = rekeyPendingDemand({
                   projectId: request.projectId,
@@ -706,7 +794,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       }
       throw cause;
     }
-  }, [beginPendingDemand, refreshAtGeneration, rekeyPendingDemand, reportError]);
+  }, [beginPendingDemand, invalidateNavigation, refreshAtGeneration, rekeyPendingDemand, reportError]);
 
   const acceptCanonicalConversation = useCallback((input: {
     projectId: string;
@@ -749,6 +837,12 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setProjectModeSnapshots((current) => current[cacheKey]
       ? { ...current, [cacheKey]: patchSnapshot(current[cacheKey]!) }
       : current);
+    setNavigationLists((current) => current[cacheKey]
+      ? { ...current, [cacheKey]: current[cacheKey]!.map((item) => item.id === conversation.id
+        && canApplyConversationVersion(item, conversation)
+        ? { ...item, title: conversation.title, updatedAt: conversation.updatedAt }
+        : item) }
+      : current);
     setPendingDemandConversation((current) => current?.projectId === projectId && current.id === conversation.id
       && canApplyConversationVersion(current, conversation)
       ? { ...current, title: conversation.title, updatedAt: conversation.updatedAt }
@@ -758,7 +852,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const updateConversationTitle = useCallback(async (projectId: string, conversationId: string, title: string): Promise<void> => {
     const result = await sessionApi(portsRef.current).updateConversationTitle(projectId, conversationId, title);
     reconcileConversationTitle(projectId, result.conversation);
-  }, [reconcileConversationTitle]);
+    void loadNavigation(projectId, productModeRef.current, true).catch(reportError);
+  }, [loadNavigation, reconcileConversationTitle, reportError]);
 
   const completePendingDemand = useCallback((): void => {
     setPendingDemandConversation(null);
@@ -777,7 +872,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     const expectedMode = productModeRef.current;
     if (stateRef.current.selectedProjectId !== projectId
       || !isCurrentSelection(expectedEpoch, expectedMode, requestGenerationRef, productModeRef)
-      || !snapshotMatchesMode(next, expectedMode)) return;
+      || !snapshotMatchesSelection(next, projectId, expectedMode, stateRef.current.selectedTopic)) return;
     const conversationId = next.center.selectedTopic?.id ?? null;
     const selectedConversationId = stateRef.current.selectedTopic;
     if (selectedConversationId && !selectedConversationId.startsWith("pending:") && conversationId !== selectedConversationId) return;
@@ -792,8 +887,9 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       const next = updater(current);
       const projectId = stateRef.current.selectedProjectId;
       const expectedMode = productModeRef.current;
-      if (!snapshotMatchesMode(next, expectedMode)) return current;
-      if (projectId && snapshotMatchesMode(next, expectedMode)) {
+      if (!snapshotMatchesSelection(current, projectId, expectedMode, stateRef.current.selectedTopic)
+        || !snapshotMatchesSelection(next, projectId, expectedMode, stateRef.current.selectedTopic)) return current;
+      if (projectId) {
         setProjectModeSnapshots((cached) => cacheSnapshot(cached, projectId, expectedMode, next));
       }
       return next;
@@ -802,7 +898,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
 
   const cacheProjectSnapshot = useCallback((projectId: string, next: Snapshot): void => {
     const expectedMode = productModeRef.current;
-    if (!snapshotMatchesMode(next, expectedMode)) return;
+    if (!snapshotMatchesMode(next, expectedMode) || next.project?.id !== projectId) return;
     setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, expectedMode, next));
   }, []);
 
@@ -888,7 +984,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     const projectId = selectedProjectId;
     const requestProductMode = productModeRef.current;
     const selectionGeneration = requestGenerationRef.current;
-    if (!projectId) return;
+    if (!projectId || selectedTopic?.startsWith("pending:")
+      || !snapshotMatchesSelection(snapshot, projectId, requestProductMode, selectedTopic)) return;
     const runs = snapshot.center.agentLoop.runs;
     const runId = selectedRun ?? runs[0]?.id ?? null;
     if (!runId) {
@@ -912,7 +1009,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
         }
       });
     return () => { streamEffectGenerationRef.current += 1; };
-  }, [reportError, selectedProjectId, selectedRun, snapshot.center.agentLoop.runs]);
+  }, [reportError, selectedProjectId, selectedRun, selectedTopic, snapshot.center.agentLoop.runs,
+    snapshot.center.selectedTopic?.id, snapshot.productMode, snapshot.project?.id]);
 
   return {
     projects,
@@ -920,11 +1018,16 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     selectionEpoch: requestGenerationRef.current,
     selectedProjectId,
     snapshot,
+    snapshotError,
     selectedTopic,
     selectedRun,
     stream,
     expandedProjects,
     projectSnapshots,
+    projectNavigation,
+    projectNavigationErrors,
+    invalidateNavigation,
+    retryNavigation,
     pendingDemandConversation,
     loadApp,
     refresh,
@@ -967,7 +1070,10 @@ const defaultApi: ProjectConversationSessionApi = {
   loadProjects: async () => (await fetchJson<{ projects: ProjectStatus[] }>("/api/projects")).projects,
   registerProject: (path) => postJson("/api/projects", { path, confirm: true }),
   loadSnapshot: (projectId, productMode, conversationId) => fetchSnapshot(
-    `/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot?productMode=${encodeURIComponent(productMode)}${conversationId ? `&topic=${encodeURIComponent(conversationId)}` : ""}`,
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot?productMode=${encodeURIComponent(productMode)}&compactThread=1${conversationId ? `&topic=${encodeURIComponent(conversationId)}` : ""}`,
+  ),
+  loadNavigation: (projectId, productMode) => fetchJson(
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/navigation?productMode=${encodeURIComponent(productMode)}`,
   ),
   loadStream: (projectId, runId) => fetchJson<StreamPacket>(
     `/api/projects/${encodeURIComponent(projectId)}/workbench/stream/${encodeURIComponent(runId)}`,
@@ -1263,6 +1369,12 @@ function snapshotMatchesMode(snapshot: Snapshot, productMode: ProductMode): bool
     && (!snapshot.center.selectedTopic || snapshot.center.selectedTopic.productMode === productMode);
 }
 
+export function snapshotMatchesSelection(snapshot: Snapshot, projectId: string | null, productMode: ProductMode, conversationId: string | null): boolean {
+  return snapshotMatchesMode(snapshot, productMode)
+    && snapshot.project?.id === projectId
+    && (conversationId?.startsWith("pending:") || (snapshot.center.selectedTopic?.id ?? null) === conversationId);
+}
+
 function isCurrentSelection(
   generation: number,
   productMode: ProductMode,
@@ -1277,12 +1389,13 @@ async function loadSnapshotWithDeepLinkFallback(
   projectId: string,
   productMode: ProductMode,
   conversationId: string | null,
+  allowFallback = true,
 ): Promise<Snapshot> {
   if (!conversationId) return api.loadSnapshot(projectId, productMode, null);
   try {
     return await api.loadSnapshot(projectId, productMode, conversationId);
   } catch (cause) {
-    if (!isUnavailableDeepLink(cause)) throw cause;
+    if (!allowFallback || !isUnavailableDeepLink(cause)) throw cause;
     return api.loadSnapshot(projectId, productMode, null);
   }
 }

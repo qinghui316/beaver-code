@@ -63,6 +63,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
       turnControlStateResolver: (projectId: string, conversationId: string, attemptId?: string) => context.turnControl.state(projectId, conversationId, attemptId),
       conversationContextSnapshotResolver: (project: ManagedProject, productMode: ProductMode, conversationId: string) => context.conversationContext.read(project, productMode, conversationId),
       conversationLifecycleSnapshotResolver: (project: ManagedProject, productMode: ProductMode, conversationId: string) => context.conversationLifecycle.read(project, productMode, conversationId),
+      conversationLifecycleSnapshotsResolver: (project: ManagedProject, productMode: ProductMode) => context.conversationLifecycle.readMany(project, productMode),
     };
     await handleProjectWorkbenchApi(context, input, request, response, projectWorkbench.rest, url);
     return;

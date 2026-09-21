@@ -10,6 +10,7 @@ import { ComposerDraftConflictError } from "../../workbench/persistence/reposito
 import { nextComposerDraftTimestamp } from "../../workbench/composer-draft-recovery.js";
 import {
   getWorkbenchSnapshot,
+  getWorkbenchNavigation,
   getWorkbenchStream,
   getWorkbenchTopic,
   listWorkbenchApprovals,
@@ -63,7 +64,8 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (request.method === "GET" && rest === "snapshot") {
     const productMode = requireProductMode(url.searchParams.get("productMode"));
-    sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined, productMode }));
+    sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined, productMode,
+      compactThread: url.searchParams.get("compactThread") === "1" }));
     return;
   }
   if (request.method === "GET" && rest === "mode-activity") {
@@ -97,6 +99,10 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (request.method === "GET" && rest === "topics") {
     sendJson(response, 200, await listWorkbenchTopics(input, requireProductMode(url.searchParams.get("productMode"))));
+    return;
+  }
+  if (request.method === "GET" && rest === "navigation") {
+    sendJson(response, 200, await getWorkbenchNavigation(input, requireProductMode(url.searchParams.get("productMode"))));
     return;
   }
   if (rest === "composer-draft" && request.method === "GET") {

@@ -70,7 +70,7 @@ import { buildThreadStreamFromMessages } from "./thread-stream.js";
 import { readIntakeState } from "../../intake.js";
 import { mergeSkillNativeProjectWideConfirmations } from "./skill-native-project-wide-confirmations.js";
 
-function demandWorkerSummaryState(status: string | undefined): Pick<WorkbenchWorkpadSummary, "runtimeStatus" | "userStatus" | "userStatusLabel"> | null {
+export function demandWorkerSummaryState(status: string | undefined): Pick<WorkbenchWorkpadSummary, "runtimeStatus" | "userStatus" | "userStatusLabel"> | null {
   if (status === "claimed" || status === "running") {
     return { runtimeStatus: "running", userStatus: "processing", userStatusLabel: "处理中" };
   }
@@ -90,6 +90,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   project: ManagedProject;
   resolution: ProjectRuntimeResolution;
   topicId?: string;
+  compactThread?: boolean;
 }): Promise<WorkbenchSnapshot | null> {
   const conversations = await readPlanningConversations(input.resolution);
   const status = projectHarnessStatus(input.resolution);
@@ -110,7 +111,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     ? (await listSkillNativeSchedulerRuns(input.resolution.paths, selected.boundChangeId))[0] ?? null
     : null;
   let topic = conversationTopic(selected);
-  topic = { ...topic, threadItems: await readPlanningThread(input.resolution, topic) };
+  topic = { ...topic, threadItems: input.compactThread ? [] : await readPlanningThread(input.resolution, topic) };
   const warnings: string[] = [];
   let graph: WorkflowGraphPlan | null = null;
   let planningEvidence: Awaited<ReturnType<typeof readProjectHarnessPlanningGate>> | null = null;
@@ -473,6 +474,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
   project: ManagedProject;
   resolution: ProjectRuntimeResolution;
   topicId?: string;
+  compactThread?: boolean;
   conversations: PlanningConversation[];
   selected: PlanningConversation & { boundChangeId: string };
   status: WorkbenchProjectHarnessStatus;
@@ -540,7 +542,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     audits: audits.map(summarizeAudit),
     specTest: specTestProjection?.status ?? null,
     drift: specTestProjection?.drift ?? null,
-    threadItems: await readPlanningThread(input.resolution, conversationTopic(input.selected)),
+    threadItems: input.compactThread ? [] : await readPlanningThread(input.resolution, conversationTopic(input.selected)),
   };
   const resultReview = await buildSkillNativeResultReview(
     input.project,
@@ -1264,6 +1266,7 @@ function conversationTopicSummary(conversation: PlanningConversation): Workbench
       canArchive: false,
       canRestore: false,
       canDelete: !active,
+      activity: null,
       ...(active ? { disabledReason: "AHO 会话仅由治理流程归档。" } : {}),
     },
   };

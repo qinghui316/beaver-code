@@ -29,6 +29,7 @@ export interface ConversationLifecycleSnapshot {
   canArchive: boolean;
   canRestore: boolean;
   canDelete: boolean;
+  activity: "running" | "awaiting-input" | null;
   disabledReason?: string;
 }
 
@@ -89,6 +90,17 @@ export class ConversationLifecycleOwner {
     }
   }
 
+  async readMany(project: ManagedProject, productMode: ProductMode): Promise<ConversationLifecycleSnapshot[]> {
+    const paths = await this.resolvePaths(project);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      return await Promise.all(database.conversations.listConversations(paths.projectId, productMode)
+        .map((conversation) => this.snapshot(database, conversation)));
+    } finally {
+      database.close();
+    }
+  }
+
   async prepareDelete(
     project: ManagedProject,
     productMode: ProductMode,
@@ -103,7 +115,7 @@ export class ConversationLifecycleOwner {
       if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
       if (conversation.state !== "archive") throw conflict("Only an archived Conversation can be permanently deleted.");
       const blocker = lifecycleBlocker(database, conversation, this.options);
-      if (blocker) throw conflict(blocker);
+      if (blocker) throw conflict(blocker.reason);
       const token = randomUUID();
       const expiresAt = Date.now() + 5 * 60_000;
       this.confirmations.set(token, { projectId: paths.projectId, productMode, conversationId, lifecycleRevision: revision, expiresAt });
@@ -195,7 +207,7 @@ export class ConversationLifecycleOwner {
       if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
       assertActionAllowed(conversation, request.action);
       const blocker = lifecycleBlocker(database, conversation, this.options);
-      if (blocker) throw conflict(blocker);
+      if (blocker) throw conflict(blocker.reason);
       const priorLifecycle = database.conversationLifecycle.readLatest(paths.projectId, conversation.conversationId);
       providerId = conversation.selectedProviderId;
       const binding = providerId
@@ -229,7 +241,7 @@ export class ConversationLifecycleOwner {
         }
       }
       const finalBlocker = lifecycleBlocker(database, conversation, this.options);
-      if (finalBlocker) throw conflict(finalBlocker);
+      if (finalBlocker) throw conflict(finalBlocker.reason);
       if (request.action === "delete") this.consumeConfirmation(request, revision);
       operation = {
         projectId: paths.projectId,
@@ -253,7 +265,7 @@ export class ConversationLifecycleOwner {
           if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
           assertActionAllowed(conversation, request.action);
           const transactionalBlocker = lifecycleBlocker(database, conversation, this.options);
-          if (transactionalBlocker) throw conflict(transactionalBlocker);
+          if (transactionalBlocker) throw conflict(transactionalBlocker.reason);
           database.conversationLifecycle.create(operation);
           conversation = database.conversations.archiveAgentConversation(paths.projectId, conversation.conversationId, revision, operation.createdAt);
         });
@@ -264,7 +276,7 @@ export class ConversationLifecycleOwner {
           if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
           assertActionAllowed(conversation, request.action);
           const transactionalBlocker = lifecycleBlocker(database, conversation, this.options);
-          if (transactionalBlocker) throw conflict(transactionalBlocker);
+          if (transactionalBlocker) throw conflict(transactionalBlocker.reason);
           database.conversationLifecycle.create(operation);
           database.unitOfWork.deleteArchivedConversation({
             projectId: paths.projectId,
@@ -280,7 +292,7 @@ export class ConversationLifecycleOwner {
           if (conversation.lifecycleRevision !== revision) throw conflict("Conversation lifecycle revision is stale.");
           assertActionAllowed(conversation, request.action);
           const transactionalBlocker = lifecycleBlocker(database, conversation, this.options);
-          if (transactionalBlocker) throw conflict(transactionalBlocker);
+          if (transactionalBlocker) throw conflict(transactionalBlocker.reason);
           database.conversationLifecycle.create(operation);
         });
       }
@@ -446,7 +458,8 @@ export class ConversationLifecycleOwner {
       canArchive: active && conversation.productMode === "agent" && !blocker,
       canRestore: !active && conversation.productMode === "agent" && conversation.archiveOrigin === "agent-user" && !blocker,
       canDelete: !active && !blocker,
-      ...(blocker ? { disabledReason: blocker } : {}),
+      activity: blocker?.activity ?? null,
+      ...(blocker ? { disabledReason: blocker.reason } : {}),
     };
   }
 
@@ -501,44 +514,32 @@ function lifecycleBlocker(
   database: Awaited<ReturnType<typeof openProjectRuntimeWorkbenchDatabase>>,
   conversation: StoredConversation,
   options: { providerRegistry: ProviderRegistry; turnControl: ConversationTurnControlOwner },
-): string | null {
+): { reason: string; activity: ConversationLifecycleSnapshot["activity"] } | null {
+  const { compacting, awaitingInput } = database.timeline.inspectLifecycleInteractionState(
+    conversation.projectId, conversation.conversationId,
+  );
+  const pendingActivity = awaitingInput ? "awaiting-input" as const : null;
   if (options.turnControl.state(conversation.projectId, conversation.conversationId).state !== "idle"
     || options.providerRegistry.findActiveTurn(conversation.conversationId)) {
-    return "当前会话仍在运行、停止或实时引导中。";
+    return { reason: "当前会话仍在运行、停止或实时引导中。", activity: pendingActivity ?? "running" };
   }
   if (database.providerAttempts.listProviderAttempts(conversation.projectId, conversation.conversationId)
     .some((attempt) => attempt.status === "queued" || attempt.status === "running")) {
-    return "当前会话仍有运行中的 Provider Attempt。";
+    return { reason: "当前会话仍有运行中的 Provider Attempt。", activity: pendingActivity ?? "running" };
   }
   if (database.conversationTurnQueues.listItems(conversation.projectId, conversation.conversationId)
     .some((item) => item.status === "queued" || item.status === "dispatching" || item.status === "blocked")) {
-    return "请先处理待发送队列，再归档或删除会话。";
+    return { reason: "请先处理待发送队列，再归档或删除会话。", activity: pendingActivity };
   }
   if (database.conversationForks.listIncomplete(conversation.projectId)
     .some((operation) => operation.sourceConversationId === conversation.conversationId)) {
-    return "会话分叉仍在处理。";
+    return { reason: "会话分叉仍在处理。", activity: pendingActivity };
   }
   if (database.conversationLifecycle.hasIncomplete(conversation.projectId, conversation.conversationId)) {
-    return "另一个会话生命周期操作仍在处理。";
+    return { reason: "另一个会话生命周期操作仍在处理。", activity: pendingActivity };
   }
-  for (const row of database.timeline.listConversationMessages(conversation.projectId, conversation.conversationId)) {
-    if (row.type === "provider.context-compaction" && (row.status === "submitting" || row.status === "compacting")) {
-      return "上下文压缩仍在处理。";
-    }
-    try {
-      const raw = JSON.parse(row.rawJson) as {
-        providerUserInput?: { status?: string };
-        providerApproval?: { status?: string };
-        clarification?: { status?: string };
-      };
-      if ([raw.providerUserInput?.status, raw.providerApproval?.status, raw.clarification?.status]
-        .some((status) => status === "pending" || status === "submitting")) {
-        return "当前会话仍在等待用户输入、审批或确认。";
-      }
-    } catch {
-      // Malformed diagnostic evidence does not grant lifecycle permission.
-    }
-  }
+  if (compacting) return { reason: "上下文压缩仍在处理。", activity: pendingActivity };
+  if (awaitingInput) return { reason: "当前会话仍在等待用户输入、审批或确认。", activity: "awaiting-input" };
   return null;
 }
 

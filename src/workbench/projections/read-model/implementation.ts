@@ -1,4 +1,6 @@
 import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
+import { listDemandWorkers } from "../../../demand-worker/manager.js";
+import { projectExecutionRuntimePort } from "../../../project-runtime/execution-ports.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
@@ -10,7 +12,7 @@ import { readRunEvents } from "./thread-stream.js";
 import { emptyConfirmationQueue } from "./confirmation-queue.js";
 import { CurrentProjectConversationUnavailableError } from "./errors.js";
 import { emptyDecisionInspector } from "./decision-inspector.js";
-import { tryBuildSkillNativePlanningSnapshot } from "./skill-native-planning-snapshot.js";
+import { demandWorkerSummaryState, tryBuildSkillNativePlanningSnapshot } from "./skill-native-planning-snapshot.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary } from "./support.js";
 import { buildDiagnosticWorkpad } from "./workpad.js";
@@ -128,6 +130,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   productMode?: ProductMode;
   ignoreActiveWorkflowActions?: boolean;
   ignoreActiveWorkflowActionTypes?: string[];
+  compactThread?: boolean;
 } = {}): Promise<WorkbenchSnapshot> {
   const productMode = options.productMode ?? "harness";
   let runtimeState: Awaited<ReturnType<typeof resolveProjectRuntimeState>> | null = null;
@@ -145,13 +148,14 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       productMode,
     );
     if (productMode === "agent") {
-      return buildAgentModeSnapshot(input, input.project, runtimeState, options.topicId);
+      return buildAgentModeSnapshot(input, input.project, runtimeState, options.topicId, options.compactThread);
     }
     if (runtimeState.state === "ready") {
       const planningSnapshot = await tryBuildSkillNativePlanningSnapshot({
         project: input.project,
         resolution: runtimeState.resolution,
         topicId: options.topicId,
+        compactThread: options.compactThread,
       });
       if (planningSnapshot) {
         await calibrateHarnessTurnControl(input, runtimeState.resolution, planningSnapshot);
@@ -276,11 +280,15 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
   const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
+    const lifecycleById = input.conversationLifecycleSnapshotsResolver
+      ? new Map((await input.conversationLifecycleSnapshotsResolver(input.project, productMode))
+        .map((item) => [item.conversationId, item]))
+      : null;
     return await Promise.all(store.conversations.listConversations(paths.projectId, productMode).map(async (conversation) => {
       const forkOperation = store.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
-      const lifecycle = input.conversationLifecycleSnapshotResolver
+      const lifecycle = lifecycleById?.get(conversation.conversationId) ?? (input.conversationLifecycleSnapshotResolver
         ? await input.conversationLifecycleSnapshotResolver(input.project!, productMode, conversation.conversationId)
-        : basicLifecycleSnapshot(conversation);
+        : basicLifecycleSnapshot(conversation));
       return {
       id: conversation.conversationId,
       productMode: conversation.productMode,
@@ -311,11 +319,43 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
   }
 }
 
+export async function getWorkbenchNavigation(input: WorkbenchProjectInput, productMode: ProductMode) {
+  const topics = await listWorkbenchTopics(input, productMode);
+  const workerStatuses = new Map<string, string>();
+  if (input.project && productMode === "harness") {
+    const runtime = input.runtimeStateResolver
+      ? await input.runtimeStateResolver(input.project)
+      : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+    if (runtime.state === "ready") {
+      for (const worker of await listDemandWorkers(projectExecutionRuntimePort(input.project, runtime.resolution)).catch(() => [])) {
+        workerStatuses.set(worker.changeId, worker.status);
+      }
+    }
+  }
+  return { productMode, conversations: topics.map((topic) => {
+    const worker = topic.boundChangeId ? demandWorkerSummaryState(workerStatuses.get(topic.boundChangeId)) : null;
+    const archived = topic.state === "archive";
+    const awaitingInput = topic.lifecycle?.activity === "awaiting-input";
+    const running = topic.lifecycle?.activity === "running";
+    return {
+      id: topic.id,
+      title: topic.title,
+      state: topic.state,
+      updatedAt: topic.updatedAt,
+      userStatusLabel: archived ? "已完成" : awaitingInput ? "等待确认" : worker?.userStatusLabel
+        ?? (running ? "处理中" : productMode === "agent" || !topic.boundChangeId ? "稍后处理" : "等你确认"),
+      waitingDecisionCount: worker?.userStatus === "waiting-confirmation" || awaitingInput ? 1 : 0,
+      lifecycle: topic.lifecycle,
+    };
+  }) };
+}
+
 async function buildAgentModeSnapshot(
   input: WorkbenchProjectInput,
   project: ManagedProject,
   runtime: Awaited<ReturnType<typeof resolveProjectRuntimeState>>,
   topicId?: string,
+  compactThread = false,
 ): Promise<WorkbenchSnapshot> {
   const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
   const database = await openProjectRuntimeWorkbenchDatabase(paths);
@@ -332,11 +372,15 @@ async function buildAgentModeSnapshot(
       error.name = other ? "Conflict" : "NotFound";
       throw error;
     }
+    const lifecycleById = input.conversationLifecycleSnapshotsResolver
+      ? new Map((await input.conversationLifecycleSnapshotsResolver(project, "agent"))
+        .map((item) => [item.conversationId, item]))
+      : null;
     const topics: WorkbenchTopicSummary[] = await Promise.all(conversations.map(async (conversation) => {
       const forkOperation = database.conversationForks.readByTargetConversation(paths.projectId, conversation.conversationId);
-      const lifecycle = input.conversationLifecycleSnapshotResolver
+      const lifecycle = lifecycleById?.get(conversation.conversationId) ?? (input.conversationLifecycleSnapshotResolver
         ? await input.conversationLifecycleSnapshotResolver(project, "agent", conversation.conversationId)
-        : basicLifecycleSnapshot(conversation);
+        : basicLifecycleSnapshot(conversation));
       return {
       id: conversation.conversationId,
       productMode: "agent",
@@ -376,7 +420,7 @@ async function buildAgentModeSnapshot(
         worktrees: [],
         validations: [],
         audits: [],
-        threadItems: await buildThreadStreamFromMessages(
+        threadItems: compactThread ? [] : await buildThreadStreamFromMessages(
           topic,
           database.timeline.listConversationMessages(paths.projectId, selected.conversationId).map(fromStoredThreadMessage),
           { includeChangeState: false },
@@ -508,6 +552,7 @@ function basicLifecycleSnapshot(conversation: import("../../persistence/contract
     canArchive: active && conversation.productMode === "agent",
     canRestore: !active && conversation.productMode === "agent" && conversation.archiveOrigin === "agent-user",
     canDelete: !active,
+    activity: null,
   };
 }
 

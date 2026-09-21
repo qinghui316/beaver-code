@@ -34,6 +34,7 @@ import { resetCodexRuntimeForTests } from "../../src/codex/executable.js";
 import { sameTestPhysicalPath } from "../helpers/windows-short-path.js";
 import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import { conversationAccessApi } from "../../src/web/src/controllers/conversation-access-http-adapter.js";
 import type { ProviderDescriptor } from "../../src/provider-runtime/contracts.js";
 
 let tempDir: string;
@@ -118,8 +119,26 @@ describe("workbench server", () => {
     const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot?productMode=harness`);
     expect(snapshot.left.topics[0]).toMatchObject({ id: serverConversationId, boundChangeId: "server-topic" });
 
+    const fullThread = await getJson<{ center: { thread: { items: unknown[] }; selectedTopic: { threadItems: unknown[] } } }>(
+      `${handle!.url}/api/projects/repo/workbench/snapshot?productMode=harness&topic=${serverConversationId}`,
+    );
+    const compactThread = await getJson<{ center: { thread: { items: unknown[] }; selectedTopic: { threadItems: unknown[] } } }>(
+      `${handle!.url}/api/projects/repo/workbench/snapshot?productMode=harness&topic=${serverConversationId}&compactThread=1`,
+    );
+    expect(fullThread.center.thread.items.length).toBeGreaterThan(0);
+    expect(compactThread.center.thread.items).toEqual([]);
+    expect(compactThread.center.selectedTopic.threadItems).toEqual([]);
+
     const topics = await getJson<unknown[]>(`${handle!.url}/api/projects/repo/workbench/topics?productMode=harness`);
     expect(topics).toHaveLength(1);
+
+    const navigation = await getJson<{ conversations: Array<{ id: string; title: string; userStatusLabel: string; lifecycle: { lifecycleRevision: string } }> }>(
+      `${handle!.url}/api/projects/repo/workbench/navigation?productMode=harness`,
+    );
+    expect(navigation.conversations).toHaveLength(1);
+    expect(navigation.conversations[0]).toMatchObject({ id: serverConversationId, title: "Server Topic", userStatusLabel: "等你确认" });
+    expect(navigation.conversations[0]?.lifecycle.lifecycleRevision).toMatch(/^conversation-lifecycle:/);
+    expect(JSON.stringify(navigation)).not.toContain("threadItems");
 
     const activity = await getJson<Record<string, unknown>>(`${handle!.url}/api/projects/repo/workbench/mode-activity`);
     expect(Object.keys(activity).sort()).toEqual(["agent", "generatedAt", "harness", "projectId"]);
@@ -146,6 +165,28 @@ describe("workbench server", () => {
     expect(imageResponse.headers.get("content-type")).toBe("image/webp");
     expect(documentResponse.headers.get("x-content-type-options")).toBe("nosniff");
     expect(imageResponse.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("serves Agent access GET and POST on the Workbench route with revision checks", async () => {
+    const paths = resolveProjectRuntimePaths(project().id, registryRoot);
+    const database = new Database(paths.workbenchDbPath);
+    try { database.prepare(`INSERT INTO conversations(project_id,conversation_id,product_mode,agent_turn_mode,title,selected_provider_id,created_at,updated_at)
+      VALUES ('repo','access-route-conversation','agent','default','Access route','codex','t0','t0')`).run(); }
+    finally { database.close(); }
+    const endpoint = `${handle!.url}/api/projects/repo/workbench/conversations/access-route-conversation/access`;
+    const nativeFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", ((input: RequestInfo | URL, init?: RequestInit) => nativeFetch(
+      typeof input === "string" && input.startsWith("/") ? `${handle!.url}${input}` : input, init,
+    )) as typeof fetch);
+    try {
+      const identity = { projectId: "repo", conversationId: "access-route-conversation", providerId: "codex" };
+      const selected = await conversationAccessApi.read(identity);
+      expect(selected).toMatchObject({ accessMode: "default", revision: 0, providerId: "codex" });
+      expect(await conversationAccessApi.save(identity, selected, "default", false)).toMatchObject({ accessMode: "default", revision: 1 });
+    } finally { vi.unstubAllGlobals(); }
+    const stale = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productMode: "agent", providerId: "codex", accessMode: "default", expectedRevision: 0 }) });
+    expect(stale.status).toBe(409);
   });
 
   it("protects every desktop API route with the ephemeral session cookie", async () => {

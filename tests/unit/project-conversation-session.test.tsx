@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   emptyWorkbenchSnapshot,
   removalConfirmationMessage,
+  snapshotMatchesSelection,
   useProjectConversationSession,
   type ProjectConversationSessionPorts,
   type WorkbenchRestoreParams,
@@ -76,6 +77,83 @@ describe("Project conversation session owner", () => {
     expect(result.current.expandedProjects).toEqual(new Set(["repo-1"]));
     expect(fixture.navigation.persistProjectId).toHaveBeenCalledWith("repo-1");
     expect(fixture.ui.restoreView).toHaveBeenCalledWith({ orchestrationOpen: true, settingsOpen: false });
+    expect(fixture.api.loadProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it("fences old project and conversation snapshots before rendering", () => {
+    const old = snapshot("repo-1", "old", undefined, "agent");
+    expect(snapshotMatchesSelection(old, "repo-1", "agent", "old")).toBe(true);
+    expect(snapshotMatchesSelection(old, "repo-1", "agent", "new")).toBe(false);
+    expect(snapshotMatchesSelection(old, "repo-2", "agent", "old")).toBe(false);
+    expect(snapshotMatchesSelection(old, "repo-1", "harness", "old")).toBe(false);
+  });
+
+  it("keeps a slow sidebar navigation response across a conversation switch", async () => {
+    let resolveNavigation!: (value: { productMode: ProductMode; conversations: Array<{ id: string; title: string; state: string; userStatusLabel: string; waitingDecisionCount: number }> }) => void;
+    const pendingNavigation = new Promise<Parameters<typeof resolveNavigation>[0]>((resolve) => { resolveNavigation = resolve; });
+    const fixture = ownerFixture();
+    fixture.api.loadNavigation.mockImplementation((projectId: string, mode: ProductMode) => projectId === "repo-2"
+      ? pendingNavigation : Promise.resolve({ productMode: mode, conversations: [] }));
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    let folder!: Promise<void>;
+    act(() => { folder = result.current.toggleProjectFolder("repo-2"); });
+    await act(async () => { await result.current.chooseConversation("repo-1", "new"); });
+    await act(async () => { resolveNavigation({ productMode: "harness", conversations: [
+      { id: "repo-2-conversation", title: "Repo 2", state: "active", userStatusLabel: "处理中", waitingDecisionCount: 0 },
+    ] }); await folder; });
+    expect(result.current.projectNavigation["repo-2"]?.[0]?.title).toBe("Repo 2");
+    expect(result.current.selectedTopic).toBe("new");
+    expect(fixture.api.loadSnapshot).not.toHaveBeenCalledWith("repo-2", "harness", null);
+  });
+
+  it("surfaces a navigation failure and clears it after a retry", async () => {
+    const fixture = ownerFixture();
+    fixture.api.loadNavigation.mockImplementation(async (projectId: string, mode: ProductMode) => {
+      if (projectId === "repo-2" && fixture.api.loadNavigation.mock.calls.filter(([id]) => id === "repo-2").length === 1) {
+        throw new Error("navigation unavailable");
+      }
+      return { productMode: mode, conversations: [] };
+    });
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.toggleProjectFolder("repo-2"); });
+    expect(result.current.projectNavigationErrors["repo-2"]).toBeTruthy();
+    await act(async () => { await result.current.retryNavigation("repo-2"); });
+    expect(result.current.projectNavigationErrors["repo-2"]).toBeUndefined();
+    expect(result.current.projectNavigation["repo-2"]).toEqual([]);
+  });
+
+  it("coalesces repeated invalidations and ignores an older navigation failure", async () => {
+    let rejectOld!: (reason: Error) => void;
+    let resolveLatest!: (value: { productMode: ProductMode; conversations: Array<{ id: string; title: string; state: string; userStatusLabel: string; waitingDecisionCount: number }> }) => void;
+    const old = new Promise<Parameters<typeof resolveLatest>[0]>((_resolve, reject) => { rejectOld = reject; });
+    const latest = new Promise<Parameters<typeof resolveLatest>[0]>((resolve) => { resolveLatest = resolve; });
+    const fixture = ownerFixture();
+    let targetReads = 0;
+    fixture.api.loadNavigation.mockImplementation(async (projectId: string, mode: ProductMode) => {
+      if (projectId !== "repo-2") return { productMode: mode, conversations: [] };
+      targetReads += 1;
+      return targetReads === 1 ? old : latest;
+    });
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    let folder!: Promise<void>;
+    act(() => {
+      folder = result.current.toggleProjectFolder("repo-2");
+      result.current.invalidateNavigation("repo-2", "harness");
+      result.current.invalidateNavigation("repo-2", "harness");
+      result.current.invalidateNavigation("repo-2", "harness");
+    });
+    expect(targetReads).toBe(1);
+    await act(async () => { rejectOld(new Error("old navigation failed")); await folder; });
+    await waitFor(() => expect(targetReads).toBe(2));
+    await act(async () => { resolveLatest({ productMode: "harness", conversations: [
+      { id: "fresh", title: "Fresh", state: "active", userStatusLabel: "处理中", waitingDecisionCount: 0 },
+    ] }); });
+    expect(result.current.projectNavigation["repo-2"]?.[0]?.title).toBe("Fresh");
+    expect(result.current.projectNavigationErrors["repo-2"]).toBeUndefined();
+    expect(fixture.ports.onError).not.toHaveBeenCalled();
   });
 
   it("preserves the project while switching modes and keeps mode caches isolated", async () => {
@@ -205,6 +283,20 @@ describe("Project conversation session owner", () => {
     expect(result.current.snapshot.center.selectedTopic?.id).toBe("conv-new");
   });
 
+  it("keeps the target selected and reports an incorrect response instead of showing another conversation", async () => {
+    const fixture = ownerFixture();
+    fixture.api.loadSnapshot.mockImplementation(async (projectId: string, mode: ProductMode, conversationId: string | null) => (
+      snapshot(projectId, conversationId === "target" ? "other" : conversationId, undefined, mode)
+    ));
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.chooseConversation("repo-1", "target"); });
+    expect(result.current.selectedTopic).toBe("target");
+    expect(result.current.snapshotError).toBeTruthy();
+    expect(snapshotMatchesSelection(result.current.snapshot, "repo-1", "harness", "target")).toBe(false);
+    expect(fixture.api.loadSnapshot).toHaveBeenLastCalledWith("repo-1", "harness", "target");
+  });
+
   it("notifies explicit cleanup owners while preserving Composer text on project and conversation switches", async () => {
     const fixture = ownerFixture();
     const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
@@ -242,7 +334,7 @@ describe("Project conversation session owner", () => {
     expect(result.current.snapshot.center.agentLoop.runs).toEqual([]);
   });
 
-  it("loads cold project snapshots before project-and-conversation search", async () => {
+  it("loads cold project navigation without loading full snapshots for search", async () => {
     const fixture = ownerFixture();
     fixture.api.loadSnapshot.mockImplementation(async (projectId: string, productMode: ProductMode) => (
       snapshot(projectId, `${projectId}-conversation`, undefined, productMode)
@@ -253,8 +345,9 @@ describe("Project conversation session owner", () => {
     expect(result.current.projectSnapshots["repo-2"]).toBeUndefined();
     await act(async () => { await result.current.prepareProjectNavigationSearch(); });
 
-    expect(fixture.api.loadSnapshot).toHaveBeenCalledWith("repo-2", "harness", null);
-    expect(result.current.projectSnapshots["repo-2"]?.center.selectedTopic?.title).toBe("repo-2-conversation");
+    expect(fixture.api.loadNavigation).toHaveBeenCalledWith("repo-2", "harness");
+    expect(fixture.api.loadSnapshot).not.toHaveBeenCalledWith("repo-2", "harness", null);
+    expect(result.current.projectNavigation["repo-2"]?.[0]?.title).toBe("repo-2-conversation");
   });
 
   it("rekeys provisional demand metadata without creating or merging canonical transcript", async () => {
@@ -779,6 +872,26 @@ describe("Project conversation session owner", () => {
     expect(result.current.stream?.run.id).toBe("run-new");
   });
 
+  it("does not load an old project's run during a conversation switch", async () => {
+    let resolveTarget!: (value: Snapshot) => void;
+    const targetSnapshot = new Promise<Snapshot>((resolve) => { resolveTarget = resolve; });
+    const fixture = ownerFixture();
+    fixture.api.loadSnapshot.mockImplementation((projectId: string) => projectId === "repo-2"
+      ? targetSnapshot : Promise.resolve(snapshot("repo-1", "conv-1", "run-old")));
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    fixture.api.loadStream.mockClear();
+    let selection!: Promise<void>;
+    act(() => { selection = result.current.chooseConversation("repo-2", "conv-2"); });
+    expect(result.current.selectedProjectId).toBe("repo-2");
+    expect(result.current.selectedTopic).toBe("conv-2");
+    expect(fixture.api.loadStream).not.toHaveBeenCalledWith("repo-2", "run-old");
+    await act(async () => { resolveTarget(snapshot("repo-2", "conv-2", "run-new")); await selection; });
+    expect(fixture.api.loadStream).not.toHaveBeenCalledWith("repo-2", "run-old");
+    expect(result.current.selectedRun).toBe("run-new");
+    expect(result.current.stream?.run.id).toBe("run-new");
+  });
+
   it("clears Timeline only for permanent Conversation deletion and preserves project removal behavior", async () => {
     const fixture = ownerFixture();
     const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
@@ -875,6 +988,10 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
     loadSnapshot: vi.fn(async (projectId: string, productMode: ProductMode, conversationId: string | null) => (
       snapshot(projectId, conversationId, undefined, productMode)
     )),
+    loadNavigation: vi.fn(async (projectId: string, productMode: ProductMode) => ({
+      productMode,
+      conversations: [{ id: `${projectId}-conversation`, title: `${projectId}-conversation`, state: "active", userStatusLabel: "处理中", waitingDecisionCount: 0 }],
+    })),
     loadStream: vi.fn(async (_projectId: string, runId: string) => stream(runId)),
     prepareProjectRemoval: vi.fn(async (projectId: string) => ({
       token: `remove-token-${projectId}`,

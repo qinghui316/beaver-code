@@ -79,7 +79,7 @@ import {
   useConversationComposerController,
   type ComposerActionRequest,
 } from "./controllers/useConversationComposerController.js";
-import { emptySnapshotForMode, removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
+import { emptySnapshotForMode, removalConfirmationMessage, snapshotMatchesSelection, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
 import { useAppModeController } from "./controllers/AppModeController.js";
 import { modePresentationPolicy } from "./presentation/ModePresentationPolicy.js";
 import {
@@ -414,8 +414,8 @@ export function App(): ReactElement {
   }
 
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
-    await session.chooseConversation(projectId, conversationId);
     setMobileSidebarOpen(false);
+    await session.chooseConversation(projectId, conversationId);
   }
 
   async function removeProject(projectId: string): Promise<void> {
@@ -589,11 +589,11 @@ export function App(): ReactElement {
   }
 
   const snapshotMatchesCurrentMode = session.productMode === appMode.productMode
-    && snapshot.productMode === appMode.productMode;
+    && snapshotMatchesSelection(snapshot, selectedProjectId, appMode.productMode, selectedTopic);
   const activeModeSnapshot = snapshotMatchesCurrentMode
     ? snapshot
-    : { ...emptySnapshotForMode(appMode.productMode), project: snapshot.project };
-  const selectedTopicForMode = snapshotMatchesCurrentMode ? selectedTopic : null;
+    : { ...emptySnapshotForMode(appMode.productMode), project: projects.find((item) => item.project?.id === selectedProjectId)?.project ?? null };
+  const selectedTopicForMode = selectedTopic;
   const activePendingConversation = pendingDemandConversation
     && selectedProjectId === pendingDemandConversation.projectId
     && pendingDemandConversation.productMode === appMode.productMode
@@ -1083,6 +1083,9 @@ export function App(): ReactElement {
   function routeProjectionEventForProject(projectId: string, event: WorkbenchLiveEvent): void {
     projectionEventRouterRef.current(projectId, event);
     conversationTurnQueue.handleEvent(projectId, event);
+    if (event.event === "topic.created") session.invalidateNavigation(projectId, event.data.productMode);
+    if (event.event === "topic.updated") session.invalidateNavigation(projectId, event.data.conversation.productMode);
+    if (event.event === "conversation.lifecycle.invalidated") session.invalidateNavigation(projectId);
     if (event.event === "conversation.lifecycle.invalidated" && selectedProjectIdRef.current === projectId) {
       const selectedConversationId = selectedConversationIdRef.current;
       void session.refresh(
@@ -1132,6 +1135,8 @@ export function App(): ReactElement {
     selectedProjectId,
     selectedTopicId: activeTopic?.id ?? selectedTopicForMode,
     snapshots: snapshotMatchesCurrentMode ? projectSnapshots : {},
+    navigation: session.projectNavigation,
+    navigationErrors: session.projectNavigationErrors,
     snapshot: activeModeSnapshot,
     expandedProjects,
     overlay: navigationOverlay.state,
@@ -1149,6 +1154,7 @@ export function App(): ReactElement {
     onNewConversation: beginNewConversation,
     onOpenProject: openProject,
     onToggleProject: toggleProjectFolder,
+    onRetryNavigation: session.retryNavigation,
     onChooseConversation: chooseConversation,
     onArchiveConversation: archiveConversation,
     onRestoreConversation: restoreConversation,
@@ -1376,6 +1382,11 @@ export function App(): ReactElement {
             onRetry={loadApp}
             onOpenDiagnostics={() => openRightToolPanel("diagnostics")}
           />
+        ) : selectedTopic && !selectedTopic.startsWith("pending:") && !snapshotMatchesCurrentMode ? (
+          <section className="empty-workbench" data-testid="conversation-loading" role="status">
+            <h1>{session.snapshotError ? "会话加载失败" : "正在加载会话"}</h1>
+            {session.snapshotError ? <><p>{session.snapshotError}</p><button type="button" className="outline-button" onClick={() => void session.chooseConversation(selectedProjectId, selectedTopic)}>重试</button></> : null}
+          </section>
         ) : !activeTopic ? (
           readinessComposer ? <ProjectReadinessHomeFeature surface={readinessComposer} /> : null
         ) : (
