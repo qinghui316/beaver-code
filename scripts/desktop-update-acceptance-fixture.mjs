@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 
 if (process.env.GITHUB_ACTIONS !== "true" || process.env.RUNNER_ENVIRONMENT !== "github-hosted"
   || process.env.GITHUB_REPOSITORY !== "qinghui316/beaver-code"
-  || !["refs/heads/master", "refs/heads/codex/aho-windows-github-independent-update-signing-v1"].includes(process.env.GITHUB_REF)
+  || !["refs/heads/master", "refs/heads/codex/aho-windows-github-independent-update-signing-v1", "refs/heads/codex/aho-windows-desktop-update-auto-relaunch-v1"].includes(process.env.GITHUB_REF)
   || process.env.GITHUB_SHA !== process.env.BEAVER_UPDATE_ACCEPTANCE_SHA
   || process.env.RUNNER_OS !== "Windows"
   || process.env.BEAVER_UPDATE_ACCEPTANCE !== "1") {

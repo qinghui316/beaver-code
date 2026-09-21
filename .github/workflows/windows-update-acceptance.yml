@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - codex/aho-windows-github-independent-update-signing-v1
+      - codex/aho-windows-desktop-update-auto-relaunch-v1
   workflow_dispatch:
 
 permissions:
@@ -16,7 +17,7 @@ concurrency:
 
 jobs:
   signed-update:
-    if: github.repository == 'qinghui316/beaver-code' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/aho-windows-github-independent-update-signing-v1')
+    if: github.repository == 'qinghui316/beaver-code' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/aho-windows-github-independent-update-signing-v1' || github.ref == 'refs/heads/codex/aho-windows-desktop-update-auto-relaunch-v1')
     runs-on: windows-latest
     timeout-minutes: 90
     steps:

@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 if ($env:GITHUB_ACTIONS -ne "true" -or $env:RUNNER_ENVIRONMENT -ne "github-hosted" `
   -or $env:GITHUB_REPOSITORY -ne "qinghui316/beaver-code" `
-  -or $env:GITHUB_REF -notin @("refs/heads/master", "refs/heads/codex/aho-windows-github-independent-update-signing-v1") `
+  -or $env:GITHUB_REF -notin @("refs/heads/master", "refs/heads/codex/aho-windows-github-independent-update-signing-v1", "refs/heads/codex/aho-windows-desktop-update-auto-relaunch-v1") `
   -or $env:GITHUB_SHA -ne $env:BEAVER_UPDATE_ACCEPTANCE_SHA `
   -or $env:RUNNER_OS -ne "Windows" -or $env:BEAVER_UPDATE_ACCEPTANCE -ne "1") {
   throw "Windows update acceptance is restricted to a disposable GitHub-hosted Windows runner."
@@ -34,6 +34,7 @@ $feedProcess = $null
 $certificateThumbprints = @()
 $certificateSubjects = @($publisher, $tlsSubject, $rootSubject)
 $passedResult = $null
+$script:updateInstallerProcess = $null
 
 function Assert-RunnerChild([string]$Path) {
   $full = [System.IO.Path]::GetFullPath($Path)
@@ -114,6 +115,18 @@ function Get-AcceptanceMainProcesses {
     $_.ExecutablePath -and $_.ExecutablePath.Equals($installedExecutable, [System.StringComparison]::OrdinalIgnoreCase) `
       -and $_.CommandLine -notmatch '--type='
   })
+}
+
+function Capture-UpdateInstallerProcess {
+  if ($script:updateInstallerProcess) { return }
+  $matches = @(Get-CimInstance Win32_Process -Filter "Name='$newInstallerName'" -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -match '--updated' -and $_.CommandLine -match '/S'
+  })
+  if ($matches.Count -gt 1) { throw "More than one update installer started." }
+  if ($matches.Count -eq 1) {
+    $script:updateInstallerProcess = [System.Diagnostics.Process]::GetProcessById($matches[0].ProcessId)
+    $null = $script:updateInstallerProcess.Handle
+  }
 }
 
 function Stop-AcceptanceApplication([bool]$RequireGraceful) {
@@ -303,6 +316,7 @@ try {
   Write-Output "acceptance-stage: prompted-update"
   $oldProcess = Start-Process -FilePath $installedExecutable -WindowStyle Hidden -PassThru
   Wait-Until {
+    Capture-UpdateInstallerProcess
     if (-not (Test-Path -LiteralPath $desktopLog -PathType Leaf)) { return $false }
     $content = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
     if ($content.Contains(" update failed")) { throw "The installed application reported an update failure." }
@@ -314,12 +328,25 @@ try {
     return $newMain.Count -eq 1
   } 600 "The signed prompted update did not install and restart the application."
 
+  if (-not $script:updateInstallerProcess) { throw "The update installer process was not observed." }
+  Wait-Until {
+    $script:updateInstallerProcess.Refresh()
+    return $script:updateInstallerProcess.HasExited
+  } 60 "The update installer did not exit after relaunch."
+  $installerStart = $script:updateInstallerProcess.StartTime.ToUniversalTime()
+  $installerExit = $script:updateInstallerProcess.ExitTime.ToUniversalTime()
+  $installerExitCode = $script:updateInstallerProcess.ExitCode
+  if ($installerExitCode -ne 0) { throw "The update installer exited with a failure code." }
+
   $newMain = @(Get-AcceptanceMainProcesses | Where-Object ProcessId -NE $oldProcess.Id)
   if ($newMain.Count -ne 1) { throw "The updated application does not have exactly one live main process." }
   $oldExit = $oldProcess.ExitTime.ToUniversalTime()
   $newStart = $newMain[0].CreationDate.ToUniversalTime()
   if ($newStart -lt $oldExit) { throw "The updated application started before the old process exited." }
-  Write-Output "acceptance-relaunch: oldPid=$($oldProcess.Id) oldExitUtc=$($oldExit.ToString('o')) newPid=$($newMain[0].ProcessId) newStartUtc=$($newStart.ToString('o'))"
+  if ($installerStart -gt $newStart -or $installerExit -lt $newStart) {
+    throw "The updated application did not start during the update installer process."
+  }
+  Write-Output "acceptance-relaunch: oldPid=$($oldProcess.Id) oldExitUtc=$($oldExit.ToString('o')) installerPid=$($script:updateInstallerProcess.Id) installerStartUtc=$($installerStart.ToString('o')) newPid=$($newMain[0].ProcessId) newStartUtc=$($newStart.ToString('o')) installerExitUtc=$($installerExit.ToString('o')) installerExitCode=$installerExitCode"
 
   $version = (Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion
   if ($version -ne "${newVersion}.0" -and $version -ne $newVersion) { throw "Installed executable version is not the update version." }
@@ -383,9 +410,13 @@ try {
     promptedUpdate = $true
     explicitInstallEntryPointObserved = $true
     oldMainPid = $oldProcess.Id
+    updateInstallerPid = $script:updateInstallerProcess.Id
     newMainPid = $newMain[0].ProcessId
     oldExitUtc = $oldExit.ToString("o")
+    installerStartUtc = $installerStart.ToString("o")
     newStartUtc = $newStart.ToString("o")
+    installerExitUtc = $installerExit.ToString("o")
+    installerExitCode = $installerExitCode
     spacedCustomInstallPath = $true
     persistedConversation = $true
     persistedDraft = $true

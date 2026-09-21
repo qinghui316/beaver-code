@@ -62,8 +62,9 @@ describe("Windows stable release contract", () => {
     expect(installerHook).toContain("!macro customInstall");
     expect(installerHook).toContain("${If} ${isUpdated}");
     expect(installerHook).toContain("${AndIf} ${Silent}");
-    expect(installerHook).toContain('ExecShell "open" "$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "--updated" SW_SHOWNORMAL');
-    expect(installerHook).toContain("IfErrors beaver_relaunch_failed beaver_relaunch_done");
+    expect(installerHook).toContain('${StdUtils.ExecShellAsUser} $0 "$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "open" "--updated"');
+    expect(installerHook).toContain('${If} $0 != "ok"');
+    expect(installerHook).toContain('${AndIf} $0 != "fallback"');
     expect(installerHook).toContain("SetErrorLevel 1");
   });
 });
