@@ -32,8 +32,9 @@ export function buildNsisInstallArguments(
   const args = ["--updated"];
   if (options.isSilent) args.push("/S");
   if (options.isForceRunAfter) args.push("--force-run");
-  if (installDirectory) args.push(`/D=${installDirectory}`);
   if (packageFile) args.push(`--package-file=${packageFile}`);
+  // NSIS treats /D as the unquoted remainder of the command line.
+  if (installDirectory) args.push(`/D=${installDirectory}`);
   return args;
 }
 
@@ -58,7 +59,7 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
   ) {
     nsis.autoDownload = false;
     nsis.autoInstallOnAppQuit = false;
-    nsis.autoRunAppAfterInstall = true;
+    nsis.autoRunAppAfterInstall = false;
     nsis.allowPrerelease = false;
     nsis.allowDowngrade = false;
     nsis.disableWebInstaller = true;
@@ -191,7 +192,7 @@ export async function createNsisUpdateAdapter(
       // Reuse BaseUpdater's verified cache and NSIS installer. Adapt only the
       // launch boundary: no elevation/ShellExecute fallback and no early quit.
       const installer = this.installerPath;
-      if (!installer || options.isAdminRightsRequired || !options.isSilent || !options.isForceRunAfter) return false;
+      if (!installer || options.isAdminRightsRequired || !options.isSilent || options.isForceRunAfter) return false;
       const packageFile = this.downloadedUpdateHelper?.packageFile ?? null;
       this.launchReceipt = super.spawnLog(
         installer,
@@ -202,8 +203,9 @@ export async function createNsisUpdateAdapter(
 
     async launchVerifiedUpdate(): Promise<void> {
       this.launchReceipt = null;
-      // Mature NSIS install machinery without BaseUpdater's premature app.quit.
-      const started = this.install(true, true);
+      // The project NSIS customInstall hook owns relaunch after extraction.
+      // BaseUpdater's quit path and NSIS --force-run would race or duplicate it.
+      const started = this.install(true, false);
       if (!started || !this.launchReceipt) throw new Error("Update installer did not start.");
       if (await this.launchReceipt !== true) throw new Error("Update installer launch was not confirmed.");
     }

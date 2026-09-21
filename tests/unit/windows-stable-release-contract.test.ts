@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const workflow = await read(".github/workflows/windows-desktop.yml");
 const buildVariant = await read("scripts/desktop-build-variant.mjs");
 const releaseGuide = await read("docs/DESKTOP-RELEASE.md");
+const installerConfig = await read("electron-builder.yml");
+const installerHook = await read("build/installer.nsh");
 const packageJson = JSON.parse(await read("package.json")) as { version: string; repository?: { url?: string } };
 
 describe("Windows stable release contract", () => {
@@ -47,12 +49,22 @@ describe("Windows stable release contract", () => {
   });
 
   it("documents bootstrap, withdrawal and forward-only repair", () => {
-    expect(packageJson.version).toBe("0.1.12");
+    expect(packageJson.version).toBe("0.1.13");
     expect(releaseGuide).toContain("0.1.3");
     expect(releaseGuide).toContain("0.1.6");
     expect(releaseGuide).toContain("withdraw the Release");
     expect(releaseGuide).toContain("higher patch version");
     expect(releaseGuide).toContain("Never paste either secret");
+  });
+
+  it("owns silent update relaunch in the packaged NSIS hook", () => {
+    expect(installerConfig).toContain("include: build/installer.nsh");
+    expect(installerHook).toContain("!macro customInstall");
+    expect(installerHook).toContain("${If} ${isUpdated}");
+    expect(installerHook).toContain("${AndIf} ${Silent}");
+    expect(installerHook).toContain('ExecShell "open" "$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "--updated" SW_SHOWNORMAL');
+    expect(installerHook).toContain("IfErrors beaver_relaunch_failed beaver_relaunch_done");
+    expect(installerHook).toContain("SetErrorLevel 1");
   });
 });
 

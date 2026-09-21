@@ -33,6 +33,7 @@ win:
         - x64
 nsis:
   oneClick: false
+  include: build/installer.nsh
   perMachine: false
   allowElevation: false
   allowToChangeInstallationDirectory: true

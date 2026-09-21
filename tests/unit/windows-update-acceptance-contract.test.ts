@@ -43,6 +43,15 @@ describe("Windows update acceptance boundary", () => {
     expect(fixture).not.toContain('executionContractFamily: "agent-conversation"');
   });
 
+  it("requires an automatic new main process after the old one exits in a spaced custom directory", () => {
+    expect(runner).toContain('Join-Path $acceptanceRoot "installed with spaces"');
+    expect(runner).toContain('function Get-AcceptanceMainProcesses');
+    expect(runner).toContain('$oldProcess.Refresh()');
+    expect(runner).toContain('$newMain.Count -eq 1');
+    expect(runner).toContain('if ($newStart -lt $oldExit)');
+    expect(runner).toContain('acceptance-relaunch: oldPid=');
+  });
+
   it("injects a controlled installed-app fault and proves repair restores code without changing data", () => {
     expect(runner).toContain('acceptance-stage: inject-install-fault');
     expect(runner).toContain('resources\\app.asar.acceptance-corrupt');
