@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { createConversationChangeFixture, createTestConversationTurnRouter } from "./conversation-change-fixture.js";
 import { createReadyProjectHarnessFixture } from "./project-harness-fixture.js";
 import { writeJsonFile } from "../../src/fs/json.js";
@@ -31,7 +31,7 @@ import {
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { bindProviderAttemptThread, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
 import {
-  createFakeCodex,
+  assertFakeCodexSelected,
   findSchedulerGateAction,
   getTempDir,
   git,
@@ -69,9 +69,10 @@ export interface SkillNativePreparedSchedulerFlow {
 }
 
 export async function prepareSkillNativeSchedulerFirstWorkerThroughResult(options: {
+  fakeCodex: { executable: string };
   packageTestScript?: string;
   title?: string;
-} = {}): Promise<SkillNativePreparedSchedulerFlow> {
+}): Promise<SkillNativePreparedSchedulerFlow> {
   const projectRoot = getTempDir();
   const ahoHome = join(projectRoot, ".aho-home");
   process.env.AHO_HOME = ahoHome;
@@ -316,10 +317,9 @@ export async function prepareSkillNativeSchedulerFirstWorkerThroughResult(option
     })}`);
   }
 
-  const oldPath = process.env.PATH;
-  const fakeCodex = await createFakeCodex();
-  try {
-    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+  assertFakeCodexSelected(options.fakeCodex);
+  // The caller owns this runtime scope through preparation and the remaining test actions.
+  {
     const started = await executeWorkbenchAction({ project: harness.project, path: projectRoot }, { ...startAction, confirm: true });
     const workerStart = (unwrapWorkflowActionResult(started.result) as { workerStart?: SkillNativePreparedSchedulerWorker }).workerStart ?? {};
     snapshot = await getWorkbenchSnapshot({ project: harness.project, path: projectRoot }, { topicId: topic.conversationId });
@@ -373,9 +373,6 @@ export async function prepareSkillNativeSchedulerFirstWorkerThroughResult(option
       secondWorkerStart,
       workerResult: result,
     };
-  } finally {
-    if (oldPath === undefined) delete process.env.PATH;
-    else process.env.PATH = oldPath;
   }
 }
 

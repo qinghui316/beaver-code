@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach } from "vitest";
 import { defaultProviderRegistry } from "../../src/provider-runtime/default-registry.js";
+import { resetCodexRuntimeForTests, resolveCodexRuntime } from "../../src/codex/executable.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
 
@@ -61,7 +62,7 @@ export async function git(cwd: string, args: string[]): Promise<void> {
 
 export async function createFakeCodex(
   options: { mutateOnExec?: boolean; message?: string } = {},
-): Promise<{ binDir: string }> {
+): Promise<{ binDir: string; executable: string }> {
   const binDir = join(tempDir, "fake-codex-bin");
   await mkdir(binDir, { recursive: true });
   const script = join(binDir, "fake-codex.cjs");
@@ -177,5 +178,41 @@ if (appServerIndex >= 0) {
     : `#!/usr/bin/env sh\nnode "${script}" "$@"\n`;
   await writeFile(commandShim, shim, "utf8");
   await chmod(commandShim, 0o755).catch(() => undefined);
-  return { binDir };
+  return { binDir, executable: commandShim };
+}
+
+export function assertFakeCodexSelected(fakeCodex: { executable: string }): void {
+  const selected = resolveCodexRuntime();
+  if (selected.source !== "explicit-override" || selected.command !== fakeCodex.executable) {
+    throw new Error(`Scheduler fixture selected ${JSON.stringify(selected)} instead of ${fakeCodex.executable}.`);
+  }
+}
+
+export function enterFakeCodexScope(fakeCodex: { binDir: string; executable: string }): () => Promise<void> {
+  const originalPath = process.env.PATH;
+  const originalCodexBin = process.env.AHO_CODEX_BIN;
+  process.env.PATH = `${fakeCodex.binDir}${delimiter}${originalPath ?? ""}`;
+  process.env.AHO_CODEX_BIN = fakeCodex.executable;
+  resetCodexRuntimeForTests();
+  try {
+    assertFakeCodexSelected(fakeCodex);
+  } catch (error) {
+    restoreEnvironment();
+    throw error;
+  }
+  return async () => {
+    try {
+      await defaultProviderRegistry.shutdownAll("Scheduler fake Codex scope closed.");
+    } finally {
+      restoreEnvironment();
+    }
+  };
+
+  function restoreEnvironment(): void {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
+    else process.env.AHO_CODEX_BIN = originalCodexBin;
+    resetCodexRuntimeForTests();
+  }
 }

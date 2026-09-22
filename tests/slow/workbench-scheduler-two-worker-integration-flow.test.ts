@@ -1,5 +1,5 @@
 import { readFile, rm } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
@@ -12,7 +12,7 @@ import { readSchedulerRuntimeEvents } from "../../src/scheduler-runtime/manager.
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import { createTestConversationTurnRouter } from "../helpers/conversation-change-fixture.js";
 import { prepareSkillNativeSchedulerFirstWorkerThroughResult } from "../helpers/skill-native-scheduler-fixture.js";
-import { createFakeCodex, execFileAsync, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
+import { createFakeCodex, enterFakeCodexScope, execFileAsync, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
 
 let originalAhoHome: string | undefined;
 let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
@@ -36,14 +36,13 @@ afterEach(() => {
 
 describe("workbench scheduler two-worker integration slow flow", () => {
   it("carries a second scheduler worker through current-worker gates and hands refreshed ready targets to IntegrationCheck", async () => {
-    const prepared = await prepareSkillNativeSchedulerFirstWorkerThroughResult({
-      title: "Scheduler Two Worker Acceptance",
-    });
-
-    const oldPath = process.env.PATH;
     const fakeCodex = await createFakeCodex();
+    const closeFakeCodexScope = enterFakeCodexScope(fakeCodex);
     try {
-      process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+      const prepared = await prepareSkillNativeSchedulerFirstWorkerThroughResult({
+        title: "Scheduler Two Worker Acceptance",
+        fakeCodex,
+      });
 
       let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.conversationId });
       const firstValidationActions = snapshot.right.confirmationQueue.current.flatMap((item) => item.actions);
@@ -71,12 +70,18 @@ describe("workbench scheduler two-worker integration slow flow", () => {
       if (!firstAuditAction) throw new Error("Missing first worker audit action.");
       const firstAudit = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...firstAuditAction, confirm: true });
       const firstAuditResult = unwrapWorkflowActionResult(firstAudit.result) as {
-        schedulerAudit?: { id?: string; claimIntentId?: string; worktreeId?: string };
+        schedulerAudit?: { id?: string; status?: string; claimIntentId?: string; worktreeId?: string };
+        auditResult?: { status?: string; artifacts?: { auditMarkdown?: string } };
       };
       expect(firstAuditResult.schedulerAudit).toMatchObject({
         id: expect.any(String),
+        status: "approved",
         worktreeId: prepared.workerStart.worktreeId,
       });
+      expect(firstAuditResult.auditResult).toMatchObject({ status: "approved" });
+      const firstAuditMarkdown = firstAuditResult.auditResult?.artifacts?.auditMarkdown;
+      if (!firstAuditMarkdown) throw new Error(`First audit has no response artifact: ${JSON.stringify(firstAuditResult)}`);
+      expect(await readFile(resolve(prepared.runtimePaths.sidecarRoot, firstAuditMarkdown), "utf8")).toContain("Scheduler worker audit passed.");
       await rm(join(getTempDir(), "README.md"), { force: true });
       const firstSourceStatus = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
       if (firstSourceStatus.stdout.trim()) throw new Error(`source dirty before first candidate: ${firstSourceStatus.stdout}`);
@@ -326,8 +331,7 @@ describe("workbench scheduler two-worker integration slow flow", () => {
         { action: applyAction, confirm: true },
       )).rejects.toThrow(/stale|available|completed|already/i);
     } finally {
-      if (oldPath === undefined) delete process.env.PATH;
-      else process.env.PATH = oldPath;
+      await closeFakeCodexScope();
     }
   }, 600000);
 });

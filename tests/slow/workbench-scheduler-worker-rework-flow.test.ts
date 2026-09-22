@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listRuns } from "../../src/run/manager.js";
 import { executeWorkbenchAction as executeWorkbenchActionRaw } from "../../src/server/workbench-server.js";
@@ -11,7 +11,7 @@ import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { prepareSkillNativeSchedulerFirstWorkerThroughResult } from "../helpers/skill-native-scheduler-fixture.js";
 import { createTestConversationTurnRouter } from "../helpers/conversation-change-fixture.js";
-import { createFakeCodex, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
+import { createFakeCodex, enterFakeCodexScope, findSchedulerGateAction, getTempDir, project, unwrapWorkflowActionResult } from "../helpers/skill-native-test-environment.js";
 
 let originalAhoHome: string | undefined;
 let turnRouter: ReturnType<typeof createTestConversationTurnRouter>;
@@ -35,9 +35,13 @@ afterEach(() => {
 
 describe("workbench scheduler worker rework slow flow", () => {
   it("compiles a scheduler worker rework plan after first worker validation fails and starts bounded same-worktree rework", async () => {
+    const fakeCodex = await createFakeCodex();
+    const closeFakeCodexScope = enterFakeCodexScope(fakeCodex);
+    try {
     const prepared = await prepareSkillNativeSchedulerFirstWorkerThroughResult({
       title: "Scheduler Worker Rework Plan",
       packageTestScript: "node -e \"process.exit(1)\"",
+      fakeCodex,
     });
 
     const postResultSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.conversationId });
@@ -242,10 +246,8 @@ describe("workbench scheduler worker rework slow flow", () => {
       validationRunId: validatedResult?.schedulerValidation?.validationRunId,
     });
 
-    const oldPath = process.env.PATH;
-    const fakeCodex = await createFakeCodex();
-    try {
-      process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+    // Rework execution uses the same fake Codex as the first worker.
+    {
       const startedRework = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         ...reworkStartAction,
         confirm: true,
@@ -506,9 +508,6 @@ describe("workbench scheduler worker rework slow flow", () => {
         ...reworkValidationAction,
         confirm: true,
       })).rejects.toThrow(/stale|no longer available/i);
-    } finally {
-      if (oldPath === undefined) delete process.env.PATH;
-      else process.env.PATH = oldPath;
     }
 
     await expect(executeWorkbenchAction({ project: project(), path: getTempDir() }, {
@@ -519,5 +518,8 @@ describe("workbench scheduler worker rework slow flow", () => {
     expect(await listWorktreeStatuses(prepared.runtimePaths)).toHaveLength(afterValidationWorktreeCount);
     expect(await listTaskRuns(prepared.runtimePaths, prepared.topic.changeId)).toHaveLength(afterValidationTaskRunCount + 1);
     expect(await listWorkerLeases(prepared.runtimePaths, prepared.topic.changeId)).toHaveLength(afterValidationLeaseCount + 1);
+    } finally {
+      await closeFakeCodexScope();
+    }
   }, 180000);
 });
