@@ -219,6 +219,10 @@ describe("Project conversation session owner", () => {
     rerender({ productMode: "agent" });
     await waitFor(() => expect(fixture.api.loadNavigation).toHaveBeenCalledWith("repo-2", "agent"));
     await waitFor(() => expect(result.current.productMode).toBe("agent"));
+    const selectedCall = fixture.api.loadNavigation.mock.calls.findIndex(([projectId, mode]) => projectId === "repo-1" && mode === "agent");
+    const expandedCall = fixture.api.loadNavigation.mock.calls.findIndex(([projectId, mode]) => projectId === "repo-2" && mode === "agent");
+    expect(selectedCall).toBeGreaterThanOrEqual(0);
+    expect(expandedCall).toBeGreaterThan(selectedCall);
     expect(result.current.expandedProjects.has("repo-2")).toBe(true);
     expect(result.current.projectNavigation["repo-2"]).toBeUndefined();
 
@@ -226,6 +230,36 @@ describe("Project conversation session owner", () => {
       { id: "agent-conversation", title: "Agent conversation", state: "active", userStatusLabel: "稍后处理", waitingDecisionCount: 0 },
     ] }); await agentNavigation; });
     expect(result.current.projectNavigation["repo-2"]?.[0]?.title).toBe("Agent conversation");
+  });
+
+  it("does not report a failed expanded-project request from a mode already left", async () => {
+    let rejectAgentNavigation!: (reason: Error) => void;
+    const agentNavigation = new Promise<{ productMode: ProductMode; conversations: [] }>((_resolve, reject) => { rejectAgentNavigation = reject; });
+    const fixture = ownerFixture();
+    fixture.api.loadNavigation.mockImplementation((projectId: string, mode: ProductMode) => (
+      projectId === "repo-2" && mode === "agent"
+        ? agentNavigation
+        : Promise.resolve({ productMode: mode, conversations: [] })
+    ));
+    const { result, rerender } = renderHook(
+      ({ productMode }: { productMode: ProductMode }) => useProjectConversationSession({
+        ...fixture.ports,
+        productMode,
+        autoLoad: false,
+      }),
+      { initialProps: { productMode: "harness" as ProductMode } },
+    );
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.toggleProjectFolder("repo-2"); });
+    rerender({ productMode: "agent" });
+    await waitFor(() => expect(fixture.api.loadNavigation).toHaveBeenCalledWith("repo-2", "agent"));
+    rerender({ productMode: "harness" });
+    await waitFor(() => expect(result.current.productMode).toBe("harness"));
+    await act(async () => { rejectAgentNavigation(new Error("old Agent navigation failed")); await agentNavigation.catch(() => undefined); });
+
+    expect(fixture.ports.onError).not.toHaveBeenCalled();
+    expect(result.current.projectNavigation["repo-2"]).toEqual([]);
+    expect(result.current.projectNavigationErrors["repo-2"]).toBeUndefined();
   });
 
   it("drops an old-mode Snapshot after a newer mode selection wins", async () => {

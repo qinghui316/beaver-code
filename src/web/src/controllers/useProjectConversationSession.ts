@@ -985,13 +985,6 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     }
     productModeRef.current = targetProductMode;
     setProductMode(targetProductMode);
-    for (const expandedProjectId of expandedProjects) {
-      if (expandedProjectId === projectId) continue;
-      const expandedStatus = findProject(stateRef.current.projects, expandedProjectId);
-      if (canLoadWorkbenchSnapshot(expandedStatus, targetProductMode)) {
-        void loadNavigation(expandedProjectId, targetProductMode).catch(reportError);
-      }
-    }
     setSelectedTopic(null);
     setSelectedRun(null);
     setStream(null);
@@ -1010,8 +1003,24 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     } else {
       setSnapshot(snapshotForProject(status, targetProductMode));
     }
-    if (!canLoadWorkbenchSnapshot(status, targetProductMode)) return;
-    await refreshAtGeneration(projectId, null, generation, targetProductMode);
+    const selectedRefresh = canLoadWorkbenchSnapshot(status, targetProductMode)
+      ? refreshAtGeneration(projectId, null, generation, targetProductMode)
+      : null;
+    const otherExpandedIds = [...expandedProjects].filter((expandedProjectId) => expandedProjectId !== projectId
+      && canLoadWorkbenchSnapshot(findProject(stateRef.current.projects, expandedProjectId), targetProductMode));
+    let nextExpandedIndex = 0;
+    const loadOtherExpanded = async (): Promise<void> => {
+      while (productModeRef.current === targetProductMode && nextExpandedIndex < otherExpandedIds.length) {
+        const expandedProjectId = otherExpandedIds[nextExpandedIndex++];
+        try {
+          await loadNavigation(expandedProjectId, targetProductMode);
+        } catch (cause) {
+          if (productModeRef.current === targetProductMode) reportError(cause);
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(3, otherExpandedIds.length) }, () => loadOtherExpanded()));
+    if (selectedRefresh) await selectedRefresh;
   }, [expandedProjects, loadNavigation, projectModeSnapshots, refreshAtGeneration, reportError]);
 
   useEffect(() => {
