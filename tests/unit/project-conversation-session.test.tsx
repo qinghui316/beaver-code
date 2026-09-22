@@ -262,6 +262,72 @@ describe("Project conversation session owner", () => {
     expect(result.current.projectNavigationErrors["repo-2"]).toBeUndefined();
   });
 
+  it("loads expanded navigation after the selected project is removed", async () => {
+    const fixture = ownerFixture();
+    const { result, rerender } = renderHook(
+      ({ productMode }: { productMode: ProductMode }) => useProjectConversationSession({
+        ...fixture.ports,
+        productMode,
+        autoLoad: false,
+      }),
+      { initialProps: { productMode: "harness" as ProductMode } },
+    );
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.toggleProjectFolder("repo-2"); });
+    await act(async () => { await result.current.removeProject("repo-1"); });
+    expect(result.current.selectedProjectId).toBeNull();
+    expect(result.current.expandedProjects.has("repo-2")).toBe(true);
+
+    rerender({ productMode: "agent" });
+    await waitFor(() => expect(fixture.api.loadNavigation).toHaveBeenCalledWith("repo-2", "agent"));
+    expect(result.current.projectNavigation["repo-2"]?.[0]?.id).toBe("repo-2-conversation");
+  });
+
+  it("limits expanded-project navigation fanout to three concurrent reads", async () => {
+    const fixture = ownerFixture();
+    fixture.api.loadProjects.mockResolvedValue(Array.from({ length: 6 }, (_, index) => managedProject(`repo-${index + 1}`)));
+    const pending = new Map<string, () => void>();
+    const started: string[] = [];
+    let active = 0;
+    let peak = 0;
+    fixture.api.loadNavigation.mockImplementation((projectId: string, mode: ProductMode) => {
+      if (mode !== "agent" || projectId === "repo-1") return Promise.resolve({ productMode: mode, conversations: [] });
+      started.push(projectId);
+      active += 1;
+      peak = Math.max(peak, active);
+      return new Promise((resolve) => {
+        pending.set(projectId, () => {
+          pending.delete(projectId);
+          active -= 1;
+          resolve({ productMode: mode, conversations: [] });
+        });
+      });
+    });
+    const { result, rerender } = renderHook(
+      ({ productMode }: { productMode: ProductMode }) => useProjectConversationSession({
+        ...fixture.ports,
+        productMode,
+        autoLoad: false,
+      }),
+      { initialProps: { productMode: "harness" as ProductMode } },
+    );
+    await act(async () => { await result.current.loadApp(); });
+    for (let index = 2; index <= 6; index += 1) {
+      await act(async () => { await result.current.toggleProjectFolder(`repo-${index}`); });
+    }
+
+    rerender({ productMode: "agent" });
+    await waitFor(() => expect(started).toHaveLength(3));
+    expect(peak).toBe(3);
+    await act(async () => { pending.get("repo-2")!(); });
+    await waitFor(() => expect(started).toHaveLength(4));
+    expect(peak).toBe(3);
+    await act(async () => { for (const resolve of [...pending.values()]) resolve(); });
+    await waitFor(() => expect(started).toHaveLength(5));
+    await act(async () => { for (const resolve of [...pending.values()]) resolve(); });
+    expect(active).toBe(0);
+  });
+
   it("drops an old-mode Snapshot after a newer mode selection wins", async () => {
     let resolveHarness!: (value: Snapshot) => void;
     const harnessResponse = new Promise<Snapshot>((resolve) => { resolveHarness = resolve; });

@@ -991,21 +991,22 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setPendingDemandConversation(null);
     pendingDemandRef.current = null;
     portsRef.current.timeline?.invalidateProjection();
+    let selectedRefresh: Promise<Snapshot | void> | null = null;
     if (!projectId) {
       setSnapshot(emptySnapshotForMode(targetProductMode));
-      return;
-    }
-    navigation(portsRef.current).syncLocation(projectId, null);
-    const status = findProject(stateRef.current.projects, projectId);
-    const cached = projectModeSnapshots[snapshotCacheKey(projectId, targetProductMode)];
-    if (cached && snapshotMatchesMode(cached, targetProductMode)) {
-      setSnapshot(cached);
     } else {
-      setSnapshot(snapshotForProject(status, targetProductMode));
+      navigation(portsRef.current).syncLocation(projectId, null);
+      const status = findProject(stateRef.current.projects, projectId);
+      const cached = projectModeSnapshots[snapshotCacheKey(projectId, targetProductMode)];
+      if (cached && snapshotMatchesMode(cached, targetProductMode)) {
+        setSnapshot(cached);
+      } else {
+        setSnapshot(snapshotForProject(status, targetProductMode));
+      }
+      if (canLoadWorkbenchSnapshot(status, targetProductMode)) {
+        selectedRefresh = refreshAtGeneration(projectId, null, generation, targetProductMode);
+      }
     }
-    const selectedRefresh = canLoadWorkbenchSnapshot(status, targetProductMode)
-      ? refreshAtGeneration(projectId, null, generation, targetProductMode)
-      : null;
     const otherExpandedIds = [...expandedProjects].filter((expandedProjectId) => expandedProjectId !== projectId
       && canLoadWorkbenchSnapshot(findProject(stateRef.current.projects, expandedProjectId), targetProductMode));
     let nextExpandedIndex = 0;
