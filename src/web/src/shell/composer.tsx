@@ -1,6 +1,6 @@
 import { AgentAccessControl, type AgentAccessControlProps } from "./AgentAccessControl.js";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, Lightbulb, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelCatalogGroup, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
@@ -362,6 +362,7 @@ export function ConversationComposerSurface({
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const planDisabledDescriptionId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const restoreEditorFocusRef = useRef(false);
@@ -423,7 +424,7 @@ export function ConversationComposerSurface({
                 <button type="button" className="composer-add-trigger" aria-label="添加上下文" disabled={Boolean(disabledReason)}><Plus size={18} /></button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
-                <DropdownMenu.Content className="composer-add-menu" side="top" align="start" sideOffset={8} collisionPadding={12} aria-label="添加到输入框" onCloseAutoFocus={(event) => {
+                <DropdownMenu.Content className="composer-add-menu" side="top" align="start" sideOffset={8} collisionPadding={12} aria-label="添加到输入框" aria-describedby={productMode === "agent" && agentTurnMode !== "plan" && planModeDisabledReason ? planDisabledDescriptionId : undefined} onCloseAutoFocus={(event) => {
                   if (!restoreEditorFocusRef.current) return;
                   event.preventDefault();
                   restoreEditorFocusRef.current = false;
@@ -432,7 +433,8 @@ export function ConversationComposerSurface({
                   <DropdownMenu.Item className="composer-menu-item" onSelect={() => fileInputRef.current?.click()}><Paperclip size={15} />添加附件</DropdownMenu.Item>
                   <DropdownMenu.Item className="composer-menu-item" onSelect={() => insertTrigger("@") }><File size={15} />引用项目文件</DropdownMenu.Item>
                   <DropdownMenu.Item className="composer-menu-item" disabled={skills.length === 0} onSelect={() => insertTrigger("/")}><Sparkles size={15} />选择技能</DropdownMenu.Item>
-                  {productMode === "agent" ? <DropdownMenu.CheckboxItem className="composer-menu-item" checked={agentTurnMode === "plan"} disabled={agentTurnMode !== "plan" && Boolean(planModeDisabledReason)} title={planModeDisabledReason ?? undefined} onSelect={() => void onSelectAgentTurnMode?.(agentTurnMode === "plan" ? "default" : "plan")}><Lightbulb size={15} />计划模式{agentTurnMode === "plan" ? <Check size={14} className="composer-menu-check" /> : null}</DropdownMenu.CheckboxItem> : null}
+                  {productMode === "agent" ? <DropdownMenu.CheckboxItem className="composer-menu-item" checked={agentTurnMode === "plan"} disabled={agentTurnMode !== "plan" && Boolean(planModeDisabledReason)} onSelect={() => void onSelectAgentTurnMode?.(agentTurnMode === "plan" ? "default" : "plan")}><Lightbulb size={15} />计划模式{agentTurnMode === "plan" ? <Check size={14} className="composer-menu-check" /> : null}</DropdownMenu.CheckboxItem> : null}
+                  {productMode === "agent" && agentTurnMode !== "plan" && planModeDisabledReason ? <DropdownMenu.Label id={planDisabledDescriptionId} className="composer-menu-disabled-reason">{planModeDisabledReason}</DropdownMenu.Label> : null}
                   {productMode === "agent" ? <DropdownMenu.Item className="composer-menu-item" disabled={Boolean(reviewSubmitting)} onSelect={() => void onOpenReview?.()}><Search size={15} />代码审查</DropdownMenu.Item> : null}
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>

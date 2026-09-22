@@ -71,6 +71,9 @@ describe("Topic Composer height", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
     const option = await screen.findByRole("menuitemcheckbox", { name: "计划模式" });
     expect(option.getAttribute("data-disabled")).not.toBeNull();
+    const reason = screen.getByText("当前 Agent 不支持计划模式。");
+    expect(reason.classList.contains("composer-menu-disabled-reason")).toBe(true);
+    expect(screen.getByRole("menu").getAttribute("aria-describedby")).toBe(reason.id);
     fireEvent.click(option);
     expect(selectMode).not.toHaveBeenCalled();
     fireEvent.keyDown(option, { key: "Escape" });
