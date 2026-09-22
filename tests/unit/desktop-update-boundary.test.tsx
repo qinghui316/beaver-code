@@ -69,6 +69,34 @@ describe("desktop update save boundary", () => {
     expect(screen.getByText("Beaver Code 0.1.4 已准备好")).toBeTruthy();
   });
 
+  it.each([["desktop", false], ["mobile after resize", true]] as const)(
+    "keeps the visible %s dock's install click after pointerdown with both hosts mounted", async (_host, startNarrow) => {
+      let narrow = false;
+      const media = new EventTarget();
+      Object.defineProperty(media, "matches", { get: () => narrow });
+      vi.stubGlobal("matchMedia", () => media as MediaQueryList);
+      render(<DesktopUpdateBoundary>
+        <DesktopUpdateDock displayWhen="desktop" />
+        <DesktopUpdateDock displayWhen="mobile" />
+      </DesktopUpdateBoundary>);
+      await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+      act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
+        offerId: "offer", version: "0.1.16", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.16",
+      }) })));
+      if (startNarrow) {
+        narrow = true;
+        act(() => media.dispatchEvent(new Event("change")));
+      }
+      const install = screen.getByRole("button", { name: "重新启动并更新" });
+      fireEvent.pointerDown(install);
+      expect(screen.getByRole("button", { name: "重新启动并更新" })).toBe(install);
+      fireEvent.click(install);
+      await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/desktop/update/choice")).toHaveLength(1));
+      expect(String(vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/desktop/update/choice")?.[1]?.body))
+        .toContain('"action":"install"');
+    },
+  );
+
   it("removes a withdrawn offer and all of its transient presentation state", async () => {
     render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
     await waitFor(() => expect(FakeEvents.current).not.toBeNull());

@@ -17,6 +17,7 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
   const focusPanelOnOpenRef = useRef(false);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
   const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 720px)").matches : false);
+  const activeHost = displayWhen === "always" || (displayWhen === "mobile" ? narrow : !narrow);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -28,7 +29,7 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
   }, []);
 
   useLayoutEffect(() => {
-    if (!surface.view.expanded) {
+    if (!activeHost || !surface.view.expanded) {
       setPosition(null);
       return;
     }
@@ -58,17 +59,18 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [surface.view.expanded]);
+  }, [activeHost, surface.view.expanded]);
 
   useEffect(() => {
-    if (!surface.view.expanded) return;
+    if (!activeHost || !surface.view.expanded) return;
     if (focusPanelOnOpenRef.current) {
       focusPanelOnOpenRef.current = false;
       panelRef.current?.querySelector<HTMLElement>("button, a[href]")?.focus();
     }
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target as Node | null;
-      if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      if (!panelRef.current || !triggerRef.current) return;
+      if (panelRef.current.contains(target) || triggerRef.current.contains(target)) return;
       surface.actions.dismiss();
     };
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -83,9 +85,8 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [surface.actions, surface.view.expanded]);
+  }, [activeHost, surface.actions, surface.view.expanded]);
 
-  const activeHost = displayWhen === "always" || (displayWhen === "mobile" ? narrow : !narrow);
   if (!activeHost || !surface.view.available || !surface.view.version) return null;
   const panelId = "desktop-update-popover";
   const popoverStyle = position ? { left: position.left, top: position.top } : undefined;
