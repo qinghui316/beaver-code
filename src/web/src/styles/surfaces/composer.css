@@ -1533,7 +1533,7 @@
 .composer-plan-exit:hover { background: var(--bg-hover); color: var(--text-strong); }
 .composer-plan-exit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-@media (any-pointer: coarse) {
+@media (pointer: coarse), (any-pointer: coarse) {
   .composer-plan-exit { opacity: 1; }
 }
 
@@ -1809,7 +1809,7 @@
   }
 }
 
-@media (max-width: 720px), (any-pointer: coarse) {
+@media (max-width: 720px), (pointer: coarse), (any-pointer: coarse) {
   .composer-add-trigger,
   .composer-action-alternative-trigger,
   .composer-send,
@@ -2004,7 +2004,7 @@
 .composer-access-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
 .composer-access-failure { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px; font-size: 12px; }
 .composer-access-failure button { border: 0; background: transparent; color: var(--text); text-decoration: underline; cursor: pointer; }
-@media (max-width: 720px), (any-pointer: coarse) {
+@media (max-width: 720px), (pointer: coarse), (any-pointer: coarse) {
   .composer-access-trigger { min-height: 44px; }
   .composer-access-menu .navigation-action-menu-item { min-height: 44px; }
   .composer-access-dialog-actions button { min-height: 44px; }
