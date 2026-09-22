@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversationTurnQueue, TopicComposer } from "../../src/web/src/shell/composer.js";
 import type { ConversationTurnQueueSnapshot, SkillListItem } from "../../src/web/src/types.js";
@@ -30,7 +30,7 @@ describe("Topic Composer height", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("shows the turn-mode control only for Agent and keeps unsupported Plan selected", () => {
+  it("keeps an unsupported selected Plan visible and exitable beside the current access", async () => {
     const onSelect = vi.fn();
     const view = render(<TopicComposer
       value="draft"
@@ -39,20 +39,115 @@ describe("Topic Composer height", () => {
       projectId="project"
       productMode="agent"
       agentTurnMode="plan"
+      accessView={{ scopeKey: "conversation-a", visible: true, mode: "full-access", busy: false, failure: null, fullAccessAvailable: true }}
       onSelectAgentTurnMode={onSelect}
       agentTurnModeDisabledReason="当前 Agent 不支持计划模式。"
       onSend={async () => undefined}
       actionRunning={null}
     />);
-    fireEvent.click(screen.getByRole("button", { name: "添加上下文" }));
-    const planButton = screen.getByRole("menuitemcheckbox", { name: "计划模式" });
+    expect(screen.getByRole("button", { name: "访问权限：完全访问" })).toBeTruthy();
+    expect(screen.getByLabelText("当前为计划模式").querySelector(".lucide-lightbulb")).toBeTruthy();
+    expect(screen.queryByText("计划中仅分析")).toBeNull();
+    expect(screen.getByRole("button", { name: "当前 Agent 不支持计划模式。" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
+    const planButton = await screen.findByRole("menuitemcheckbox", { name: "计划模式" });
     expect(planButton.getAttribute("aria-checked")).toBe("true");
-    expect(planButton.hasAttribute("disabled")).toBe(false);
+    expect(planButton.getAttribute("data-disabled")).toBeNull();
+    fireEvent.keyDown(planButton, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "退出计划模式" }));
     expect(onSelect).toHaveBeenCalledWith("default");
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("draft");
 
     view.rerender(composer("draft"));
     expect(screen.queryByRole("button", { name: "退出计划模式" })).toBeNull();
+  });
+
+  it("blocks newly selecting unsupported Plan and retains the ordinary permission", async () => {
+    const selectMode = vi.fn();
+    render(<TopicComposer value="draft" onChange={vi.fn()} modelLabel="gpt" projectId="project"
+      productMode="agent" agentTurnMode="default" planModeDisabledReason="当前 Agent 不支持计划模式。"
+      accessView={{ scopeKey: "conversation-a", visible: true, mode: "default", busy: false, failure: null, fullAccessAvailable: true }}
+      onSelectAgentTurnMode={selectMode} onSend={async () => undefined} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
+    const option = await screen.findByRole("menuitemcheckbox", { name: "计划模式" });
+    expect(option.getAttribute("data-disabled")).not.toBeNull();
+    fireEvent.click(option);
+    expect(selectMode).not.toHaveBeenCalled();
+    fireEvent.keyDown(option, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "访问权限：默认权限" })).toBeTruthy();
+    expect(screen.queryByLabelText("当前为计划模式")).toBeNull();
+  });
+
+  it("returns focus to the editor after adding a file mention from the Radix menu", async () => {
+    const onChange = vi.fn();
+    render(<TopicComposer value="draft" onChange={onChange} modelLabel="gpt" projectId="project"
+      skills={[composerSkill("reviewer")]} onSend={async () => undefined} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("menuitem", { name: "引用项目文件" }), { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("draft @");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox")));
+    fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("menuitem", { name: "选择技能" }), { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("draft /");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox")));
+  });
+
+  it("uses the shared file chooser from the Radix attachment item", async () => {
+    const onAttachFiles = vi.fn();
+    const click = vi.spyOn(HTMLInputElement.prototype, "click");
+    const rendered = render(<TopicComposer value="" onChange={vi.fn()} modelLabel="gpt" projectId="project"
+      onAttachFiles={onAttachFiles} onSend={async () => undefined} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "添加附件" }));
+    expect(click).toHaveBeenCalledOnce();
+    const input = rendered.container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    expect(input.accept).toContain(".md");
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(onAttachFiles).toHaveBeenCalledWith([file]);
+    fireEvent.change(input, { target: { files: [] } });
+    expect(onAttachFiles).toHaveBeenCalledOnce();
+    click.mockRestore();
+  });
+
+  it("keeps access selection independent while Plan is active", async () => {
+    const selectMode = vi.fn();
+    const selectAccess = vi.fn(async () => undefined);
+    render(<TopicComposer value="draft" onChange={vi.fn()} modelLabel="gpt" projectId="project"
+      productMode="agent" agentTurnMode="plan"
+      accessView={{ scopeKey: "conversation-a", visible: true, mode: "default", busy: false, failure: null, fullAccessAvailable: true }}
+      onSelectAgentTurnMode={selectMode} onSelectAccess={selectAccess} onSend={async () => undefined} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "访问权限：默认权限" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "完全访问" }));
+    fireEvent.click(screen.getByRole("button", { name: "允许完全访问" }));
+    await waitFor(() => expect(selectAccess).toHaveBeenCalledWith("full-access", true));
+    expect(selectMode).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("当前为计划模式")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "退出计划模式" }));
+    expect(selectMode).toHaveBeenCalledWith("default");
+    expect(selectAccess).toHaveBeenCalledOnce();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("draft");
+  });
+
+  it("submits the Queue alternative once and removes its menu when execution becomes busy", async () => {
+    const enqueue = vi.fn(async () => undefined);
+    const send = vi.fn(async () => undefined);
+    const queue = { projectId: "project", productMode: "agent" as const, conversationId: "conversation",
+      revision: "queue:1", executionRevision: null, canEnqueue: true, canDispatch: false, items: [] };
+    const running = { state: "running" as const, canStop: true, canSteer: true, steerState: "idle" as const,
+      providerId: "codex", attemptId: "attempt", runId: "run" };
+    const props = { value: "follow up", onChange: vi.fn(), modelLabel: "gpt", projectId: "project", productMode: "agent" as const,
+      onSend: send, onEnqueue: enqueue, onStopAndContinue: vi.fn(async () => undefined), currentWorkpadStatus: "running" as const,
+      turnQueue: queue, runControlState: running };
+    const rendered = render(<TopicComposer {...props} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "其他发送方式" }), { key: "ArrowDown" });
+    const item = await screen.findByRole("menuitem", { name: "稍后发送" });
+    fireEvent.click(item);
+    expect(enqueue).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalled();
+    rendered.rerender(<TopicComposer {...props} queueBusy />);
+    expect(screen.queryByRole("button", { name: "其他发送方式" })).toBeNull();
   });
 
   it("keeps a compact input and caps content growth at 160px", () => {

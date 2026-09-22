@@ -1487,6 +1487,61 @@
   flex: 0 0 auto;
 }
 
+.composer-leading-controls {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.composer-plan-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.composer-plan-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border-subtle);
+}
+
+.composer-plan-exit {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.composer-plan-indicator:hover .composer-plan-exit,
+.composer-plan-indicator:focus-within .composer-plan-exit {
+  opacity: 1;
+}
+
+.composer-plan-exit:hover { background: var(--bg-hover); color: var(--text-strong); }
+.composer-plan-exit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (pointer: coarse) {
+  .composer-plan-exit { opacity: 1; }
+}
+
+@media (forced-colors: active) {
+  .composer-plan-exit:focus-visible { outline-color: Highlight; }
+  .composer-plan-divider { background: CanvasText; }
+}
+
 .composer-add-trigger,
 .composer-action-alternative-trigger {
   display: inline-flex;
@@ -1515,9 +1570,7 @@
 
 .composer-add-menu,
 .composer-action-menu {
-  position: absolute;
-  z-index: 35;
-  bottom: calc(100% + 8px);
+  z-index: 1500;
   display: grid;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1527,14 +1580,11 @@
 }
 
 .composer-add-menu {
-  left: 0;
-  width: 210px;
+  width: min(210px, calc(100vw - 24px));
   padding: 5px;
 }
 
-.composer-add-menu > button,
-.composer-add-attachment,
-.composer-action-menu button {
+.composer-menu-item {
   display: flex;
   width: 100%;
   min-height: 36px;
@@ -1548,29 +1598,20 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  user-select: none;
 }
 
-.composer-add-menu > button:hover,
-.composer-add-attachment:hover,
-.composer-action-menu button:hover {
+.composer-menu-item[data-highlighted] {
   background: var(--bg-subtle);
 }
 
-.composer-add-menu > button:disabled {
+.composer-menu-item[data-disabled] {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.composer-add-attachment {
-  position: relative;
-}
-
-.composer-add-attachment .composer-tool-button {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
+.composer-menu-check {
+  margin-left: auto;
 }
 
 .agent-turn-mode-segment {
@@ -1668,8 +1709,7 @@
 }
 
 .composer-action-menu {
-  right: 0;
-  width: 210px;
+  width: min(210px, calc(100vw - 24px));
   padding: 5px;
 }
 
@@ -1768,8 +1808,8 @@
   .composer-context-action,
   .conversation-context-indicator,
   .agent-turn-mode-segment button,
-  .composer-add-menu > button,
-  .composer-action-menu button {
+  .composer-menu-item,
+  .composer-plan-exit {
     min-width: 44px;
     min-height: 44px;
   }
@@ -1933,8 +1973,7 @@
   }
 }
 
-.composer-access-trigger,
-.composer-access-readonly {
+.composer-access-trigger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1958,7 +1997,7 @@
 .composer-access-failure { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px; font-size: 12px; }
 .composer-access-failure button { border: 0; background: transparent; color: var(--text); text-decoration: underline; cursor: pointer; }
 @media (max-width: 720px), (pointer: coarse) {
-  .composer-access-trigger, .composer-access-readonly { min-height: 44px; }
+  .composer-access-trigger { min-height: 44px; }
   .composer-access-menu .navigation-action-menu-item { min-height: 44px; }
   .composer-access-dialog-actions button { min-height: 44px; }
 }

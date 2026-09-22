@@ -1,4 +1,4 @@
-import { useRef, useState, type ClipboardEvent, type DragEvent, type ReactElement } from "react";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type ReactElement, type RefObject } from "react";
 import { FileText, ImageIcon, Paperclip, X } from "lucide-react";
 import type { TopicAttachment } from "../types.js";
 
@@ -24,22 +24,29 @@ export function ComposerAttachButton({
       >
         <Paperclip size={15} />
       </button>
-      <input
-        ref={inputRef}
-        className="visually-hidden-file-input"
-        type="file"
-        tabIndex={-1}
-        aria-hidden="true"
-        multiple
-        accept="image/*,.txt,.md,.markdown,.json,.jsonc,.yaml,.yml,.js,.jsx,.ts,.tsx,.css,.scss,.html,.xml,.py,.ps1,.sh,.sql,.toml,.ini,.env"
-        onChange={(event) => {
-          const files = Array.from(event.currentTarget.files ?? []);
-          event.currentTarget.value = "";
-          if (files.length > 0) void onAttachFiles?.(files);
-        }}
-      />
+      <ComposerFileInput inputRef={inputRef} onAttachFiles={onAttachFiles} />
     </>
   );
+}
+
+export function ComposerFileInput({ inputRef, onAttachFiles }: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  onAttachFiles?: (files: File[]) => void | Promise<void>;
+}): ReactElement {
+  return <input
+    ref={inputRef}
+    className="visually-hidden-file-input"
+    type="file"
+    tabIndex={-1}
+    aria-hidden="true"
+    multiple
+    accept="image/*,.txt,.md,.markdown,.json,.jsonc,.yaml,.yml,.js,.jsx,.ts,.tsx,.css,.scss,.html,.xml,.py,.ps1,.sh,.sql,.toml,.ini,.env"
+    onChange={(event) => {
+      const files = Array.from(event.currentTarget.files ?? []);
+      event.currentTarget.value = "";
+      if (files.length > 0) void onAttachFiles?.(files);
+    }}
+  />;
 }
 
 export type ComposerAttachmentListItem = Pick<TopicAttachment, "id" | "fileName" | "kind" | "size" | "previewUrl">;

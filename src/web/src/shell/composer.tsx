@@ -1,9 +1,10 @@
 import { AgentAccessControl, type AgentAccessControlProps } from "./AgentAccessControl.js";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
-import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, Lightbulb, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelCatalogGroup, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
-import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
+import { ComposerAttachmentList, ComposerFileInput, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ConversationModelSelectors } from "./ConversationModelSelectors.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
@@ -362,7 +363,8 @@ export function ConversationComposerSurface({
   const [dragOver, setDragOver] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const restoreEditorFocusRef = useRef(false);
 
   useEffect(() => {
     if (focusToken === undefined) return;
@@ -387,27 +389,10 @@ export function ConversationComposerSurface({
     observer.observe(textarea);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    if (!addMenuOpen) return;
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setAddMenuOpen(false);
-    };
-    const closeOnPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !addMenuRef.current?.contains(event.target)) setAddMenuOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("pointerdown", closeOnPointerDown);
-    return () => {
-      window.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("pointerdown", closeOnPointerDown);
-    };
-  }, [addMenuOpen]);
-
   function insertTrigger(trigger: "@" | "/"): void {
     const separator = value.length > 0 && !/\s$/.test(value) ? " " : "";
     onChange(`${value}${separator}${trigger}`);
-    setAddMenuOpen(false);
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
+    restoreEditorFocusRef.current = true;
   }
 
   return (
@@ -430,17 +415,36 @@ export function ConversationComposerSurface({
         void onAttachFiles?.(files);
       }}
       toolbar={<>
-        <div className="composer-add-control" ref={addMenuRef}>
-          <button type="button" className="composer-add-trigger" aria-label="添加上下文" aria-expanded={addMenuOpen} disabled={Boolean(disabledReason)} onClick={() => setAddMenuOpen((current) => !current)}><Plus size={18} /></button>
-          {addMenuOpen ? <div className="composer-add-menu" role="menu" aria-label="添加到输入框">
-            <div className="composer-add-attachment"><ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={(files) => { setAddMenuOpen(false); return onAttachFiles?.(files); }} /><span><Paperclip size={14} />添加附件</span></div>
-            <button type="button" role="menuitem" onClick={() => insertTrigger("@") }><File size={15} />引用项目文件</button>
-            <button type="button" role="menuitem" disabled={skills.length === 0} onClick={() => insertTrigger("/")}><Sparkles size={15} />选择技能</button>
-            {productMode === "agent" ? <button type="button" role="menuitemcheckbox" aria-checked={agentTurnMode === "plan"} disabled={agentTurnMode !== "plan" && Boolean(planModeDisabledReason)} title={planModeDisabledReason ?? undefined} onClick={() => { setAddMenuOpen(false); void onSelectAgentTurnMode?.(agentTurnMode === "plan" ? "default" : "plan"); }}><ListPlus size={15} />计划模式</button> : null}
-            {productMode === "agent" ? <button type="button" role="menuitem" disabled={Boolean(reviewSubmitting)} onClick={() => { setAddMenuOpen(false); void onOpenReview?.(); }}><Search size={15} />代码审查</button> : null}
-          </div> : null}
+        <div className="composer-leading-controls">
+          <div className="composer-add-control">
+            <ComposerFileInput inputRef={fileInputRef} onAttachFiles={onAttachFiles} />
+            <DropdownMenu.Root open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+              <DropdownMenu.Trigger asChild>
+                <button type="button" className="composer-add-trigger" aria-label="添加上下文" disabled={Boolean(disabledReason)}><Plus size={18} /></button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content className="composer-add-menu" side="top" align="start" sideOffset={8} collisionPadding={12} aria-label="添加到输入框" onCloseAutoFocus={(event) => {
+                  if (!restoreEditorFocusRef.current) return;
+                  event.preventDefault();
+                  restoreEditorFocusRef.current = false;
+                  window.setTimeout(() => textareaRef.current?.focus(), 0);
+                }}>
+                  <DropdownMenu.Item className="composer-menu-item" onSelect={() => fileInputRef.current?.click()}><Paperclip size={15} />添加附件</DropdownMenu.Item>
+                  <DropdownMenu.Item className="composer-menu-item" onSelect={() => insertTrigger("@") }><File size={15} />引用项目文件</DropdownMenu.Item>
+                  <DropdownMenu.Item className="composer-menu-item" disabled={skills.length === 0} onSelect={() => insertTrigger("/")}><Sparkles size={15} />选择技能</DropdownMenu.Item>
+                  {productMode === "agent" ? <DropdownMenu.CheckboxItem className="composer-menu-item" checked={agentTurnMode === "plan"} disabled={agentTurnMode !== "plan" && Boolean(planModeDisabledReason)} title={planModeDisabledReason ?? undefined} onSelect={() => void onSelectAgentTurnMode?.(agentTurnMode === "plan" ? "default" : "plan")}><Lightbulb size={15} />计划模式{agentTurnMode === "plan" ? <Check size={14} className="composer-menu-check" /> : null}</DropdownMenu.CheckboxItem> : null}
+                  {productMode === "agent" ? <DropdownMenu.Item className="composer-menu-item" disabled={Boolean(reviewSubmitting)} onSelect={() => void onOpenReview?.()}><Search size={15} />代码审查</DropdownMenu.Item> : null}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
+          {productMode === "agent" ? <AgentAccessControl accessView={accessView} onSelectAccess={onSelectAccess} onRefreshAccess={onRefreshAccess} /> : null}
+          {productMode === "agent" && agentTurnMode === "plan" ? <span className="composer-plan-indicator" aria-label="当前为计划模式">
+            <span className="composer-plan-divider" aria-hidden="true" />
+            <Lightbulb size={15} aria-hidden="true" /><span>计划</span>
+            <button type="button" className="composer-plan-exit" aria-label="退出计划模式" onClick={() => void onSelectAgentTurnMode?.("default")}><X size={13} /></button>
+          </span> : null}
         </div>
-        {productMode === "agent" ? <AgentAccessControl accessView={accessView} onSelectAccess={onSelectAccess} onRefreshAccess={onRefreshAccess} planning={agentTurnMode === "plan"} /> : null}
         <div className="composer-end-controls">
           {contextControl}
           {onSelectAgentProviderModel && onSelectAgentReasoningEffort ? <ConversationModelSelectors
@@ -459,7 +463,6 @@ export function ConversationComposerSurface({
     >
       {beforeEditor}
       {productMode === "agent" && accessView?.failure ? <div className="composer-access-failure" role="status">{accessView.failure}<button type="button" onClick={() => void onRefreshAccess?.()}>重新检测</button></div> : null}
-      {productMode === "agent" && agentTurnMode === "plan" ? <div className="composer-selected-context"><span className="composer-selected-item"><ListPlus size={13} aria-hidden="true" />计划<button type="button" aria-label="退出计划模式" onClick={() => void onSelectAgentTurnMode?.("default")}><X size={12} /></button></span></div> : null}
       {productMode === "agent" && reviewOpen ? <ReviewInlineSelector options={reviewOptions ?? null} loading={Boolean(reviewLoading)} submitting={Boolean(reviewSubmitting)} onClose={() => onCloseReview?.()} onStart={(target) => onStartReview?.(target)} /> : null}
       <SkillMentionPicker value={value} onChange={onChange} skills={skills} activeSkillIds={activeSkillIds} onToggleSkill={onToggleSkill ?? (() => undefined)} />
       <FileMentionPicker projectId={projectId} value={value} onChange={onChange} selectedRefs={selectedFileRefs} onSelectedRefsChange={onSelectedFileRefsChange ?? (() => undefined)} />
@@ -519,6 +522,7 @@ function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onSt
   onStop: () => void;
 }): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
+  const queueSelectedRef = useRef(false);
   const intent = projection.primaryIntent;
   const contextIntent = projection.canStop && (intent === "steer" || intent === "queue" || intent === "jump-to-request" || intent === "wait")
     ? intent
@@ -526,6 +530,10 @@ function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onSt
   const primaryIntent: ComposerPrimaryIntent = projection.canStop ? "stop" : intent;
   const primaryLabel = composerActionLabel(primaryIntent, projection.canStop ? null : projection.disabledReason);
   const contextLabel = contextIntent ? composerActionLabel(contextIntent, projection.disabledReason) : "";
+  const queueAlternativeAvailable = contextIntent === "steer" && projection.alternativeIntent === "queue" && !mutationBusy && projection.canSubmitDraft;
+  useEffect(() => {
+    if (!queueAlternativeAvailable) setMenuOpen(false);
+  }, [queueAlternativeAvailable]);
   const invokePrimary = () => {
     if (primaryIntent === "send") onSend();
     else if (primaryIntent === "queue") onQueue();
@@ -542,10 +550,20 @@ function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onSt
           {contextIntent === "wait" ? <LoaderCircle size={14} className="spin" /> : contextIntent === "queue" ? <ListPlus size={14} /> : <ArrowUp size={14} />}
           <span>{contextLabel}</span>
         </button>
-        {contextIntent === "steer" && projection.alternativeIntent === "queue" ? <>
-          <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式" aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><ChevronDown size={13} /></button>
-          {menuOpen ? <div className="composer-action-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onQueue(); }}><ListPlus size={14} />稍后发送</button></div> : null}
-        </> : null}
+        {queueAlternativeAvailable ? <DropdownMenu.Root open={menuOpen} onOpenChange={(open) => { if (open) queueSelectedRef.current = false; setMenuOpen(open); }}>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式"><ChevronDown size={13} /></button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="composer-action-menu" side="top" align="end" sideOffset={8} collisionPadding={12} aria-label="其他发送方式">
+              <DropdownMenu.Item className="composer-menu-item" onSelect={() => {
+                if (!queueAlternativeAvailable || queueSelectedRef.current) return;
+                queueSelectedRef.current = true;
+                onQueue();
+              }}><ListPlus size={14} />稍后发送</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root> : null}
       </div>
     </div> : null}
     <div className="composer-primary-action">
