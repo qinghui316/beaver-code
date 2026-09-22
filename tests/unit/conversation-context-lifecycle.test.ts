@@ -20,6 +20,7 @@ import { ConversationContextRepository } from "../../src/workbench/persistence/r
 const projectId = "conversation-context-project";
 const sessionId = "thread-private-session";
 const graphScopeId = "graph-current";
+const providerEventPersistenceTimeoutMs = 15_000;
 let root: string;
 let originalAhoHome: string | undefined;
 let paths: ProjectRuntimePaths;
@@ -61,7 +62,7 @@ describe("ConversationContextLifecycleOwner", () => {
       contextUsedTokens: 20_000,
       modelContextWindow: 200_000,
     })));
-    await vi.waitFor(async () => expect(await owner.read(project, productMode, conversationId)).toMatchObject({
+    await waitForProviderEventPersistence(async () => expect(await owner.read(project, productMode, conversationId)).toMatchObject({
       usage: {
         total: { totalTokens: 190_000 },
         last: { inputTokens: 15_000, cachedInputTokens: 5_000 },
@@ -75,7 +76,7 @@ describe("ConversationContextLifecycleOwner", () => {
 
     listener(compactionEvent("automatic-1", "completed"));
     listener(compactionEvent("automatic-1", "started"));
-    await vi.waitFor(async () => expect(await owner.read(project, productMode, conversationId)).toMatchObject({
+    await waitForProviderEventPersistence(async () => expect(await owner.read(project, productMode, conversationId)).toMatchObject({
       lifecycle: "completed",
       source: "automatic",
       lastCompactedAt: "2026-08-24T00:02:00.000Z",
@@ -120,9 +121,9 @@ describe("ConversationContextLifecycleOwner", () => {
     expect(compactContext).toHaveBeenCalledOnce();
 
     callback?.(compactionEvent("manual-item", "started"));
-    await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting", source: "manual" }));
+    await waitForProviderEventPersistence(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting", source: "manual" }));
     callback?.(compactionEvent("manual-item", "completed"));
-    await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", source: "manual" }));
+    await waitForProviderEventPersistence(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", source: "manual" }));
 
     await expect(owner.compact(project, { ...request, contextRevision: "stale-revision" }))
       .rejects.toMatchObject({ name: "Conflict" });
@@ -142,16 +143,16 @@ describe("ConversationContextLifecycleOwner", () => {
     const request = compactRequest(conversationId, initial.contextRevision, "persist-retry");
     await owner.compact(project, request);
     callback?.(compactionEvent("persist-item", "started"));
-    await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" }));
+    await waitForProviderEventPersistence(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" }));
 
     const failure = vi.spyOn(ConversationContextRepository.prototype, "upsertCompaction")
       .mockImplementationOnce(() => { throw new Error("simulated timeline write failure"); });
     callback?.(compactionEvent("persist-item", "completed"));
-    await vi.waitFor(() => expect(failure).toHaveBeenCalled());
+    await waitForProviderEventPersistence(() => expect(failure).toHaveBeenCalled());
     failure.mockRestore();
     expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "compacting" });
 
-    await vi.waitFor(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", canCompact: true }));
+    await waitForProviderEventPersistence(async () => expect(await owner.read(project, "agent", conversationId)).toMatchObject({ lifecycle: "completed", canCompact: true }));
     expect(compactContext).toHaveBeenCalledOnce();
   });
 
@@ -308,6 +309,11 @@ describe("ConversationContextLifecycleOwner", () => {
     }
   });
 });
+
+function waitForProviderEventPersistence(assertion: () => void | Promise<void>): Promise<void> {
+  // Provider callbacks enqueue SQLite writes without awaiting them; loaded CI runners can delay delivery.
+  return vi.waitFor(assertion, { timeout: providerEventPersistenceTimeoutMs });
+}
 
 function createOwner(
   compactContext: (request: ProviderContextCompactRequest) => Promise<{ status: "accepted" }>,
