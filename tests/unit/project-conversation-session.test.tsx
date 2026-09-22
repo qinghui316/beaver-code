@@ -280,7 +280,7 @@ describe("Project conversation session owner", () => {
 
     rerender({ productMode: "agent" });
     await waitFor(() => expect(fixture.api.loadNavigation).toHaveBeenCalledWith("repo-2", "agent"));
-    expect(result.current.projectNavigation["repo-2"]?.[0]?.id).toBe("repo-2-conversation");
+    await waitFor(() => expect(result.current.projectNavigation["repo-2"]?.[0]?.id).toBe("repo-2-conversation"));
   });
 
   it("limits expanded-project navigation fanout to three concurrent reads", async () => {
