@@ -985,6 +985,13 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     }
     productModeRef.current = targetProductMode;
     setProductMode(targetProductMode);
+    for (const expandedProjectId of expandedProjects) {
+      if (expandedProjectId === projectId) continue;
+      const expandedStatus = findProject(stateRef.current.projects, expandedProjectId);
+      if (canLoadWorkbenchSnapshot(expandedStatus, targetProductMode)) {
+        void loadNavigation(expandedProjectId, targetProductMode).catch(reportError);
+      }
+    }
     setSelectedTopic(null);
     setSelectedRun(null);
     setStream(null);
@@ -1005,7 +1012,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     }
     if (!canLoadWorkbenchSnapshot(status, targetProductMode)) return;
     await refreshAtGeneration(projectId, null, generation, targetProductMode);
-  }, [projectModeSnapshots, refreshAtGeneration]);
+  }, [expandedProjects, loadNavigation, projectModeSnapshots, refreshAtGeneration, reportError]);
 
   useEffect(() => {
     if (requestedProductMode === productModeRef.current) return;

@@ -193,6 +193,41 @@ describe("Project conversation session owner", () => {
     await waitFor(() => expect(result.current.projectSnapshots["repo-1"]?.productMode).toBe("harness"));
   });
 
+  it("loads target-mode navigation for an expanded project without waiting for its response", async () => {
+    let resolveAgentNavigation!: (value: { productMode: ProductMode; conversations: Array<{ id: string; title: string; state: "active"; userStatusLabel: string; waitingDecisionCount: number }> }) => void;
+    const agentNavigation = new Promise<Parameters<typeof resolveAgentNavigation>[0]>((resolve) => { resolveAgentNavigation = resolve; });
+    const fixture = ownerFixture();
+    fixture.api.loadNavigation.mockImplementation((projectId: string, mode: ProductMode) => (
+      projectId === "repo-2" && mode === "agent"
+        ? agentNavigation
+        : Promise.resolve({ productMode: mode, conversations: projectId === "repo-2" ? [
+          { id: "harness-conversation", title: "Harness conversation", state: "active" as const, userStatusLabel: "处理中", waitingDecisionCount: 0 },
+        ] : [] })
+    ));
+    const { result, rerender } = renderHook(
+      ({ productMode }: { productMode: ProductMode }) => useProjectConversationSession({
+        ...fixture.ports,
+        productMode,
+        autoLoad: false,
+      }),
+      { initialProps: { productMode: "harness" as ProductMode } },
+    );
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.toggleProjectFolder("repo-2"); });
+    expect(result.current.projectNavigation["repo-2"]?.[0]?.title).toBe("Harness conversation");
+
+    rerender({ productMode: "agent" });
+    await waitFor(() => expect(fixture.api.loadNavigation).toHaveBeenCalledWith("repo-2", "agent"));
+    await waitFor(() => expect(result.current.productMode).toBe("agent"));
+    expect(result.current.expandedProjects.has("repo-2")).toBe(true);
+    expect(result.current.projectNavigation["repo-2"]).toBeUndefined();
+
+    await act(async () => { resolveAgentNavigation({ productMode: "agent", conversations: [
+      { id: "agent-conversation", title: "Agent conversation", state: "active", userStatusLabel: "稍后处理", waitingDecisionCount: 0 },
+    ] }); await agentNavigation; });
+    expect(result.current.projectNavigation["repo-2"]?.[0]?.title).toBe("Agent conversation");
+  });
+
   it("drops an old-mode Snapshot after a newer mode selection wins", async () => {
     let resolveHarness!: (value: Snapshot) => void;
     const harnessResponse = new Promise<Snapshot>((resolve) => { resolveHarness = resolve; });
