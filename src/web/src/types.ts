@@ -1664,7 +1664,8 @@ export type WorkbenchLiveEvent =
   | { event: "conversation.turn-control.invalidated"; data: { conversationId: string; attemptId: string } }
   | { event: "conversation.context.invalidated"; data: { conversationId: string } }
   | { event: "conversation.turn-queue.invalidated"; data: { conversationId: string } }
-  | { event: "conversation.lifecycle.invalidated"; data: { conversationId: string } }
+  | { event: "conversation.lifecycle.invalidated"; data: { conversationId: string; productMode: ProductMode; state: "active" | "archived" | "deleted"; lifecycleRevision: string } }
+  | { event: "conversation.lifecycle.sync-updated"; data: { conversationId: string; productMode: ProductMode; providerSyncStatus: "not-required" | "unsupported" | "submitting" | "completed" | "failed" | "uncertain" } }
   | { event: "conversation.review.invalidated"; data: { conversationId: string } }
   | { event: "conversation.fork.completed"; data: { sourceConversationId: string; targetConversationId: string } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }

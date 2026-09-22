@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { ArrowLeft, Bot, CircleAlert, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Bot, CircleAlert, MessagesSquare, RefreshCw, Sparkles, X } from "lucide-react";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
 import { DialogSurface } from "../presentation/DialogSurface.js";
 import { providerHealthViewModel } from "../presentation/provider-health.js";
@@ -7,19 +7,23 @@ import { sanitizeTechnicalDetail, userFacingErrorMessage } from "../presentation
 import type { ProductMode, ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 import { DesktopUpdateDock } from "../shell/DesktopUpdateDock.js";
 import { useSkillsSettingsController } from "../controllers/useSkillsSettingsController.js";
+import { ConversationManagementView } from "./ConversationManagementView.js";
+import type { ManagementConversation } from "../controllers/useConversationManagement.js";
 
-export type SettingsSection = "basic" | "project" | "provider" | "skills";
-type VisibleSettingsSection = "provider" | "skills";
+export type SettingsSection = "basic" | "project" | "provider" | "skills" | "conversations";
+type VisibleSettingsSection = "provider" | "skills" | "conversations";
 
 const sections: Array<{ id: VisibleSettingsSection; label: string; icon: typeof Bot }> = [
   { id: "provider", label: "AI 服务", icon: Bot },
   { id: "skills", label: "技能", icon: Sparkles },
+  { id: "conversations", label: "会话管理", icon: MessagesSquare },
 ];
 
-export function SettingsSurface({ section, onSectionChange, project, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, onClose, onRefresh }: {
+export function SettingsSurface({ section, onSectionChange, project, projects, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, managementRefreshVersions, onManagementChanged, onClose, onRefresh }: {
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
   project: ProjectStatus | null;
+  projects?: ProjectStatus[];
   productMode: ProductMode;
   conversationId: string | null;
   selectedProviderId: string | null;
@@ -27,12 +31,14 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
   modelSettings: ProviderModelSettingsSnapshot | null;
   providerCapabilities?: ProviderCapabilitySnapshot[];
   modelSettingsBusy?: boolean;
+  managementRefreshVersions?: Record<string, number>;
+  onManagementChanged?: (item: ManagementConversation, action: "archive" | "restore" | "delete") => void;
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const visibleSection: VisibleSettingsSection = section === "skills" ? "skills" : "provider";
+  const visibleSection: VisibleSettingsSection = section === "skills" || section === "conversations" ? section : "provider";
   const selectedProjectId = project?.project?.id ?? null;
   const providerLabel = diagnostics?.displayName ?? "当前 AI 服务";
   const capabilitySnapshot = providerCapabilities?.find((item) => item.providerId === (diagnostics?.providerId ?? selectedProviderId)) ?? null;
@@ -86,7 +92,9 @@ export function SettingsSurface({ section, onSectionChange, project, productMode
               {diagnosticsAvailable ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
             </div>
           </section>
-        )}</> : <SkillsSettingsView surface={skillsSurface} onBack={onClose} />}
+        )}</> : visibleSection === "skills" ? <SkillsSettingsView surface={skillsSurface} onBack={onClose} />
+          : <ConversationManagementView active currentProjectId={selectedProjectId} projects={projects ?? []}
+              refreshVersions={managementRefreshVersions ?? {}} onChanged={onManagementChanged ?? (() => undefined)} onBack={onClose} />}
         {message ? <p className="diagnostic-errors" role="alert">{message}</p> : null}
       </div>
 

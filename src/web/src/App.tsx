@@ -47,6 +47,7 @@ import {
 } from "./formatters.js";
 import type {
   Snapshot,
+  ProductMode,
   ParentAgentTranscript,
   Workpad,
   DecisionAction,
@@ -161,6 +162,11 @@ export function App(): ReactElement {
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
+  const [managementRefreshVersions, setManagementRefreshVersions] = useState<Record<string, number>>({});
+  const invalidateManagement = (projectId: string, productMode: ProductMode) => {
+    const key = `${projectId}\0${productMode}`;
+    setManagementRefreshVersions((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
+  };
   const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
@@ -594,6 +600,8 @@ export function App(): ReactElement {
     ? snapshot
     : { ...emptySnapshotForMode(appMode.productMode), project: projects.find((item) => item.project?.id === selectedProjectId)?.project ?? null };
   const selectedTopicForMode = selectedTopic;
+  const archivingSelected = Boolean(selectedProjectId && selectedTopicForMode
+    && session.archivingKeys.has(`${selectedProjectId}\0${appMode.productMode}\0${selectedTopicForMode}`));
   const activePendingConversation = pendingDemandConversation
     && selectedProjectId === pendingDemandConversation.projectId
     && pendingDemandConversation.productMode === appMode.productMode
@@ -612,7 +620,7 @@ export function App(): ReactElement {
       boundChangeId: null,
       selectedProviderId: activePendingConversation.selectedProviderId,
     }
-    : activeModeSnapshot.center.selectedTopic;
+    : archivingSelected ? null : activeModeSnapshot.center.selectedTopic;
   const workspaceResources = useWorkspaceResourceController(workspaceResourceModeHandoff({ productMode: appMode.productMode }, {
     projectId: selectedProjectId,
     conversationId: activeTopic?.id ?? null,
@@ -1085,14 +1093,12 @@ export function App(): ReactElement {
     conversationTurnQueue.handleEvent(projectId, event);
     if (event.event === "topic.created") session.invalidateNavigation(projectId, event.data.productMode);
     if (event.event === "topic.updated") session.invalidateNavigation(projectId, event.data.conversation.productMode);
-    if (event.event === "conversation.lifecycle.invalidated") session.invalidateNavigation(projectId);
-    if (event.event === "conversation.lifecycle.invalidated" && selectedProjectIdRef.current === projectId) {
-      const selectedConversationId = selectedConversationIdRef.current;
-      void session.refresh(
-        projectId,
-        selectedConversationId === event.data.conversationId ? null : selectedConversationId,
-      );
+    if (event.event === "conversation.lifecycle.invalidated") {
+      session.invalidateNavigation(projectId, event.data.productMode);
+      session.acceptLifecycleInvalidation({ projectId, ...event.data });
+      invalidateManagement(projectId, event.data.productMode);
     }
+    if (event.event === "conversation.lifecycle.sync-updated") invalidateManagement(projectId, event.data.productMode);
   }
 
   function toggleOrchestrationOverlay(): void {
@@ -1140,6 +1146,7 @@ export function App(): ReactElement {
     snapshot: activeModeSnapshot,
     expandedProjects,
     overlay: navigationOverlay.state,
+    archivingKeys: session.archivingKeys,
   }, {
     onCloseOverlay: navigationOverlay.close,
     onOpenSearch: navigationOverlay.openSearch,
@@ -1354,6 +1361,7 @@ export function App(): ReactElement {
             section={settingsSection}
             onSectionChange={changeSettingsSection}
             project={selectedProjectStatus}
+            projects={projects}
             productMode={appMode.productMode}
             conversationId={activeTopic?.id ?? null}
             selectedProviderId={activeTopic?.selectedProviderId ?? composerProviderId}
@@ -1361,6 +1369,15 @@ export function App(): ReactElement {
             modelSettings={providerModelSettings}
             providerCapabilities={providerCapabilities}
             modelSettingsBusy={providerConfiguration.modelCatalogsBusy}
+            managementRefreshVersions={managementRefreshVersions}
+            onManagementChanged={(item, action) => {
+              session.invalidateNavigation(item.projectId, item.productMode);
+              if (action === "archive" || action === "delete") session.acceptLifecycleInvalidation({
+                projectId: item.projectId, productMode: item.productMode,
+                conversationId: item.conversationId, state: action === "archive" ? "archived" : "deleted",
+              });
+              invalidateManagement(item.projectId, item.productMode);
+            }}
             onClose={closeSettings}
             onRefresh={() => loadApp().then(() => providerConfiguration.reload()).then(() => loadSkillSummary())}
           />
@@ -1382,6 +1399,8 @@ export function App(): ReactElement {
             onRetry={loadApp}
             onOpenDiagnostics={() => openRightToolPanel("diagnostics")}
           />
+        ) : archivingSelected ? (
+          <section className="empty-workbench" role="status"><h1>正在归档会话</h1></section>
         ) : selectedTopic && !selectedTopic.startsWith("pending:") && !snapshotMatchesCurrentMode ? (
           <section className="empty-workbench" data-testid="conversation-loading" role="status">
             <h1>{session.snapshotError ? "会话加载失败" : "正在加载会话"}</h1>

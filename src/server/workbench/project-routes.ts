@@ -102,7 +102,13 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     return;
   }
   if (request.method === "GET" && rest === "navigation") {
-    sendJson(response, 200, await getWorkbenchNavigation(input, requireProductMode(url.searchParams.get("productMode"))));
+    const state = url.searchParams.get("state");
+    if (state !== null && state !== "active" && state !== "archive" && state !== "all") {
+      const error = new Error("Conversation navigation state must be active, archive, or all.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    sendJson(response, 200, await getWorkbenchNavigation(input, requireProductMode(url.searchParams.get("productMode")), state ?? "all"));
     return;
   }
   if (rest === "composer-draft" && request.method === "GET") {

@@ -28,6 +28,7 @@ export interface ProjectNavigationViewModel {
   snapshot: Snapshot;
   expandedProjects: Set<string>;
   overlay: ProjectNavigationOverlayState;
+  archivingKeys?: ReadonlySet<string>;
 }
 
 export interface ProjectNavigationActions {
@@ -68,6 +69,7 @@ export function projectNavigationSearchResults(input: {
   readonly selectedProjectId: string | null;
   readonly selectedConversationId: string | null;
   readonly query: string;
+  readonly archivingKeys?: ReadonlySet<string>;
 }): readonly ProjectNavigationSearchResult[] {
   const query = input.query.trim().toLocaleLowerCase();
   const projects = [...input.projects]
@@ -90,6 +92,8 @@ export function projectNavigationSearchResults(input: {
     const conversations = projectNavigationConversations(input.navigation ? undefined : input.snapshots[projectId],
       projectId === input.selectedProjectId ? input.selectedConversationId : null, input.navigation?.[projectId]);
     for (const conversation of conversations) {
+      if (conversation.state === "archive") continue;
+      if (input.archivingKeys?.has(`${projectId}\0${conversation.lifecycle?.productMode ?? input.snapshots[projectId]?.productMode ?? "agent"}\0${conversation.id}`)) continue;
       const archived = conversation.state === "archive";
       const searchable = `${conversation.title} ${title} ${conversation.userStatusLabel} ${archived ? "已归档" : ""}`.toLocaleLowerCase();
       if (!query || searchable.includes(query)) {
@@ -144,7 +148,7 @@ export function projectNavigationConversations(
   selectedConversationId: string | null,
   navigation?: readonly ProjectNavigationConversation[],
 ): readonly ProjectNavigationConversationViewModel[] {
-  if (navigation) return navigation.map((conversation) => {
+  if (navigation) return navigation.filter((conversation) => conversation.state !== "archive").map((conversation) => {
     const selected = conversation.id === selectedConversationId;
     const workpad = selected && snapshot?.center.selectedTopic?.id === conversation.id
       ? snapshot.left.workpads?.find((item) => item.id === conversation.id)
@@ -170,7 +174,7 @@ export function projectNavigationConversations(
       waitingDecisionCount: 0,
       blocker: undefined,
     } satisfies WorkpadSummary));
-  return workpads.map((workpad) => ({
+  return workpads.filter((workpad) => workpad.state !== "archive").map((workpad) => ({
     id: workpad.id,
     title: workpad.title,
     userStatusLabel: workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus),

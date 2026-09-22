@@ -35,6 +35,58 @@ afterEach(async () => {
 });
 
 describe("ConversationLifecycleOwner", () => {
+  it("returns a local archive receipt before a five-second capability check", async () => {
+    await seedConversation("baseline-capability-wait", "agent");
+    const capabilityGate = new Promise<void>((resolve) => { setTimeout(resolve, 5_000); });
+    const owner = createOwner(vi.fn(async () => ({ status: "completed" as const })), {
+      onCapabilitySnapshot: () => capabilityGate,
+    });
+    const startedAt = Date.now();
+    const archived = await owner.settle(project, request("baseline-capability-wait", "agent", "archive", 0, "baseline-archive"));
+    expect(Date.now() - startedAt).toBeLessThan(4_000);
+    expect(archived).toMatchObject({ status: "completed", providerSyncStatus: "submitting", snapshot: { state: "archived" } });
+    await expect(owner.settle(project, request("baseline-capability-wait", "agent", "archive", 0, "baseline-archive")))
+      .resolves.toMatchObject({ status: "replayed", snapshot: { state: "archived" } });
+    await waitForArchiveOperation("baseline-archive", "completed");
+  }, 12_000);
+
+  it("returns before a five-second Provider archive and blocks restore during synchronization", async () => {
+    await seedConversation("provider-delay", "agent");
+    const providerGate = new Promise<void>((resolve) => { setTimeout(resolve, 5_000); });
+    const call = vi.fn(async () => { await providerGate; return { status: "completed" as const }; });
+    const owner = createOwner(call);
+    const startedAt = Date.now();
+    const receipt = await owner.settle(project, request("provider-delay", "agent", "archive", 0, "provider-delay-archive"));
+    expect(Date.now() - startedAt).toBeLessThan(4_000);
+    expect(receipt).toMatchObject({ snapshot: { state: "archived" }, providerSyncStatus: "submitting" });
+    await vi.waitFor(() => expect(call).toHaveBeenCalledOnce());
+    await expect(owner.settle(project, request("provider-delay", "agent", "restore", 1, "provider-delay-restore")))
+      .rejects.toMatchObject({ name: "Conflict" });
+    await waitForArchiveOperation("provider-delay-archive", "completed");
+  }, 12_000);
+
+  it("records a temporarily unavailable archive capability as failed while keeping the local archive", async () => {
+    await seedConversation("capability-unavailable", "agent");
+    const providerCall = vi.fn(async () => ({ status: "completed" as const }));
+    const owner = createOwner(providerCall, { archiveCapability: "unavailable" });
+    await expect(owner.settle(project, request("capability-unavailable", "agent", "archive", 0, "archive-capability-unavailable")))
+      .resolves.toMatchObject({ snapshot: { state: "archived" }, providerSyncStatus: "submitting" });
+    await waitForArchiveOperation("archive-capability-unavailable", "failed");
+    expect(providerCall).not.toHaveBeenCalled();
+  });
+
+  it("records an explicit Provider archive rejection as failed without undoing the local archive", async () => {
+    await seedConversation("archive-rejected", "agent");
+    const rejected = new Error("rejected");
+    rejected.name = "ProviderSessionArchiveRejected";
+    const owner = createOwner(vi.fn(async () => { throw rejected; }));
+    await expect(owner.settle(project, request("archive-rejected", "agent", "archive", 0, "archive-rejected-request")))
+      .resolves.toMatchObject({ snapshot: { state: "archived" } });
+    await waitForArchiveOperation("archive-rejected-request", "failed");
+    await expect(owner.read(project, "agent", "archive-rejected"))
+      .resolves.toMatchObject({ state: "archived" });
+  });
+
   it("archives, restores, and permanently deletes an Agent Conversation with exact replay", async () => {
     await seedConversation("agent-conversation", "agent");
     await seedCompletedReviewOperation("agent-conversation", "review-before-delete");
@@ -44,16 +96,18 @@ describe("ConversationLifecycleOwner", () => {
     const archived = await owner.settle(project, request("agent-conversation", "agent", "archive", 0, "archive-1"));
     expect(archived).toMatchObject({
       status: "completed",
-      providerSyncStatus: "completed",
+      providerSyncStatus: "submitting",
       snapshot: { state: "archived", archiveOrigin: "agent-user", lifecycleRevision: "conversation-lifecycle:1" },
     });
     await expect(owner.settle(project, request("agent-conversation", "agent", "archive", 0, "archive-1")))
       .resolves.toMatchObject({ status: "replayed" });
+    await waitForArchiveOperation("archive-1", "completed");
     expect(setSessionArchived).toHaveBeenCalledTimes(1);
 
     await expect(owner.settle(project, request("agent-conversation", "agent", "restore", 1, "restore-1")))
       .resolves.toMatchObject({ snapshot: { state: "active", lifecycleRevision: "conversation-lifecycle:2" } });
     await owner.settle(project, request("agent-conversation", "agent", "archive", 2, "archive-2"));
+    await waitForArchiveOperation("archive-2", "completed");
     const confirmation = await owner.prepareDelete(project, "agent", "agent-conversation", "conversation-lifecycle:3");
     await expect(owner.settle(project, {
       ...request("agent-conversation", "agent", "delete", 3, "delete-1"),
@@ -78,7 +132,8 @@ describe("ConversationLifecycleOwner", () => {
     await seedConversation("uncertain-conversation", "agent");
     const uncertain = createOwner(vi.fn(async () => { throw new Error("connection lost after request write"); }));
     await expect(uncertain.settle(project, request("uncertain-conversation", "agent", "archive", 0, "archive-uncertain")))
-      .resolves.toMatchObject({ providerSyncStatus: "uncertain", snapshot: { state: "archived" } });
+      .resolves.toMatchObject({ providerSyncStatus: "submitting", snapshot: { state: "archived" } });
+    await waitForArchiveOperation("archive-uncertain", "uncertain");
 
     const unavailable = createOwner(vi.fn(), { archiveCapability: false });
     await expect(unavailable.settle(project, request("uncertain-conversation", "agent", "restore", 1, "restore-unavailable")))
@@ -96,6 +151,7 @@ describe("ConversationLifecycleOwner", () => {
     await seedConversation("restore-race", "agent");
     await createOwner(vi.fn(async () => ({ status: "completed" as const })))
       .settle(project, request("restore-race", "agent", "archive", 0, "archive-before-restore-race"));
+    await waitForArchiveOperation("archive-before-restore-race", "completed");
 
     let releaseProvider!: () => void;
     const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
@@ -119,7 +175,7 @@ describe("ConversationLifecycleOwner", () => {
     await expect(first).resolves.toMatchObject({ snapshot: { state: "active" } });
   });
 
-  it("rejects a Provider binding change before local or Provider lifecycle side effects", async () => {
+  it("keeps a local archive when the Provider binding changes before background sync", async () => {
     await seedConversation("binding-race", "agent");
     const setSessionArchived = vi.fn(async () => ({ status: "completed" as const }));
     const owner = createOwner(setSessionArchived, {
@@ -143,12 +199,13 @@ describe("ConversationLifecycleOwner", () => {
     });
 
     await expect(owner.settle(project, request("binding-race", "agent", "archive", 0, "archive-binding-race")))
-      .rejects.toMatchObject({ name: "Conflict" });
+      .resolves.toMatchObject({ snapshot: { state: "archived" } });
+    await waitForArchiveOperation("archive-binding-race", "failed");
     expect(setSessionArchived).not.toHaveBeenCalled();
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
-      expect(database.conversations.readConversation(projectId, "binding-race")).toMatchObject({ state: "active" });
-      expect(database.conversationLifecycle.read(projectId, "archive-binding-race")).toBeNull();
+      expect(database.conversations.readConversation(projectId, "binding-race")).toMatchObject({ state: "archive" });
+      expect(database.conversationLifecycle.read(projectId, "archive-binding-race")).toMatchObject({ status: "completed", providerSyncStatus: "failed" });
     } finally {
       database.close();
     }
@@ -371,7 +428,7 @@ describe("Schema 17 lifecycle migration", () => {
 function createOwner(
   setSessionArchived: (request: { archived: boolean }) => Promise<{ status: "completed" | "already-matched" }>,
   options: {
-    archiveCapability?: boolean;
+    archiveCapability?: boolean | "unavailable";
     turnState?: "idle" | "running" | "stopping";
     onCapabilitySnapshot?: () => Promise<void>;
   } = {},
@@ -390,6 +447,18 @@ function createOwner(
     projectRuntimeCoordinator: { resolve: async () => ({ state: "onboarding", paths }) } as never,
     turnControl: { state: () => ({ state: options.turnState ?? "idle", canStop: false, explanation: "idle" }) } as never,
   });
+}
+
+async function waitForArchiveOperation(clientRequestId: string, providerSyncStatus: string): Promise<void> {
+  await vi.waitFor(async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(database.conversationLifecycle.read(projectId, clientRequestId))
+        .toMatchObject({ status: "completed", providerSyncStatus });
+    } finally {
+      database.close();
+    }
+  }, { timeout: 7_000, interval: 20 });
 }
 
 async function seedConversation(
@@ -503,7 +572,7 @@ function request(
   };
 }
 
-function capabilitySnapshot(archiveReady: boolean) {
+function capabilitySnapshot(archiveReady: boolean | "unavailable") {
   return {
     providerId: "codex",
     displayName: "Codex",
@@ -520,7 +589,7 @@ function capabilitySnapshot(archiveReady: boolean) {
       key: "session.archive" as const,
       label: "Session archive",
       spec: "supported" as const,
-      runtime: "ready" as const,
+      runtime: archiveReady === "unavailable" ? "unavailable" as const : "ready" as const,
       summary: "ready",
     }] : [],
   };

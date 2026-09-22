@@ -8,12 +8,13 @@ import type { ProviderCapabilitySnapshot, ProviderDiagnostics } from "../../src/
 afterEach(cleanup);
 
 describe("SettingsSurface clarity", () => {
-  it("normalizes legacy sections into the two user-facing destinations", () => {
+  it("shows provider, skills, and conversation management destinations", () => {
     render(<SettingsSurface section="basic" onSectionChange={vi.fn()} project={null} productMode="agent" conversationId={null} selectedProviderId="codex" diagnostics={null} modelSettings={null} providerCapabilities={[]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     const navigation = screen.getByRole("navigation");
-    expect(navigation.querySelectorAll("button")).toHaveLength(2);
+    expect(navigation.querySelectorAll("button")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "AI 服务" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "技能" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "会话管理" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "基础" })).toBeNull();
     expect(screen.queryByRole("button", { name: "项目" })).toBeNull();
     expect(screen.getAllByText("设置")).toHaveLength(1);

@@ -154,6 +154,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const [projectModeSnapshots, setProjectModeSnapshots] = useState<Record<string, Snapshot>>({});
   const [navigationLists, setNavigationLists] = useState<Record<string, ProjectNavigationConversation[]>>({});
   const [navigationErrors, setNavigationErrors] = useState<Record<string, string>>({});
+  const [archivingKeys, setArchivingKeys] = useState<Set<string>>(new Set());
+  const archivingKeysRef = useRef(new Set<string>());
   const navigationListsRef = useRef(navigationLists);
   navigationListsRef.current = navigationLists;
   const navigationRequestsRef = useRef(new Map<string, Promise<void>>());
@@ -174,8 +176,9 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const projectNavigation = useMemo(
     () => Object.fromEntries(Object.entries(navigationLists)
       .filter(([key]) => key.endsWith(`\0${productMode}`))
-      .map(([key, value]) => [key.slice(0, -productMode.length - 1), value])),
-    [navigationLists, productMode],
+      .map(([key, value]) => [key.slice(0, -productMode.length - 1), value.filter((item) =>
+        !archivingKeys.has(`${key.slice(0, -productMode.length - 1)}\0${productMode}\0${item.id}`))])),
+    [navigationLists, productMode, archivingKeys],
   );
   const projectNavigationErrors = useMemo(
     () => Object.fromEntries(Object.entries(navigationErrors)
@@ -525,15 +528,44 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     confirmationToken?: string | null;
   }): Promise<void> => {
     const productMode = productModeRef.current;
+    const archiveKey = `${input.projectId}\0${productMode}\0${input.conversationId}`;
+    if (input.action === "archive") {
+      if (archivingKeysRef.current.has(archiveKey)) return;
+      archivingKeysRef.current.add(archiveKey);
+      setArchivingKeys(new Set(archivingKeysRef.current));
+    }
     const selectedProjectIdAtStart = stateRef.current.selectedProjectId;
     const selectedTopicAtStart = stateRef.current.selectedTopic;
-    await sessionApi(portsRef.current).settleConversationLifecycle({
-      ...input,
-      productMode,
-      clientRequestId: `conversation-lifecycle-${crypto.randomUUID()}`,
-    });
+    try {
+      await sessionApi(portsRef.current).settleConversationLifecycle({
+        ...input,
+        productMode,
+        clientRequestId: `conversation-lifecycle-${crypto.randomUUID()}`,
+      });
+    } catch (cause) {
+      if (input.action === "archive") {
+        archivingKeysRef.current.delete(archiveKey);
+        setArchivingKeys(new Set(archivingKeysRef.current));
+      }
+      throw cause;
+    }
     void loadNavigation(input.projectId, productMode, true).catch(reportError);
     if (input.action === "delete") portsRef.current.timeline?.clearConversation(input.projectId, input.conversationId);
+    if (input.action === "archive") {
+      if (productModeRef.current === productMode && stateRef.current.selectedProjectId === input.projectId
+        && stateRef.current.selectedTopic === input.conversationId) {
+        beginTransition("conversation-changed", input.projectId, null);
+        commitProjectSelection(input.projectId, null);
+        setSelectedRun(null);
+        setStream(null);
+        setPendingDemandConversation(null);
+        pendingDemandRef.current = null;
+        setSnapshot((current) => ({ ...current, center: { ...current.center, selectedTopic: null } }));
+      }
+      archivingKeysRef.current.delete(archiveKey);
+      setArchivingKeys(new Set(archivingKeysRef.current));
+      return;
+    }
     if (productModeRef.current !== productMode
       || selectedProjectIdAtStart !== input.projectId
       || stateRef.current.selectedProjectId !== input.projectId) return;
@@ -559,7 +591,25 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       navigation(portsRef.current).syncLocation(input.projectId, null);
     }
     await refreshAtGeneration(input.projectId, conversationToRefresh, generation, productMode);
-  }, [beginTransition, loadNavigation, refreshAtGeneration, reportError]);
+  }, [beginTransition, commitProjectSelection, loadNavigation, refreshAtGeneration, reportError]);
+
+  const acceptLifecycleInvalidation = useCallback((input: {
+    projectId: string;
+    productMode: ProductMode;
+    conversationId: string;
+    state: "active" | "archived" | "deleted";
+  }): void => {
+    if (input.state === "active" || productModeRef.current !== input.productMode
+      || stateRef.current.selectedProjectId !== input.projectId
+      || stateRef.current.selectedTopic !== input.conversationId) return;
+    beginTransition("conversation-changed", input.projectId, null);
+    commitProjectSelection(input.projectId, null);
+    setSelectedRun(null);
+    setStream(null);
+    setPendingDemandConversation(null);
+    pendingDemandRef.current = null;
+    setSnapshot((current) => ({ ...current, center: { ...current.center, selectedTopic: null } }));
+  }, [beginTransition, commitProjectSelection]);
 
   const prepareConversationDelete = useCallback(async (
     projectId: string,
@@ -1026,6 +1076,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     projectSnapshots,
     projectNavigation,
     projectNavigationErrors,
+    archivingKeys,
     invalidateNavigation,
     retryNavigation,
     pendingDemandConversation,
@@ -1039,6 +1090,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     chooseRun,
     removeProject,
     settleConversationLifecycle,
+    acceptLifecycleInvalidation,
     prepareConversationDelete,
     beginPendingDemand,
     ensureProjectRegistered,
@@ -1073,7 +1125,7 @@ const defaultApi: ProjectConversationSessionApi = {
     `/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot?productMode=${encodeURIComponent(productMode)}&compactThread=1${conversationId ? `&topic=${encodeURIComponent(conversationId)}` : ""}`,
   ),
   loadNavigation: (projectId, productMode) => fetchJson(
-    `/api/projects/${encodeURIComponent(projectId)}/workbench/navigation?productMode=${encodeURIComponent(productMode)}`,
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/navigation?productMode=${encodeURIComponent(productMode)}&state=active`,
   ),
   loadStream: (projectId, runId) => fetchJson<StreamPacket>(
     `/api/projects/${encodeURIComponent(projectId)}/workbench/stream/${encodeURIComponent(runId)}`,

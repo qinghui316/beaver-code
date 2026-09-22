@@ -50,7 +50,7 @@ describe("navigation toggle and overlay interactions", () => {
     expect(toggle.getAttribute("data-mode")).toBe("agent");
   });
 
-  it("keeps the selected project first and searches active and archived conversations", () => {
+  it("keeps the selected project first and searches only active conversations", () => {
     const first = project("first", "相同项目", "C:/work/first");
     const selected = project("selected", "相同项目", "D:/work/selected");
     const results = projectNavigationSearchResults({
@@ -69,12 +69,12 @@ describe("navigation toggle and overlay interactions", () => {
     expect(results[0]).toMatchObject({ kind: "project", projectId: "selected", context: "work" });
     expect(results.filter((item) => item.kind === "conversation")).toEqual(expect.arrayContaining([
       expect.objectContaining({ conversationId: "active", archived: false }),
-      expect.objectContaining({ conversationId: "archive", archived: true }),
     ]));
+    expect(results.some((item) => item.kind === "conversation" && item.conversationId === "archive")).toBe(false);
     expect(projectNavigationSearchResults({
       projects: [selected], snapshots: { selected: snapshot("selected", [{ id: "archive", title: "历史会话", state: "archive" }]) },
       selectedProjectId: "selected", selectedConversationId: null, query: "已归档",
-    })).toEqual([expect.objectContaining({ kind: "conversation", conversationId: "archive" })]);
+    })).toEqual([]);
   });
 
   it("selects a conversation row only inside its selected project when ids collide", () => {

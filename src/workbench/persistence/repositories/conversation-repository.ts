@@ -7,6 +7,124 @@ import { mapConversationRow, nullableString, type SqliteRow } from "../sql-mappe
 export class ConversationRepository {
 constructor(private readonly db: Database.Database) {}
 
+  listManagementPage(input: {
+    projectId: string;
+    productMode: ProductMode | "all";
+    state: "active" | "archive" | "all";
+    search: string;
+    before?: { updatedAt: string; projectId: string; conversationId: string };
+    limit: number;
+  }): Array<{ conversation: StoredConversation; providerSyncStatus: string; diagnostic: string | null; blocked: boolean }> {
+    const rows = this.db.prepare(`
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode,
+        c.agent_turn_mode AS agentTurnMode, c.agent_model_id AS agentModelId,
+        c.agent_reasoning_effort AS agentReasoningEffort, c.agent_access_mode AS agentAccessMode,
+        c.agent_access_revision AS agentAccessRevision,
+        c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
+        c.title, c.state, c.archive_origin AS archiveOrigin, c.archived_at AS archivedAt,
+        c.lifecycle_revision AS lifecycleRevision, c.surface_kind AS surfaceKind,
+        c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
+        c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
+        c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
+        c.created_at AS createdAt, c.updated_at AS updatedAt, c.deleted_at AS deletedAt,
+        COALESCE((SELECT o.provider_sync_status FROM conversation_lifecycle_operations o
+          WHERE o.project_id = c.project_id AND o.conversation_id = c.conversation_id
+          ORDER BY o.updated_at DESC, o.rowid DESC LIMIT 1), 'not-required') AS providerSyncStatus,
+        (SELECT o.diagnostic FROM conversation_lifecycle_operations o
+          WHERE o.project_id = c.project_id AND o.conversation_id = c.conversation_id
+          ORDER BY o.updated_at DESC, o.rowid DESC LIMIT 1) AS diagnostic,
+        (EXISTS(SELECT 1 FROM conversation_lifecycle_operations o WHERE o.project_id = c.project_id
+          AND o.conversation_id = c.conversation_id AND o.status IN ('pending', 'submitting'))
+        OR EXISTS(SELECT 1 FROM provider_attempts a WHERE a.project_id = c.project_id
+          AND a.conversation_id = c.conversation_id AND a.status IN ('queued', 'running'))
+        OR EXISTS(SELECT 1 FROM conversation_turn_queue_items q WHERE q.project_id = c.project_id
+          AND q.conversation_id = c.conversation_id AND q.status IN ('queued', 'dispatching', 'blocked'))
+        OR EXISTS(SELECT 1 FROM conversation_fork_operations f WHERE f.project_id = c.project_id
+          AND f.source_conversation_id = c.conversation_id AND f.status IN ('pending', 'submitting'))
+        OR EXISTS(SELECT 1 FROM canonical_timeline_items t WHERE t.project_id = c.project_id
+          AND t.conversation_id = c.conversation_id AND t.type = 'provider.context-compaction'
+          AND t.status IN ('submitting', 'compacting'))
+        OR EXISTS(SELECT 1 FROM canonical_timeline_items t WHERE t.project_id = c.project_id
+          AND t.conversation_id = c.conversation_id AND CASE WHEN json_valid(t.raw_json) THEN
+            json_extract(t.raw_json, '$.providerUserInput.status') IN ('pending', 'submitting')
+            OR json_extract(t.raw_json, '$.providerApproval.status') IN ('pending', 'submitting')
+            OR json_extract(t.raw_json, '$.clarification.status') IN ('pending', 'submitting')
+          ELSE 0 END)) AS blocked
+      FROM conversations c
+      WHERE c.project_id = ? AND c.deleted_at IS NULL AND c.surface_kind = 'user'
+        AND (? = 'all' OR c.product_mode = ?)
+        AND (? = 'all' OR c.state = ?)
+        AND (? = '' OR instr(lower(c.title), lower(?)) > 0)
+        AND (? IS NULL OR c.updated_at < ? OR (c.updated_at = ? AND
+          (c.project_id < ? OR (c.project_id = ? AND c.conversation_id < ?))))
+      ORDER BY c.updated_at DESC, c.conversation_id DESC LIMIT ?
+    `).all(input.projectId, input.productMode, input.productMode, input.state, input.state,
+      input.search, input.search, input.before?.updatedAt ?? null, input.before?.updatedAt ?? null,
+      input.before?.updatedAt ?? null, input.before?.projectId ?? null,
+      input.before?.projectId ?? null, input.before?.conversationId ?? null, input.limit) as SqliteRow[];
+    return rows.map((row) => ({ conversation: mapConversationRow(row),
+      providerSyncStatus: String(row.providerSyncStatus), diagnostic: nullableString(row.diagnostic),
+      blocked: Boolean(row.blocked) }));
+  }
+
+  listNavigationEntries(
+    projectId: string,
+    productMode: ProductMode,
+    state: "active" | "archive" | "all",
+  ): Array<{
+    conversation: StoredConversation;
+    runningAttempt: boolean;
+    queuedTurn: boolean;
+    incompleteFork: boolean;
+    incompleteLifecycle: boolean;
+    compacting: boolean;
+    awaitingInput: boolean;
+  }> {
+    const rows = this.db.prepare(`
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.product_mode AS productMode,
+        c.agent_turn_mode AS agentTurnMode, c.agent_model_id AS agentModelId,
+        c.agent_reasoning_effort AS agentReasoningEffort, c.agent_access_mode AS agentAccessMode,
+        c.agent_access_revision AS agentAccessRevision,
+        c.client_create_request_id AS clientCreateRequestId, c.client_create_request_hash AS clientCreateRequestHash,
+        c.title, c.state, c.archive_origin AS archiveOrigin, c.archived_at AS archivedAt,
+        c.lifecycle_revision AS lifecycleRevision, c.surface_kind AS surfaceKind,
+        c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
+        c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
+        c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
+        c.created_at AS createdAt, c.updated_at AS updatedAt, c.deleted_at AS deletedAt,
+        EXISTS(SELECT 1 FROM provider_attempts a WHERE a.project_id = c.project_id
+          AND a.conversation_id = c.conversation_id AND a.status IN ('queued', 'running')) AS runningAttempt,
+        EXISTS(SELECT 1 FROM conversation_turn_queue_items q WHERE q.project_id = c.project_id
+          AND q.conversation_id = c.conversation_id AND q.status IN ('queued', 'dispatching', 'blocked')) AS queuedTurn,
+        EXISTS(SELECT 1 FROM conversation_fork_operations f WHERE f.project_id = c.project_id
+          AND f.source_conversation_id = c.conversation_id AND f.status IN ('pending', 'submitting')) AS incompleteFork,
+        EXISTS(SELECT 1 FROM conversation_lifecycle_operations o WHERE o.project_id = c.project_id
+          AND o.conversation_id = c.conversation_id AND o.status IN ('pending', 'submitting')) AS incompleteLifecycle,
+        EXISTS(SELECT 1 FROM canonical_timeline_items t WHERE t.project_id = c.project_id
+          AND t.conversation_id = c.conversation_id AND t.type = 'provider.context-compaction'
+          AND t.status IN ('submitting', 'compacting')) AS compacting,
+        EXISTS(SELECT 1 FROM canonical_timeline_items t WHERE t.project_id = c.project_id
+          AND t.conversation_id = c.conversation_id AND CASE WHEN json_valid(t.raw_json) THEN
+            json_extract(t.raw_json, '$.providerUserInput.status') IN ('pending', 'submitting')
+            OR json_extract(t.raw_json, '$.providerApproval.status') IN ('pending', 'submitting')
+            OR json_extract(t.raw_json, '$.clarification.status') IN ('pending', 'submitting')
+          ELSE 0 END) AS awaitingInput
+      FROM conversations c
+      WHERE c.project_id = ? AND c.product_mode = ? AND c.deleted_at IS NULL AND c.surface_kind = 'user'
+        AND (? = 'all' OR c.state = ?)
+      ORDER BY c.updated_at DESC, c.conversation_id DESC
+    `).all(projectId, productMode, state, state) as SqliteRow[];
+    return rows.map((row) => ({
+      conversation: mapConversationRow(row),
+      runningAttempt: Boolean(row.runningAttempt),
+      queuedTurn: Boolean(row.queuedTurn),
+      incompleteFork: Boolean(row.incompleteFork),
+      incompleteLifecycle: Boolean(row.incompleteLifecycle),
+      compacting: Boolean(row.compacting),
+      awaitingInput: Boolean(row.awaitingInput),
+    }));
+  }
+
   updateAgentAccess(input: {
     projectId: string;
     conversationId: string;

@@ -9,17 +9,8 @@ import type { ProjectNavigationOverlayState } from "../../src/web/src/presentati
 afterEach(cleanup);
 
 describe("shared Conversation lifecycle sidebar", () => {
-  it("groups Agent archives and completes revision-bound permanent deletion", async () => {
+  it("offers active Agent archive and keeps archived conversations out of the sidebar", async () => {
     const onArchiveConversation = vi.fn(async () => undefined);
-    const onRestoreConversation = vi.fn(async () => undefined);
-    const onPrepareConversationDelete = vi.fn(async () => ({
-      token: "delete-token",
-      expiresAt: "2026-08-31T00:05:00.000Z",
-      conversationId: "archived-agent",
-      lifecycleRevision: "conversation-lifecycle:2",
-      effect: "删除本地会话历史，项目文件保持不变。",
-    }));
-    const onDeleteConversation = vi.fn(async () => undefined);
     renderSidebar("agent", [
       topic("active-agent", "Active Agent", "active", "agent", {
         state: "active", archiveOrigin: null, lifecycleRevision: "conversation-lifecycle:0",
@@ -29,7 +20,7 @@ describe("shared Conversation lifecycle sidebar", () => {
         state: "archived", archiveOrigin: "agent-user", lifecycleRevision: "conversation-lifecycle:2",
         canArchive: false, canRestore: true, canDelete: true,
       }),
-    ], { onArchiveConversation, onRestoreConversation, onPrepareConversationDelete, onDeleteConversation });
+    ], { onArchiveConversation });
 
     const activeMenuTrigger = screen.getByLabelText("Active Agent 会话菜单");
     expect(activeMenuTrigger.classList.contains("conversation-more")).toBe(true);
@@ -37,32 +28,19 @@ describe("shared Conversation lifecycle sidebar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "归档" }));
     await waitFor(() => expect(onArchiveConversation).toHaveBeenCalledWith("repo", "active-agent", "conversation-lifecycle:0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "已归档" }));
-    fireEvent.click(screen.getByLabelText("Archived Agent 会话菜单"));
-    fireEvent.click(screen.getByRole("menuitem", { name: "恢复" }));
-    await waitFor(() => expect(onRestoreConversation).toHaveBeenCalledWith("repo", "archived-agent", "conversation-lifecycle:2"));
-
-    fireEvent.click(screen.getByLabelText("Archived Agent 会话菜单"));
-    fireEvent.click(screen.getByRole("menuitem", { name: "永久删除" }));
-    expect(await screen.findByRole("dialog", { name: "永久删除“Archived Agent”？" })).toBeTruthy();
-    expect(screen.getByText("删除本地会话历史，项目文件保持不变。")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
-    await waitFor(() => expect(onDeleteConversation).toHaveBeenCalledWith(
-      "repo", "archived-agent", "conversation-lifecycle:2", "delete-token",
-    ));
+    expect(screen.queryByText("Archived Agent")).toBeNull();
+    expect(screen.queryByRole("button", { name: "已归档" })).toBeNull();
   });
 
-  it("never exposes restore for a Harness workflow archive", () => {
+  it("keeps Harness workflow archives out of the sidebar", () => {
     renderSidebar("harness", [
       topic("archived-harness", "Archived Harness", "archive", "harness", {
         state: "archived", archiveOrigin: "harness-workflow", lifecycleRevision: "conversation-lifecycle:4",
         canArchive: false, canRestore: false, canDelete: true,
       }),
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "已归档" }));
-    fireEvent.click(screen.getByLabelText("Archived Harness 会话菜单"));
-    expect(screen.queryByRole("menuitem", { name: "恢复" })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "永久删除本地会话记录" })).toBeTruthy();
+    expect(screen.queryByText("Archived Harness")).toBeNull();
+    expect(screen.queryByRole("button", { name: "已归档" })).toBeNull();
   });
 });
 

@@ -32,7 +32,7 @@ describe("core Workbench presentation projections", () => {
     })).toEqual({ pendingConfirmationCount: 0, providerDisplayName: "Codex" });
   });
 
-  it("projects and searches active and archived conversations without mutating the snapshot", () => {
+  it("projects only active conversations into navigation without mutating the snapshot", () => {
     const snapshot = {
       left: {
         workpads: [
@@ -46,8 +46,8 @@ describe("core Workbench presentation projections", () => {
     const groups = groupProjectNavigationConversations(conversations, "历史");
 
     expect(groups.active).toEqual([]);
-    expect(groups.archived.map((item) => item.id)).toEqual(["archive"]);
-    expect(groups.hasSearchMatch).toBe(true);
+    expect(groups.archived).toEqual([]);
+    expect(groups.hasSearchMatch).toBe(false);
     expect(snapshot.left.workpads?.map((item) => item.id)).toEqual(["active", "archive"]);
   });
 });

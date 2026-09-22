@@ -32,8 +32,21 @@ export function publishConversationTurnQueueInvalidated(projectId: string, data:
   publishProjectLiveEvent(projectId, { event: "conversation.turn-queue.invalidated", data });
 }
 
-export function publishConversationLifecycleInvalidated(projectId: string, data: { conversationId: string }): void {
+export function publishConversationLifecycleInvalidated(projectId: string, data: {
+  conversationId: string;
+  productMode: "agent" | "harness";
+  state: "active" | "archived" | "deleted";
+  lifecycleRevision: string;
+}): void {
   publishProjectLiveEvent(projectId, { event: "conversation.lifecycle.invalidated", data });
+}
+
+export function publishConversationLifecycleSyncUpdated(projectId: string, data: {
+  conversationId: string;
+  productMode: "agent" | "harness";
+  providerSyncStatus: "not-required" | "unsupported" | "submitting" | "completed" | "failed" | "uncertain";
+}): void {
+  publishProjectLiveEvent(projectId, { event: "conversation.lifecycle.sync-updated", data });
 }
 
 export function publishConversationReviewInvalidated(projectId: string, data: { conversationId: string }): void {

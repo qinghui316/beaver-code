@@ -16,7 +16,8 @@ export function ProjectConversationSearchPalette({ surface, triggerRef }: {
     selectedProjectId: view.selectedProjectId,
     selectedConversationId: view.selectedTopicId,
     query: search.query,
-  }) : [], [search, view.projects, view.selectedProjectId, view.selectedTopicId, view.snapshots, view.navigation]);
+    archivingKeys: view.archivingKeys,
+  }) : [], [search, view.projects, view.selectedProjectId, view.selectedTopicId, view.snapshots, view.navigation, view.archivingKeys]);
   if (!search) return null;
   const activeIndex = results.length ? Math.min(search.activeIndex, results.length - 1) : 0;
   const activeResultId = results.length ? `navigation-search-result-${activeIndex}` : undefined;

@@ -966,6 +966,31 @@ describe("Project conversation session owner", () => {
     expect(fixture.navigation.syncLocation).toHaveBeenLastCalledWith("repo-1", null);
   });
 
+  it("hides an archive target immediately and leaves the selected draft identity untouched on failure", async () => {
+    let rejectArchive!: (reason: Error) => void;
+    const fixture = ownerFixture();
+    fixture.api.loadNavigation.mockImplementation(async (_projectId: string, productMode: ProductMode) => ({
+      productMode,
+      conversations: [{ id: "conv-1", title: "Selected", state: "active", userStatusLabel: "处理中", waitingDecisionCount: 0 }],
+    }));
+    fixture.api.settleConversationLifecycle.mockImplementation(() => new Promise((_resolve, reject) => { rejectArchive = reject; }));
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.chooseConversation("repo-1", "conv-1"); });
+    await waitFor(() => expect(result.current.projectNavigation["repo-1"]?.some((item) => item.id === "conv-1")).toBe(true));
+    let settlement!: Promise<void>;
+    act(() => { settlement = result.current.settleConversationLifecycle({
+      projectId: "repo-1", conversationId: "conv-1", action: "archive", expectedLifecycleRevision: "conversation-lifecycle:0",
+    }); });
+    expect(result.current.archivingKeys.has("repo-1\0harness\0conv-1")).toBe(true);
+    expect(result.current.projectNavigation["repo-1"]?.some((item) => item.id === "conv-1")).toBe(false);
+    expect(result.current.selectedTopic).toBe("conv-1");
+    await act(async () => { rejectArchive(new Error("Local commit failed")); await expect(settlement).rejects.toThrow("Local commit failed"); });
+    expect(result.current.archivingKeys.size).toBe(0);
+    expect(result.current.projectNavigation["repo-1"]?.some((item) => item.id === "conv-1")).toBe(true);
+    expect(result.current.selectedTopic).toBe("conv-1");
+  });
+
   it("does not consume a prepared removal when the user declines the destructive warning", async () => {
     const fixture = ownerFixture();
     fixture.ui.confirmRemoveProject.mockReturnValue(false);

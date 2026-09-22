@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
+import { listConversationManagement, type ManagementMode, type ManagementState } from "./conversation-management.js";
 import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import { getRuntimeActivityLog } from "./runtime-activity-log.js";
 import { defaultProviderRegistry, type ProductMode } from "../../provider-runtime/index.js";
@@ -61,6 +62,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
       ...resolvedInput,
       runtimeStateResolver: (project: ManagedProject) => context.projectRuntimeCoordinator.resolve(project),
       turnControlStateResolver: (projectId: string, conversationId: string, attemptId?: string) => context.turnControl.state(projectId, conversationId, attemptId),
+      activeProviderTurnResolver: (conversationId: string) => Boolean(context.providerRegistry.findActiveTurn(conversationId)),
       conversationContextSnapshotResolver: (project: ManagedProject, productMode: ProductMode, conversationId: string) => context.conversationContext.read(project, productMode, conversationId),
       conversationLifecycleSnapshotResolver: (project: ManagedProject, productMode: ProductMode, conversationId: string) => context.conversationLifecycle.read(project, productMode, conversationId),
       conversationLifecycleSnapshotsResolver: (project: ManagedProject, productMode: ProductMode) => context.conversationLifecycle.readMany(project, productMode),
@@ -120,6 +122,29 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
   }
   if (request.method === "GET" && url.pathname === "/api/projects") {
     sendJson(response, 200, { projects: await listProjectStatuses(context.store, context.input, context.projectRuntimeCoordinator) });
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/workbench/conversation-management") {
+    const scope = url.searchParams.get("scope");
+    const productMode = url.searchParams.get("productMode");
+    const state = url.searchParams.get("state");
+    const search = url.searchParams.get("search")?.trim() ?? "";
+    if ((scope !== "project" && scope !== "all")
+      || (productMode !== "agent" && productMode !== "harness" && productMode !== "all")
+      || (state !== "active" && state !== "archive" && state !== "all")
+      || search.length > 200) {
+      const error = new Error("Invalid conversation management filters.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    sendJson(response, 200, await listConversationManagement({
+      store: context.store, directInput: context.input, coordinator: context.projectRuntimeCoordinator,
+      scope, projectId: url.searchParams.get("projectId"),
+      productMode: productMode as ManagementMode, state: state as ManagementState,
+      search, cursor: url.searchParams.get("cursor"),
+      activeTurn: (projectId, conversationId) => context.turnControl.state(projectId, conversationId).state !== "idle"
+        || Boolean(context.providerRegistry.findActiveTurn(conversationId)),
+    }));
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects") {

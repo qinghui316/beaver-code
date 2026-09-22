@@ -35,6 +35,14 @@ export function canonicalTimelineReconnectScopes(
   return [...surfaceIds].map((agentSurfaceId) => ({ projectId, productMode, conversationId, agentSurfaceId }));
 }
 
+export function fetchCanonicalTimelinePage(scope: CanonicalTimelineScope, beforeCursor?: string): Promise<CanonicalTimelinePage> {
+  const params = new URLSearchParams({ productMode: scope.productMode, agentSurfaceId: scope.agentSurfaceId, limit: "100" });
+  if (beforeCursor) params.set("beforeCursor", beforeCursor);
+  return fetchJson<CanonicalTimelinePage>(
+    `/api/projects/${encodeURIComponent(scope.projectId)}/workbench/conversations/${encodeURIComponent(scope.conversationId)}/timeline?${params}`,
+  );
+}
+
 export function useCanonicalTimelineController(onError: (message: string) => void) {
   const [state, dispatch] = useReducer(canonicalTimelineReducer, undefined, createCanonicalTimelineState);
   const generationsRef = useRef(new Map<string, number>());
@@ -48,12 +56,8 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
     const generation = (generationsRef.current.get(generationKey) ?? 0) + 1;
     generationsRef.current.set(generationKey, generation);
     dispatch({ type: "request.started", scope, requestKind, generation });
-    const params = new URLSearchParams({ productMode: scope.productMode, agentSurfaceId: scope.agentSurfaceId, limit: "100" });
-    if (beforeCursor) params.set("beforeCursor", beforeCursor);
     try {
-      const page = await fetchJson<CanonicalTimelinePage>(
-        `/api/projects/${encodeURIComponent(scope.projectId)}/workbench/conversations/${encodeURIComponent(scope.conversationId)}/timeline?${params}`,
-      );
+      const page = await fetchCanonicalTimelinePage(scope, beforeCursor);
       dispatch({ type: "page.received", scope, requestKind, generation, page });
     } catch (cause) {
       const message = userFacingErrorMessage(cause, "load");

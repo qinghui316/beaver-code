@@ -319,35 +319,85 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput, productM
   }
 }
 
-export async function getWorkbenchNavigation(input: WorkbenchProjectInput, productMode: ProductMode) {
-  const topics = await listWorkbenchTopics(input, productMode);
+export async function getWorkbenchNavigation(
+  input: WorkbenchProjectInput,
+  productMode: ProductMode,
+  state: "active" | "archive" | "all" = "all",
+) {
+  if (!input.project) return { productMode, conversations: [] };
+  const runtime = input.runtimeStateResolver
+    ? await input.runtimeStateResolver(input.project)
+    : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+  if (runtime.state !== "ready" && productMode === "harness") return { productMode, conversations: [] };
+  const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
+  const database = await openProjectRuntimeWorkbenchDatabase(paths);
+  let entries: ReturnType<typeof database.conversations.listNavigationEntries>;
+  try {
+    entries = database.conversations.listNavigationEntries(paths.projectId, productMode, state);
+  } finally {
+    database.close();
+  }
   const workerStatuses = new Map<string, string>();
-  if (input.project && productMode === "harness") {
-    const runtime = input.runtimeStateResolver
-      ? await input.runtimeStateResolver(input.project)
-      : await resolveProjectRuntimeState(input.project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+  if (productMode === "harness") {
     if (runtime.state === "ready") {
       for (const worker of await listDemandWorkers(projectExecutionRuntimePort(input.project, runtime.resolution)).catch(() => [])) {
         workerStatuses.set(worker.changeId, worker.status);
       }
     }
   }
-  return { productMode, conversations: topics.map((topic) => {
-    const worker = topic.boundChangeId ? demandWorkerSummaryState(workerStatuses.get(topic.boundChangeId)) : null;
-    const archived = topic.state === "archive";
-    const awaitingInput = topic.lifecycle?.activity === "awaiting-input";
-    const running = topic.lifecycle?.activity === "running";
+  return { productMode, conversations: entries.map((entry) => {
+    const { conversation } = entry;
+    const controlState = input.turnControlStateResolver?.(paths.projectId, conversation.conversationId);
+    const turnActive = (controlState !== undefined && controlState.state !== "idle")
+      || input.activeProviderTurnResolver?.(conversation.conversationId) === true;
+    const blocker = navigationLifecycleBlocker(entry, turnActive);
+    const basic = basicLifecycleSnapshot(conversation);
+    const lifecycle = {
+      ...basic,
+      canArchive: basic.canArchive && !blocker,
+      canRestore: basic.canRestore && !blocker,
+      canDelete: basic.canDelete && !blocker,
+      activity: blocker?.activity ?? null,
+      ...(blocker ? { disabledReason: blocker.reason } : {}),
+    };
+    const worker = conversation.boundChangeId ? demandWorkerSummaryState(workerStatuses.get(conversation.boundChangeId)) : null;
+    const archived = conversation.state === "archive";
+    const awaitingInput = lifecycle.activity === "awaiting-input";
+    const running = lifecycle.activity === "running";
     return {
-      id: topic.id,
-      title: topic.title,
-      state: topic.state,
-      updatedAt: topic.updatedAt,
+      id: conversation.conversationId,
+      title: conversation.title,
+      state: conversation.state,
+      updatedAt: conversation.updatedAt,
       userStatusLabel: archived ? "已完成" : awaitingInput ? "等待确认" : worker?.userStatusLabel
-        ?? (running ? "处理中" : productMode === "agent" || !topic.boundChangeId ? "稍后处理" : "等你确认"),
+        ?? (running ? "处理中" : productMode === "agent" || !conversation.boundChangeId ? "稍后处理" : "等你确认"),
       waitingDecisionCount: worker?.userStatus === "waiting-confirmation" || awaitingInput ? 1 : 0,
-      lifecycle: topic.lifecycle,
+      lifecycle,
     };
   }) };
+}
+
+function navigationLifecycleBlocker(
+  entry: {
+    runningAttempt: boolean;
+    queuedTurn: boolean;
+    incompleteFork: boolean;
+    incompleteLifecycle: boolean;
+    compacting: boolean;
+    awaitingInput: boolean;
+  },
+  turnActive: boolean,
+): { reason: string; activity: "running" | "awaiting-input" | null } | null {
+  const pendingActivity = entry.awaitingInput ? "awaiting-input" as const : null;
+  if (turnActive || entry.runningAttempt) {
+    return { reason: "当前会话仍在运行、停止或实时引导中。", activity: pendingActivity ?? "running" };
+  }
+  if (entry.queuedTurn) return { reason: "请先处理待发送队列，再归档或删除会话。", activity: pendingActivity };
+  if (entry.incompleteFork) return { reason: "会话分叉仍在处理。", activity: pendingActivity };
+  if (entry.incompleteLifecycle) return { reason: "另一个会话生命周期操作仍在处理。", activity: pendingActivity };
+  if (entry.compacting) return { reason: "上下文压缩仍在处理。", activity: pendingActivity };
+  if (entry.awaitingInput) return { reason: "当前会话仍在等待用户输入、审批或确认。", activity: "awaiting-input" };
+  return null;
 }
 
 async function buildAgentModeSnapshot(

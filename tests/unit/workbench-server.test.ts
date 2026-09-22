@@ -797,6 +797,26 @@ describe("workbench server", () => {
     });
   });
 
+  it("serves active navigation and paged archived management through the actual routes", async () => {
+    const activeUrl = `${handle!.url}/api/projects/repo/workbench/navigation?productMode=harness&state=active`;
+    expect((await getJson<{ conversations: unknown[] }>(activeUrl)).conversations).toHaveLength(1);
+    const database = await openProjectRuntimeWorkbenchDatabase(resolveProjectRuntimePaths(project().id));
+    try {
+      const conversation = database.conversations.readConversation(project().id, serverConversationId)!;
+      database.conversations.archiveBoundConversation(project().id, serverConversationId,
+        conversation.boundChangeId!, conversation.currentGraphScopeId!, "2026-09-22T00:00:00.000Z");
+    } finally { database.close(); }
+    expect((await getJson<{ conversations: unknown[] }>(activeUrl)).conversations).toHaveLength(0);
+    expect((await getJson<{ conversations: unknown[] }>(
+      `${handle!.url}/api/projects/repo/workbench/navigation?productMode=harness&state=archive`,
+    )).conversations).toHaveLength(1);
+    const management = await getJson<{ conversations: Array<{ conversationId: string; productMode: string; archiveOrigin: string; canRestore: boolean }> }>(
+      `${handle!.url}/api/workbench/conversation-management?scope=project&projectId=repo&productMode=harness&state=archive&search=Server`,
+    );
+    expect(management.conversations).toMatchObject([{ conversationId: serverConversationId,
+      productMode: "harness", archiveOrigin: "harness-workflow", canRestore: false }]);
+  });
+
   it("prepares Agent Retry before SSE and emits a completed replay stream", async () => {
     await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
     const prepare = vi.fn(async (_project: ManagedProject, request: { productMode: string }) => {

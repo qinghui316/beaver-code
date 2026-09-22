@@ -63,6 +63,7 @@ export interface WorkbenchProjectInput {
   path: string;
   runtimeStateResolver?: (project: ManagedProject) => Promise<import("../project-runtime/coordinator.js").ProjectRuntimeState>;
   turnControlStateResolver?: (projectId: string, conversationId: string, attemptId?: string) => import("./conversation-turn-control.js").ConversationTurnControlState;
+  activeProviderTurnResolver?: (conversationId: string) => boolean;
   conversationContextSnapshotResolver?: (project: ManagedProject, productMode: ProductMode, conversationId: string) => Promise<import("./conversation-context-lifecycle.js").ConversationContextSnapshot>;
   conversationLifecycleSnapshotResolver?: (project: ManagedProject, productMode: ProductMode, conversationId: string) => Promise<import("./conversation-lifecycle.js").ConversationLifecycleSnapshot>;
   conversationLifecycleSnapshotsResolver?: (project: ManagedProject, productMode: ProductMode) => Promise<import("./conversation-lifecycle.js").ConversationLifecycleSnapshot[]>;

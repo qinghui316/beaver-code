@@ -103,6 +103,7 @@ const MODE_ACTIVITY_INVALIDATION_EVENTS = new Set<WorkbenchLiveEvent["event"]>([
   "conversation.context.invalidated",
   "conversation.review.invalidated",
   "conversation.lifecycle.invalidated",
+  "conversation.lifecycle.sync-updated",
   "run.started",
   "run.status",
   "snapshot",

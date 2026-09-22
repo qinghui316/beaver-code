@@ -11,7 +11,7 @@ import type {
   StoredConversationLifecycleOperation,
   StoredConversationProviderSyncStatus,
 } from "./persistence/contracts.js";
-import { publishConversationLifecycleInvalidated } from "./project-live-events.js";
+import { publishConversationLifecycleInvalidated, publishConversationLifecycleSyncUpdated } from "./project-live-events.js";
 import type { ConversationTurnControlOwner } from "./conversation-turn-control.js";
 import { deleteUnreferencedTopicAttachments } from "./attachments.js";
 
@@ -71,6 +71,7 @@ type Confirmation = {
 export class ConversationLifecycleOwner {
   private readonly confirmations = new Map<string, Confirmation>();
   private readonly submissions = new Map<string, { requestHash: string; promise: Promise<ConversationLifecycleReceipt> }>();
+  private readonly archiveSyncTasks = new Map<string, Promise<void>>();
 
   constructor(private readonly options: {
     providerRegistry: ProviderRegistry;
@@ -195,12 +196,16 @@ export class ConversationLifecycleOwner {
     let capabilityDiagnostic: string | null = null;
     let attachmentIds: string[] = [];
     let cleanupDiagnostic: string | undefined;
+    let localArchiveReceipt: ConversationLifecycleReceipt | null = null;
     try {
       const replay = database.conversationLifecycle.read(paths.projectId, request.clientRequestId);
       if (replay) {
         if (replay.requestHash !== requestHash) throw conflict("Conversation lifecycle request id is bound to another request.");
-        if (replay.status === "pending" || replay.status === "submitting") throw uncertain("Conversation lifecycle outcome is uncertain and cannot be resent automatically.");
         const current = database.conversations.readConversation(paths.projectId, request.conversationId);
+        if ((replay.status === "pending" || replay.status === "submitting")
+          && !(replay.action === "archive" && current?.state === "archive")) {
+          throw uncertain("Conversation lifecycle outcome is uncertain and cannot be resent automatically.");
+        }
         return receipt(replay, current ? await this.snapshot(database, current) : null, true);
       }
       conversation = requireConversation(database, paths.projectId, request.productMode, request.conversationId);
@@ -214,7 +219,7 @@ export class ConversationLifecycleOwner {
         ? database.providerAttempts.readConversationProviderBinding(paths.projectId, conversation.conversationId, providerId)
         : null;
       sessionId = binding?.nativeSessionId ?? null;
-      if (providerId && sessionId) {
+      if (providerId && sessionId && request.action !== "archive") {
         try {
           const capability = await this.options.providerRegistry.get(providerId)
             .capabilitySnapshot(project, request.productMode, project.path);
@@ -251,10 +256,12 @@ export class ConversationLifecycleOwner {
         requestHash,
         action: request.action,
         expectedLifecycleRevision: revision,
-        status: "pending",
+        status: request.action === "archive" && !sessionId ? "completed" : "pending",
         providerId,
         providerBindingHash: sessionId ? bindingHash(providerId!, sessionId) : null,
-        providerSyncStatus: sessionId ? shouldSync ? "submitting" : "unsupported" : "not-required",
+        providerSyncStatus: sessionId
+          ? (request.action === "archive" || shouldSync ? "submitting" : "unsupported")
+          : "not-required",
         diagnostic: capabilityDiagnostic,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -269,6 +276,21 @@ export class ConversationLifecycleOwner {
           database.conversationLifecycle.create(operation);
           conversation = database.conversations.archiveAgentConversation(paths.projectId, conversation.conversationId, revision, operation.createdAt);
         });
+        const syncPending = Boolean(sessionId);
+        localArchiveReceipt = receipt(operation, {
+          projectId: paths.projectId,
+          productMode: conversation.productMode,
+          conversationId: conversation.conversationId,
+          state: "archived",
+          archiveOrigin: conversation.archiveOrigin,
+          lifecycleRevision: revisionToken(conversation.lifecycleRevision),
+          updatedAt: conversation.updatedAt,
+          canArchive: false,
+          canRestore: !syncPending,
+          canDelete: !syncPending,
+          activity: null,
+          ...(syncPending ? { disabledReason: "会话归档同步仍在处理。" } : {}),
+        }, false);
       } else if (request.action === "delete") {
         attachmentIds = attachmentIdsForConversation(database, paths.projectId, conversation.conversationId);
         database.immediateTransaction(() => {
@@ -300,6 +322,18 @@ export class ConversationLifecycleOwner {
       database.close();
     }
 
+    if (request.action === "archive") {
+      try { publishConversationLifecycleInvalidated(paths.projectId, {
+        conversationId: request.conversationId,
+        productMode: request.productMode,
+        state: "archived",
+        lifecycleRevision: localArchiveReceipt!.snapshot!.lifecycleRevision,
+      }); }
+      catch (error) { process.emitWarning(`Conversation archive event delivery failed: ${String(error)}`); }
+      if (providerId && sessionId) this.scheduleArchiveSync(paths, project, operation!, providerId, sessionId);
+      return localArchiveReceipt!;
+    }
+
     if (request.action === "delete" && attachmentIds.length > 0) {
       try {
         await deleteUnreferencedTopicAttachments(project, attachmentIds, paths);
@@ -326,7 +360,12 @@ export class ConversationLifecycleOwner {
           });
         });
         const current = restoreDatabase.conversations.readConversation(paths.projectId, request.conversationId)!;
-        publishConversationLifecycleInvalidated(paths.projectId, { conversationId: request.conversationId });
+        publishConversationLifecycleInvalidated(paths.projectId, {
+          conversationId: request.conversationId,
+          productMode: request.productMode,
+          state: "active",
+          lifecycleRevision: revisionToken(current.lifecycleRevision),
+        });
         return receipt(restoreDatabase.conversationLifecycle.read(paths.projectId, request.clientRequestId)!, await this.snapshot(restoreDatabase, current), false);
       } finally {
         restoreDatabase.close();
@@ -361,11 +400,114 @@ export class ConversationLifecycleOwner {
         updatedAt: new Date().toISOString(),
       });
       const current = finishDatabase.conversations.readConversation(paths.projectId, request.conversationId);
-      publishConversationLifecycleInvalidated(paths.projectId, { conversationId: request.conversationId });
+      publishConversationLifecycleInvalidated(paths.projectId, {
+        conversationId: request.conversationId,
+        productMode: request.productMode,
+        state: "deleted",
+        lifecycleRevision: revisionToken(revision + 1),
+      });
       return receipt(completed, current ? await this.snapshot(finishDatabase, current) : null, false);
     } finally {
       finishDatabase.close();
     }
+  }
+
+  private scheduleArchiveSync(
+    paths: ProjectRuntimePaths,
+    project: ManagedProject,
+    operation: StoredConversationLifecycleOperation,
+    providerId: ProviderId,
+    sessionId: string,
+  ): void {
+    const key = `${paths.projectId}\0${operation.clientRequestId}`;
+    if (this.archiveSyncTasks.has(key)) return;
+    const task = new Promise<void>((resolve) => setImmediate(resolve))
+      .then(() => this.finishArchiveSync(paths, project, operation, providerId, sessionId))
+      .catch(async (error: unknown) => {
+        process.emitWarning(`Conversation archive sync status could not be persisted for ${operation.clientRequestId}: ${String(error)}`);
+        try {
+          const database = await openProjectRuntimeWorkbenchDatabase(paths);
+          try {
+            const current = database.conversationLifecycle.read(paths.projectId, operation.clientRequestId);
+            if (current && (current.status === "pending" || current.status === "submitting")) {
+              database.conversationLifecycle.transition({
+                projectId: paths.projectId, clientRequestId: operation.clientRequestId,
+                expectedStatus: current.status, status: "completed", providerSyncStatus: "uncertain",
+                diagnostic: "Provider archive synchronization stopped unexpectedly; the outcome is uncertain.",
+                updatedAt: new Date().toISOString(),
+              });
+              publishConversationLifecycleSyncUpdated(paths.projectId, {
+                conversationId: operation.conversationId, productMode: operation.productMode,
+                providerSyncStatus: "uncertain",
+              });
+            }
+          } finally { database.close(); }
+        } catch (persistenceError) {
+          process.emitWarning(`Conversation archive sync recovery is deferred until startup: ${String(persistenceError)}`);
+        }
+      })
+      .finally(() => { this.archiveSyncTasks.delete(key); });
+    this.archiveSyncTasks.set(key, task);
+  }
+
+  private async finishArchiveSync(
+    paths: ProjectRuntimePaths,
+    project: ManagedProject,
+    operation: StoredConversationLifecycleOperation,
+    providerId: ProviderId,
+    sessionId: string,
+  ): Promise<void> {
+    let result: { status: StoredConversationProviderSyncStatus; diagnostic?: string } | null = null;
+    let capabilityState: "ready" | "unsupported" | "unavailable" = "unavailable";
+    try {
+      const capability = await this.options.providerRegistry.get(providerId)
+        .capabilitySnapshot(project, operation.productMode, project.path);
+      const archiveCapability = capability.capabilities.find((item) => item.key === "session.archive");
+      capabilityState = archiveCapability?.spec === "unsupported" ? "unsupported"
+        : archiveCapability?.spec === "supported" && archiveCapability.runtime === "ready" ? "ready" : "unavailable";
+    } catch (error) {
+      result = {
+        status: "failed",
+        diagnostic: `Provider archive capability could not be checked: ${error instanceof Error ? error.name : "unknown error"}.`,
+      };
+    }
+    if (result === null) {
+      if (capabilityState === "unsupported") result = { status: "unsupported" };
+      else if (capabilityState === "unavailable") result = {
+        status: "failed", diagnostic: "Provider archive capability is temporarily unavailable.",
+      };
+      else {
+        try {
+          result = await this.syncProvider(paths, project, operation, providerId, sessionId, true, false);
+        } catch (error) {
+          result = {
+            status: "uncertain",
+            diagnostic: `Provider archive synchronization outcome is uncertain: ${error instanceof Error ? error.name : "unknown error"}.`,
+          };
+        }
+      }
+    }
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const current = database.conversationLifecycle.read(paths.projectId, operation.clientRequestId);
+      if (!current || (current.status !== "pending" && current.status !== "submitting")) return;
+      database.conversationLifecycle.transition({
+        projectId: paths.projectId,
+        clientRequestId: operation.clientRequestId,
+        expectedStatus: current.status,
+        status: "completed",
+        providerSyncStatus: result.status,
+        diagnostic: result.diagnostic,
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      database.close();
+    }
+    publishConversationLifecycleSyncUpdated(paths.projectId, {
+      conversationId: operation.conversationId,
+      productMode: operation.productMode,
+      providerSyncStatus: result.status,
+    });
   }
 
   private async syncProvider(
