@@ -534,6 +534,7 @@ describe("Project conversation session owner", () => {
     expect(result.current.pendingDemandConversation).toMatchObject({
       id: "conv-canonical",
       canonical: true,
+      phase: "canonical",
       body: "实现功能",
     });
     expect(fixture.timeline.clearConversation).not.toHaveBeenCalled();
@@ -563,7 +564,11 @@ describe("Project conversation session owner", () => {
     expect(fixture.api.createDemandConversation).toHaveBeenCalledTimes(1);
     expect(fixture.ui.restoreView).toHaveBeenLastCalledWith({ orchestrationOpen: false, settingsOpen: false });
     expect(result.current.selectedTopic).toBe("conv-created");
-    expect(result.current.pendingDemandConversation).toBeNull();
+    expect(result.current.pendingDemandConversation).toMatchObject({
+      id: "conv-created",
+      canonical: true,
+      phase: "reconciling",
+    });
     expect(routed.map((event) => event.event)).toEqual(["topic.created"]);
   });
 

@@ -608,6 +608,9 @@ export function App(): ReactElement {
     && selectedTopicForMode === pendingDemandConversation.id
     ? pendingDemandConversation
     : null;
+  const targetConversationMetadata = selectedProjectId && selectedTopicForMode && !selectedTopicForMode.startsWith("pending:")
+    ? session.projectNavigation[selectedProjectId]?.find((conversation) => conversation.id === selectedTopicForMode) ?? null
+    : null;
   const activeTopic = activePendingConversation
     ? {
       id: activePendingConversation.id,
@@ -620,10 +623,26 @@ export function App(): ReactElement {
       boundChangeId: null,
       selectedProviderId: activePendingConversation.selectedProviderId,
     }
-    : archivingSelected ? null : activeModeSnapshot.center.selectedTopic;
+    : archivingSelected ? null : activeModeSnapshot.center.selectedTopic ?? (selectedTopicForMode ? {
+      id: selectedTopicForMode,
+      productMode: appMode.productMode,
+      title: targetConversationMetadata?.title ?? "需求对话",
+      state: targetConversationMetadata?.state ?? "loading",
+      acCount: 0,
+      taskCount: 0,
+      kind: "conversation" as const,
+      boundChangeId: null,
+      selectedProviderId: undefined,
+    } : null);
+  const activeConversationSnapshotReady = Boolean(
+    snapshotMatchesCurrentMode
+      && activeTopic?.id
+      && activeModeSnapshot.center.selectedTopic?.id === activeTopic.id,
+  );
+  const readyConversationId = activeConversationSnapshotReady ? activeTopic?.id ?? null : null;
   const workspaceResources = useWorkspaceResourceController(workspaceResourceModeHandoff({ productMode: appMode.productMode }, {
     projectId: selectedProjectId,
-    conversationId: activeTopic?.id ?? null,
+    conversationId: readyConversationId,
     loadAgentTranscript: (target) => {
       if (!selectedProjectId) return;
       return timeline.loadLatest({
@@ -676,7 +695,7 @@ export function App(): ReactElement {
   const conversationTurnQueue = useConversationTurnQueueController({
     projectId: selectedProjectId,
     productMode: appMode.productMode,
-    conversationId: activeTopic?.id ?? null,
+    conversationId: readyConversationId,
     executionKey: [
       conversationRunControl?.state ?? "idle",
       conversationRunControl?.providerId ?? "",
@@ -689,7 +708,7 @@ export function App(): ReactElement {
   const composer = useConversationComposerController({
     projectId: selectedProjectId,
     productMode: appMode.productMode,
-    conversation: activeTopic ? {
+    conversation: activeTopic && activeConversationSnapshotReady ? {
       id: activeTopic.id,
       productMode: activeTopic.productMode,
       agentTurnMode: activeTopic.agentTurnMode,
@@ -742,7 +761,7 @@ export function App(): ReactElement {
   const conversationContext = useConversationContextController({
     projectId: selectedProjectId,
     productMode: appMode.productMode,
-    conversationId: activeTopic?.id ?? null,
+    conversationId: readyConversationId,
     snapshot: activeModeSnapshot.center.conversationContext ?? null,
     refreshConversation: async (projectId, conversationId) => { await refresh(projectId, conversationId); },
     onError: setError,
@@ -750,7 +769,7 @@ export function App(): ReactElement {
   const conversationReview = useConversationReviewController({
     projectId: selectedProjectId,
     productMode: appMode.productMode,
-    conversationId: activeTopic?.id ?? null,
+    conversationId: readyConversationId,
     providerId: composerProviderId,
     expectedTimelineRevision: activeTopic?.timelineRevision ?? null,
     running: composerRunning,
@@ -770,10 +789,10 @@ export function App(): ReactElement {
   const setComposerFileRefs = composer.setFileRefs;
   const composerAttachments = composer.attachments;
   const activeTimelineScope = useMemo<CanonicalTimelineScope | null>(() => (
-    selectedProjectId && activeTopic?.id && !isPendingTopic
+    selectedProjectId && activeTopic?.id && !isPendingTopic && activeConversationSnapshotReady
       ? { projectId: selectedProjectId, productMode: activeTopic.productMode, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
       : null
-  ), [activeTopic?.id, activeTopic?.productMode, isPendingTopic, selectedProjectId]);
+  ), [activeConversationSnapshotReady, activeTopic?.id, activeTopic?.productMode, isPendingTopic, selectedProjectId]);
   const activeTranscriptScope = useMemo<CanonicalTimelineScope | null>(() => (
     selectedProjectId && activeTopic?.id
       ? { projectId: selectedProjectId, productMode: activeTopic.productMode, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
@@ -815,7 +834,7 @@ export function App(): ReactElement {
   const agentSurfaces = useAgentSurfaceController({
     projectId: selectedProjectId,
     productMode: appMode.productMode,
-    conversationId: activeTopic?.id ?? null,
+    conversationId: readyConversationId,
     officeViewOpen: orchestrationOpen,
     ports: {
       cleanupResources: workspaceResources.cleanupTransition,
@@ -928,8 +947,8 @@ export function App(): ReactElement {
   }, {
     onConnected: (projectId) => {
       void modeActivity.refresh(projectId);
-      const conversationId = activeTopic?.id;
-      if (!conversationId || isPendingTopic) return;
+      const conversationId = readyConversationId;
+      if (!conversationId) return;
       void refresh(projectId, conversationId);
       agentSurfaces.invalidate({ conversationId, reason: "snapshot" });
       for (const scope of canonicalTimelineReconnectScopes(projectId, appMode.productMode, conversationId, workspaceResourceTabs)) {
@@ -941,7 +960,7 @@ export function App(): ReactElement {
   const conversationActions = useConversationActionController({
     session: {
       projectId: selectedProjectId,
-      conversationId: activeTopic?.id ?? null,
+      conversationId: readyConversationId,
       selectedTopicId: selectedTopicForMode,
       snapshot: activeModeSnapshot,
       composerText,
@@ -1196,6 +1215,7 @@ export function App(): ReactElement {
         planModeDisabledReason: composer.planModeDisabledReason,
         agentModelId: composer.agentModelId,
         agentReasoningEffort: composer.agentReasoningEffort,
+        submissionBusy: composer.submissionBusy,
         providerModelCatalogs,
         providerModelCatalogsBusy: providerConfiguration.modelCatalogsBusy,
         enabledSkillCount,
@@ -1239,7 +1259,11 @@ export function App(): ReactElement {
         activeSkillIds: selectedComposerSkillIds,
         selectedFileRefs: composerFileRefs,
         attachments: composerAttachments,
-        disabledReason: activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined,
+        disabledReason: activeTopic.state !== "active"
+          ? "已完成或稍后处理的需求对话为只读。"
+          : !activeConversationSnapshotReady
+            ? "正在确认会话"
+            : undefined,
         productMode: appMode.productMode,
         accessView: composer.accessView,
         agentTurnMode: composer.agentTurnMode,
@@ -1401,11 +1425,6 @@ export function App(): ReactElement {
           />
         ) : archivingSelected ? (
           <section className="empty-workbench" role="status"><h1>正在归档会话</h1></section>
-        ) : selectedTopic && !selectedTopic.startsWith("pending:") && !snapshotMatchesCurrentMode ? (
-          <section className="empty-workbench" data-testid="conversation-loading" role="status">
-            <h1>{session.snapshotError ? "会话加载失败" : "正在加载会话"}</h1>
-            {session.snapshotError ? <><p>{session.snapshotError}</p><button type="button" className="outline-button" onClick={() => void session.chooseConversation(selectedProjectId, selectedTopic)}>重试</button></> : null}
-          </section>
         ) : !activeTopic ? (
           readinessComposer ? <ProjectReadinessHomeFeature surface={readinessComposer} /> : null
         ) : (
@@ -1419,6 +1438,23 @@ export function App(): ReactElement {
                     : `${projectDisplayName(activeModeSnapshot.project, "project")} · ${stateLabel(activeTopic.state)} · 验收 ${activeTopic.acCount ?? 0} · 任务 ${activeTopic.taskCount ?? 0}`}
                 </span>
               </div>
+              {session.snapshotError && activeTopic.id === selectedTopic ? (
+                <div className="conversation-local-error" role="alert">
+                  <span>{session.snapshotError}</span>
+                  <button type="button" className="outline-button" onClick={() => {
+                    if (activePendingConversation?.canonical) {
+                      void session.reconcileCreatedConversation(
+                        selectedProjectId,
+                        activePendingConversation.productMode,
+                        activePendingConversation.id,
+                        activePendingConversation.clientRequestId,
+                      );
+                    } else {
+                      void session.chooseConversation(selectedProjectId, activeTopic.id);
+                    }
+                  }}>重试</button>
+                </div>
+              ) : null}
             </header>
             {activeTopic.forkBoundary ? (
               <div className="conversation-fork-boundary" data-testid="conversation-fork-boundary">

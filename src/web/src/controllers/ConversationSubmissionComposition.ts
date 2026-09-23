@@ -71,7 +71,12 @@ export function createConversationSubmissionPorts(
         const customTransport = input.actions().sendMessage;
         return customTransport
           ? customTransport(request)
-          : sendConversationMessageTransport(request, routeEvent);
+          : sendConversationMessageTransport(request, routeEvent, () => input.timeline().markPending?.(
+            { projectId: request.projectId, productMode: request.productMode, conversationId: request.conversationId },
+            request.clientRequestId,
+            "uncertain",
+            "服务端尚未确认这条消息，请等待后续事件或选择恢复操作。",
+          ));
       },
     },
     timeline: {
@@ -111,6 +116,7 @@ export function createConversationSubmissionPorts(
 async function sendConversationMessageTransport(
   request: ComposerMessageRequest,
   routeEvent?: (projectId: string, event: WorkbenchLiveEvent) => void,
+  onFirstConfirmationTimeout?: () => void,
 ): Promise<void> {
   await consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
     `/api/projects/${encodeURIComponent(request.projectId)}/workbench/topics/${encodeURIComponent(request.conversationId)}/messages/live`,
@@ -130,6 +136,10 @@ async function sendConversationMessageTransport(
       reasoningEffort: request.reasoningEffort,
     },
     (event) => routeEvent?.(request.projectId, event),
+    {
+      firstConfirmationTimeoutMs: 30_000,
+      onFirstConfirmationTimeout,
+    },
   );
 }
 

@@ -362,7 +362,7 @@ describe("Workbench App owner composition", () => {
     expect(requestUrls("/timeline?").every((url) => url.includes("productMode=agent"))).toBe(true);
   });
 
-  it("withholds the previous Conversation identity while a product-mode Snapshot is calibrating", async () => {
+  it("keeps a target shell without leaking the previous Conversation while a Snapshot calibrates", async () => {
     window.localStorage.setItem("aho.workbench.productMode.v1", "agent");
     let resolveHarnessSnapshot!: (value: Snapshot) => void;
     const harnessSnapshot = new Promise<Snapshot>((resolve) => { resolveHarnessSnapshot = resolve; });
@@ -384,6 +384,7 @@ describe("Workbench App owner composition", () => {
     expect(duringCalibration.some((url) => url.includes("/workbench/conversations/conv-1/") && url.includes("productMode=harness"))).toBe(false);
     expect(duringCalibration.some((url) => url.includes("/agent-surfaces/conv-1") && url.includes("productMode=harness"))).toBe(false);
     expect(screen.queryByText("Owner convergence")).toBeNull();
+    expect(screen.queryByTestId("conversation-loading")).toBeNull();
 
     resolveHarnessSnapshot(snapshotWithConversationId(createSnapshot(undefined, "harness"), "harness-conversation"));
     await waitFor(() => expect(screen.getAllByText("harness-conversation").length).toBeGreaterThan(0));

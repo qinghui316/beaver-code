@@ -131,7 +131,8 @@ export function useConversationActionController({
     const current = sessionRef.current;
     const actionPorts = portsRef.current;
     const request = actionPorts.postJson ?? postJson;
-    const consume = actionPorts.consumeLiveStream ?? consumeWorkbenchLiveStream;
+    const consume = actionPorts.consumeLiveStream
+      ?? ((url, body, onEvent) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(url, body, onEvent));
     const { preserveSelectedTopic, ...actionOptions } = options;
     const shouldPreserveSelectedTopic = preserveSelectedTopic === true;
     if (!current.projectId || !current.conversationId) return;
@@ -367,7 +368,7 @@ export function useConversationActionController({
         && topic?.selectedProviderId === request.providerId;
     };
     try {
-      await (actionPorts.consumeLiveStream ?? consumeWorkbenchLiveStream)(
+      await (actionPorts.consumeLiveStream ?? ((url, body, onEvent) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(url, body, onEvent)))(
         `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/turn/retry/live`,
         {
           productMode: "agent",
@@ -543,7 +544,7 @@ export function useConversationActionController({
     actionPorts.setError(null);
     let failed = false;
     try {
-      await (actionPorts.consumeLiveStream ?? consumeWorkbenchLiveStream)(
+      await (actionPorts.consumeLiveStream ?? ((url, body, onEvent) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(url, body, onEvent)))(
         `/api/projects/${encodeURIComponent(projectId)}/workbench/conversations/${encodeURIComponent(conversationId)}/interactions/${encodeURIComponent(interactionId)}/settle`,
         { ...settlement, productMode: current.snapshot.productMode },
         (event) => {

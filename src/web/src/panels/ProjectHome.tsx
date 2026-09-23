@@ -1,5 +1,5 @@
 import type { AgentAccessControlProps } from "../shell/AgentAccessControl.js";
-import { useState, type ReactElement } from "react";
+import { type ReactElement } from "react";
 import { ArrowUp, Bot, RefreshCw } from "lucide-react";
 import { ConversationComposerSurface } from "../shell/composer.js";
 import { productModeExperience } from "../presentation/core-workbench-experience.js";
@@ -83,6 +83,7 @@ export function ProjectReadinessHome({
   planModeDisabledReason,
   agentModelId,
   agentReasoningEffort,
+  submissionBusy,
   providerModelCatalogs,
   providerModelCatalogsBusy,
   onRefreshProviderModels,
@@ -134,6 +135,7 @@ export function ProjectReadinessHome({
   planModeDisabledReason?: string | null;
   agentModelId: string | null;
   agentReasoningEffort: string | null;
+  submissionBusy?: boolean;
   providerModelCatalogs?: ProviderModelCatalogGroup[];
   providerModelCatalogsBusy?: boolean;
   onRefreshProviderModels?: () => void | Promise<void>;
@@ -155,7 +157,6 @@ export function ProjectReadinessHome({
   ) => void | Promise<void>;
   onReviewCommandError?: (message: string) => void;
 }): ReactElement {
-  const [submitting, setSubmitting] = useState(false);
   const canStartDemand = project.pathExists;
   const canAttach = canStartDemand;
   const modeExperience = productModeExperience(productMode);
@@ -178,7 +179,6 @@ export function ProjectReadinessHome({
     }
     const body = draft.trim();
     if ((!body && draftAttachments.length === 0) || !canStartDemand) return;
-    setSubmitting(true);
     try {
       await onCreateDemand(
         body,
@@ -187,8 +187,6 @@ export function ProjectReadinessHome({
       );
     } catch {
       // The App shell owns the user-facing error message; keep the draft intact.
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -223,8 +221,8 @@ export function ProjectReadinessHome({
           disabledReason={
             !canStartDemand
               ? "项目目录不可用"
-              : submitting
-                ? "正在创建会话"
+              : submissionBusy
+                ? "正在处理"
                 : undefined
           }
           placeholder="描述你的需求"
@@ -270,7 +268,7 @@ export function ProjectReadinessHome({
             type="button"
               disabled={
                 !canStartDemand ||
-                submitting ||
+                submissionBusy ||
                 Boolean(agentTurnModeDisabledReason) ||
                 (!draft.trim() && draftAttachments.length === 0)
               }
@@ -278,7 +276,7 @@ export function ProjectReadinessHome({
             title={agentTurnModeDisabledReason ?? "创建需求对话"}
             aria-label="创建需求对话"
           >
-              {submitting ? (
+              {submissionBusy ? (
                 <RefreshCw size={16} className="spin" />
               ) : (
                 <ArrowUp size={17} />

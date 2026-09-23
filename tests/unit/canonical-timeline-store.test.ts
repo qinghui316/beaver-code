@@ -81,9 +81,10 @@ describe("canonical Timeline Store", () => {
     expect(texts(state)).toEqual(["validate the import"]);
     expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]).toMatchObject({
       id: "pending-user:request-1",
-      title: "正在发送",
-      status: "sending",
+      text: "validate the import",
     });
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]?.title).toBeUndefined();
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]?.status).toBeUndefined();
     expect(selectCanonicalTimelineSurface(state, mainScope)?.watermark).toBe(0);
 
     state = canonicalTimelineReducer(state, {
@@ -179,7 +180,8 @@ describe("canonical Timeline Store", () => {
     const envelopes = selectCanonicalTimelineEnvelopes(state, mainScope);
     expect(envelopes.map((item) => item.messageId)).toEqual(["canonical-user", "optimistic:request-2"]);
     expect(envelopes[0]?.cells[0]?.id).toBe("pending-user:request-1");
-    expect(envelopes[1]?.cells[0]).toMatchObject({ text: "still pending", status: "sending" });
+    expect(envelopes[1]?.cells[0]).toMatchObject({ text: "still pending" });
+    expect(envelopes[1]?.cells[0]?.status).toBeUndefined();
   });
 
   it("rekeys only the exact pending Conversation scope and preserves mode isolation", () => {
@@ -547,8 +549,6 @@ function optimisticUserEnvelope(
       kind: "user-message",
       source: "user",
       text,
-      title: "正在发送",
-      status: "sending",
       realtime: true,
     }],
   };

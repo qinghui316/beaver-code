@@ -1,4 +1,4 @@
-import { useCallback, useRef, type MutableRefObject } from "react";
+import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import type { ConversationAccessCapturePort } from "./conversation-access-contract.js";
 import type { SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
 import type {
@@ -62,6 +62,7 @@ export interface ConversationSubmissionCoordinator {
   submitMessage(): Promise<void>;
   retryPendingIntent(clientRequestId: string): Promise<void>;
   restorePendingIntent(clientRequestId: string): void;
+  submissionBusy: boolean;
 }
 
 export function useConversationSubmissionCoordinator(
@@ -74,6 +75,7 @@ export function useConversationSubmissionCoordinator(
 ): ConversationSubmissionCoordinator {
   const submissionOwnerRef = useRef<ConversationTurnSubmissionController | null>(null);
   const submissionIntentsRef = useRef(new Set<string>());
+  const [submissionBusy, setSubmissionBusy] = useState(false);
 
   function submissionOwner(): ConversationTurnSubmissionController {
     if (!submissionOwnerRef.current) {
@@ -397,7 +399,11 @@ export function useConversationSubmissionCoordinator(
       effectiveComposerProviderId(scope), draft.controller.read().mutationToken]);
     if (submissionIntentsRef.current.has(key)) return duplicate;
     submissionIntentsRef.current.add(key);
-    try { return await action(); } finally { submissionIntentsRef.current.delete(key); }
+    setSubmissionBusy(true);
+    try { return await action(); } finally {
+      submissionIntentsRef.current.delete(key);
+      setSubmissionBusy(false);
+    }
   }
 
   return {
@@ -405,6 +411,7 @@ export function useConversationSubmissionCoordinator(
     submitMessage: () => reserveSubmission(submitMessage, undefined),
     retryPendingIntent,
     restorePendingIntent,
+    submissionBusy,
   };
 }
 

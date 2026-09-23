@@ -20,6 +20,8 @@ import type {
 
 const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
 
+export type PendingDemandPhase = "optimistic" | "canonical" | "reconciling";
+
 export type PendingDemandConversation = {
   id: string;
   projectId: string;
@@ -29,6 +31,7 @@ export type PendingDemandConversation = {
   body: string;
   startedAt: string;
   canonical: boolean;
+  phase: PendingDemandPhase;
   updatedAt?: string;
   selectedProviderId?: string;
 };
@@ -104,6 +107,7 @@ export interface ProjectConversationSessionApi {
   createDemandConversation(
     input: CreateDemandConversationInput,
     onEvent: (event: WorkbenchLiveEvent) => void,
+    options?: import("../api.js").LiveStreamOptions,
   ): Promise<void>;
 }
 
@@ -122,6 +126,7 @@ export interface ProjectConversationSessionPorts {
     clearProject(projectId: string): void;
     clearConversation(projectId: string, conversationId: string): void;
     rekeyConversation?(from: { projectId: string; productMode: ProductMode; conversationId: string }, toConversationId: string, clientRequestId: string): void;
+    updateOptimisticUserIntent?(scope: { projectId: string; productMode: ProductMode; conversationId: string; agentSurfaceId: string }, clientRequestId: string, state: "sending" | "uncertain" | "failed", failure?: string): void;
   };
   resources?: {
     cleanupTransition(kind: SessionTransitionKind): void;
@@ -311,7 +316,9 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setProjectModeSnapshots((current) => cacheSnapshot(current, projectId, requestProductMode, next));
     const resolvedConversationId = next.center.selectedTopic?.id ?? null;
     const pending = pendingDemandRef.current;
-    if (pending?.canonical && pending.id === resolvedConversationId) {
+    if (pending?.canonical && pending.id === resolvedConversationId
+      && pending.projectId === projectId
+      && pending.productMode === requestProductMode) {
       setPendingDemandConversation(null);
       pendingDemandRef.current = null;
     }
@@ -632,7 +639,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setStream(next);
   }, []);
 
-  const beginPendingDemand = useCallback((input: Omit<PendingDemandConversation, "id" | "startedAt" | "canonical" | "productMode"> & {
+  const beginPendingDemand = useCallback((input: Omit<PendingDemandConversation, "id" | "startedAt" | "canonical" | "phase" | "productMode"> & {
     id?: string;
     startedAt?: string;
     productMode?: ProductMode;
@@ -643,6 +650,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       id: input.id ?? `pending:${Date.now().toString(36)}`,
       startedAt: input.startedAt ?? new Date().toISOString(),
       canonical: false,
+      phase: "optimistic",
     };
     setSelectedProjectId(input.projectId);
     setSelectedTopic(pending.id);
@@ -722,6 +730,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       id: input.conversationId,
       title: input.title,
       canonical: true,
+      phase: "canonical" as const,
       selectedProviderId: input.selectedProviderId ?? pending.selectedProviderId,
     };
     setPendingDemandConversation(canonical);
@@ -802,6 +811,19 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
               ).catch(reportError);
             }
           }
+        }, {
+          firstConfirmationTimeoutMs: 30_000,
+          onFirstConfirmationTimeout: () => {
+            if (!canApplyToCurrentSelection()) return;
+            const pending = pendingDemandRef.current;
+            const id = pending?.id ?? `pending:${request.clientRequestId}`;
+            portsRef.current.timeline?.updateOptimisticUserIntent?.(
+              { projectId: request.projectId, productMode: request.productMode, conversationId: id, agentSurfaceId: "main-agent" },
+              request.clientRequestId,
+              "uncertain",
+              "服务端尚未确认这条消息，请等待后续事件或选择恢复操作。",
+            );
+          },
         });
       if (!boundConversationId) throw new Error("Demand conversation was not created.");
       if (!canApplyToCurrentSelection()) return { projectId: request.projectId, conversationId: boundConversationId };
@@ -810,17 +832,42 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       setProductMode(request.productMode);
       productModeRef.current = request.productMode;
       setSelectedTopic(boundConversationId);
-      setPendingDemandConversation(null);
-      pendingDemandRef.current = null;
+      const pending = pendingDemandRef.current;
+      if (pending?.projectId === request.projectId
+        && pending.productMode === request.productMode
+        && pending.clientRequestId === request.clientRequestId
+        && pending.id === boundConversationId) {
+        const reconciling = { ...pending, phase: "reconciling" as const, canonical: true };
+        setPendingDemandConversation(reconciling);
+        pendingDemandRef.current = reconciling;
+      }
       navigation(portsRef.current).persistProjectId(request.projectId);
       navigation(portsRef.current).syncLocation(request.projectId, boundConversationId);
+      if (canApplyToCurrentSelection()) {
+        void refreshAtGeneration(
+          request.projectId,
+          boundConversationId,
+          ++requestGenerationRef.current,
+          request.productMode,
+          false,
+        ).catch((cause) => {
+          if (canApplyToCurrentSelection()) {
+            setSnapshotError(userFacingErrorMessage(cause, "conversation"));
+            reportError(cause);
+          }
+        });
+      }
       return { projectId: request.projectId, conversationId: boundConversationId };
     } catch (cause) {
       if (boundConversationId) {
         if (canApplyToCurrentSelection()) {
           ++requestGenerationRef.current;
-          setPendingDemandConversation(null);
-          pendingDemandRef.current = null;
+          const pending = pendingDemandRef.current;
+          if (pending?.id === boundConversationId && pending.clientRequestId === request.clientRequestId) {
+            const reconciling = { ...pending, phase: "reconciling" as const, canonical: true };
+            setPendingDemandConversation(reconciling);
+            pendingDemandRef.current = reconciling;
+          }
           setSelectedProjectId(request.projectId);
           setSelectedTopic(boundConversationId);
           navigation(portsRef.current).syncLocation(request.projectId, boundConversationId);
@@ -845,6 +892,25 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       throw cause;
     }
   }, [beginPendingDemand, invalidateNavigation, refreshAtGeneration, rekeyPendingDemand, reportError]);
+
+  const reconcileCreatedConversation = useCallback(async (
+    projectId: string,
+    requestProductMode: ProductMode,
+    conversationId: string,
+    clientRequestId: string,
+  ): Promise<void> => {
+    const pending = pendingDemandRef.current;
+    if (!pending || pending.projectId !== projectId || pending.productMode !== requestProductMode
+      || pending.id !== conversationId || pending.clientRequestId !== clientRequestId) return;
+    const generation = ++requestGenerationRef.current;
+    try {
+      await refreshAtGeneration(projectId, conversationId, generation, requestProductMode, false);
+    } catch (cause) {
+      if (isCurrentSelection(generation, requestProductMode, requestGenerationRef, productModeRef)) {
+        setSnapshotError(userFacingErrorMessage(cause, "conversation"));
+      }
+    }
+  }, [refreshAtGeneration]);
 
   const acceptCanonicalConversation = useCallback((input: {
     projectId: string;
@@ -1112,6 +1178,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     beginPendingDemand,
     ensureProjectRegistered,
     createDemandConversation,
+    reconcileCreatedConversation,
     acceptCanonicalConversation,
     reconcileConversationTitle,
     updateConversationTitle,
@@ -1175,7 +1242,7 @@ const defaultApi: ProjectConversationSessionApi = {
     `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/title`,
     { title },
   ),
-  createDemandConversation: (input, onEvent) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
+  createDemandConversation: (input, onEvent, options) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
     `/api/projects/${encodeURIComponent(input.projectId)}/workbench/topics/live`,
     {
       body: input.body,
@@ -1192,6 +1259,7 @@ const defaultApi: ProjectConversationSessionApi = {
       skillOverrides: input.skillOverrides,
     },
     onEvent,
+    options,
   ),
 };
 

@@ -63,6 +63,7 @@ export interface ProjectReadinessComposerViewModel extends ComposerConfiguration
   agentTurnMode: AgentTurnMode;
   agentModelId: string | null;
   agentReasoningEffort: string | null;
+  submissionBusy?: boolean;
 }
 
 export interface ProjectReadinessComposerActions extends ComposerConfigurationActions {

@@ -154,6 +154,7 @@ export function useConversationComposerController(
     appendAttachments: resources.appendAttachments,
     removeAttachment: resources.removeAttachment,
     createConversation: submission.createConversation,
+    submissionBusy: submission.submissionBusy,
     enqueue: execution.enqueue,
     reclaimQueuedTurn: execution.reclaimQueuedTurn,
     flushDraft: draft.flushDraft,

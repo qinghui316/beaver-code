@@ -93,8 +93,8 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
           agentSurfaceId: scope.agentSurfaceId,
           timestamp,
           text,
-          title: "正在发送",
-          status: "sending",
+          // Successful optimistic sends are ordinary user rows. Delivery
+          // uncertainty is projected only when the request actually needs it.
           realtime: true,
           pendingIntent: { clientRequestId, canRetry: false, canRestore: false },
         }],
