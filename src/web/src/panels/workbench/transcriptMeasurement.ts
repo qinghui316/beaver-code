@@ -9,6 +9,8 @@ const DEFAULT_TEXT_WIDTH = 760;
 const PROSE_FONT = "15.5px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const PROSE_LINE_HEIGHT = 26;
 const PROCESS_DETAIL_VIEWPORT_HEIGHT = 320;
+const MESSAGE_TIMESTAMP_SLOT_HEIGHT = 16;
+const MESSAGE_TIMESTAMP_GAP = 4;
 
 export function isLongTranscriptCell(cell: ParentAgentTranscriptCell): boolean {
   if (cell.kind !== "assistant-message" && cell.kind !== "user-message") return false;
@@ -47,7 +49,10 @@ export function estimateTranscriptCellHeight(cell: ParentAgentTranscriptCell, op
   const text = transcriptCellDisplayText(cell, options.expanded);
   const titleAllowance = cell.title ? 28 : 0;
   const proseHeight = estimateTextHeightWithPretext(text, Math.max(280, options.width ?? DEFAULT_TEXT_WIDTH));
-  return Math.max(72, proseHeight + titleAllowance + 34);
+  const timestampAllowance = cell.kind === "user-message" || cell.kind === "assistant-message"
+    ? MESSAGE_TIMESTAMP_SLOT_HEIGHT + MESSAGE_TIMESTAMP_GAP
+    : 0;
+  return Math.max(72, proseHeight + titleAllowance + 34 + timestampAllowance);
 }
 
 function estimateTextHeightWithPretext(text: string, width: number): number {

@@ -28,8 +28,8 @@ export function calculateTranscriptVirtualRange(input: {
   }
   const viewportHeight = Math.max(1, input.viewportHeight || 720);
   const overscan = Math.max(0, input.overscan ?? 8);
-  const firstVisible = Math.max(0, findOffsetIndex(offsets, Math.max(0, input.scrollTop)) - overscan);
-  const lastVisible = Math.min(input.heights.length, findOffsetIndex(offsets, input.scrollTop + viewportHeight) + overscan + 1);
+  const firstVisible = Math.max(0, findTranscriptOffsetIndex(offsets, Math.max(0, input.scrollTop)) - overscan);
+  const lastVisible = Math.min(input.heights.length, findTranscriptOffsetIndex(offsets, input.scrollTop + viewportHeight) + overscan + 1);
   return {
     start: firstVisible,
     end: Math.max(firstVisible + 1, lastVisible),
@@ -39,7 +39,7 @@ export function calculateTranscriptVirtualRange(input: {
   };
 }
 
-function findOffsetIndex(offsets: number[], value: number): number {
+export function findTranscriptOffsetIndex(offsets: number[], value: number): number {
   let low = 0;
   let high = Math.max(0, offsets.length - 2);
   while (low <= high) {

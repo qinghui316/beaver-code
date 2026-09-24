@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -7,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
+import { buildTranscriptOffsets, calculateTranscriptVirtualRange, findTranscriptOffsetIndex } from "./TranscriptVirtualList.js";
 import { estimateTranscriptCellHeight } from "./transcriptMeasurement.js";
 import type { ParentAgentTranscriptCell } from "../../types.js";
 
@@ -78,18 +79,22 @@ function useTranscriptVirtualization({
 }) {
   const [measuredCellHeights, setMeasuredCellHeights] = useState<Record<string, number>>({});
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
-  const heights = useMemo(() => cells.map((cell, index) => (
-    measuredCellHeights[cell.id] ?? estimateTranscriptCellHeight(cell, {
-      expanded: expandedCells.has(cell.id),
-      width: scrollMetrics.listWidth,
-    })
-  ) + (groupedByTurn && index > 0 ? sameProviderTurn(cells[index - 1], cell) ? 8 : 20 : 0)), [
+  const heights = useMemo(() => buildTranscriptCellHeights({
     cells,
     expandedCells,
     groupedByTurn,
     measuredCellHeights,
-    scrollMetrics.listWidth,
-  ]);
+    listWidth: scrollMetrics.listWidth,
+  }), [cells, expandedCells, groupedByTurn, measuredCellHeights, scrollMetrics.listWidth]);
+  const heightsRef = useRef(heights);
+  const scrollMetricsRef = useRef(scrollMetrics);
+  const generationRef = useRef(0);
+  const pendingMeasurementAnchorRef = useRef<MeasurementAnchor | null>(null);
+  const measuredCellHeightsRef = useRef(measuredCellHeights);
+  const cellsSignature = useMemo(() => cells.map((cell) => cell.id).join("\u001f"), [cells]);
+  heightsRef.current = heights;
+  scrollMetricsRef.current = scrollMetrics;
+  measuredCellHeightsRef.current = measuredCellHeights;
   const range = useMemo(() => cells.length <= TRANSCRIPT_VIRTUALIZATION_THRESHOLD
     ? { start: 0, end: cells.length, topSpacer: 0, bottomSpacer: 0 }
     : calculateTranscriptVirtualRange({
@@ -100,6 +105,11 @@ function useTranscriptVirtualization({
     }), [cells.length, heights, scrollMetrics.scrollTop, scrollMetrics.viewportHeight]);
   const visibleCells = cells.slice(range.start, range.end);
   const visibleCellIds = visibleCells.map((cell) => cell.id).join("|");
+
+  useLayoutEffect(() => {
+    generationRef.current += 1;
+    pendingMeasurementAnchorRef.current = null;
+  }, [cellsSignature]);
 
   useEffect(() => {
     const currentIds = new Set(cells.map((cell) => cell.id));
@@ -112,35 +122,105 @@ function useTranscriptVirtualization({
   useEffect(() => {
     const root = listRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
+    let active = true;
+    const observerGeneration = generationRef.current;
+    const currentCellIds = new Set(cells.map((cell) => cell.id));
     const observer = new ResizeObserver((entries) => {
-      setMeasuredCellHeights((current) => {
-        let changed = false;
-        const next = { ...current };
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.transcriptCellId;
-          const height = Math.ceil(entry.contentRect.height);
-          if (id && height > 0 && next[id] !== height) {
-            next[id] = height;
-            changed = true;
-          }
+      if (!active || observerGeneration !== generationRef.current) return;
+      const resolvedNode = scrollContainerRef?.current ?? listRef.current?.parentElement;
+      const currentHeights = heightsRef.current;
+      const currentMetrics = scrollMetricsRef.current;
+      const nextMeasuredHeights = { ...measuredCellHeightsRef.current };
+      let changed = false;
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.transcriptCellId;
+        const height = Math.ceil(entry.contentRect.height);
+        if (id && currentCellIds.has(id) && height > 0 && nextMeasuredHeights[id] !== height) {
+          nextMeasuredHeights[id] = height;
+          changed = true;
         }
-        return changed ? next : current;
-      });
+      }
+      if (changed && resolvedNode) {
+        const anchor = calculateMeasurementAnchor(cells, currentHeights, resolvedNode);
+        if (anchor) {
+          const nextHeights = buildTranscriptCellHeights({
+            cells,
+            expandedCells,
+            groupedByTurn,
+            measuredCellHeights: nextMeasuredHeights,
+            listWidth: currentMetrics.listWidth,
+          });
+          pendingMeasurementAnchorRef.current = {
+            ...anchor,
+            generation: generationRef.current,
+            nextAnchorOffset: anchorOffsetForCell(cells, nextHeights, anchor.cellId),
+          };
+        }
+      }
+      if (changed) {
+        measuredCellHeightsRef.current = nextMeasuredHeights;
+        setMeasuredCellHeights(nextMeasuredHeights);
+      }
     });
     root.querySelectorAll<HTMLElement>("[data-transcript-cell-id]").forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [listRef, visibleCellIds]);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [cells, expandedCells, groupedByTurn, listRef, scrollContainerRef, visibleCellIds]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingMeasurementAnchorRef.current;
+    if (!anchor) return;
+    pendingMeasurementAnchorRef.current = null;
+    if (anchor.generation !== generationRef.current) return;
+    const node = scrollContainerRef?.current ?? listRef.current?.parentElement;
+    if (!node) return;
+    if (anchor.pinned) {
+      node.scrollTop = node.scrollHeight;
+    } else if (anchor.nextAnchorOffset != null) {
+      node.scrollTop = Math.max(0, anchor.nextAnchorOffset + anchor.offsetWithinCell);
+    }
+    const nextMetrics = { ...scrollMetricsRef.current, scrollTop: node.scrollTop };
+    scrollMetricsRef.current = nextMetrics;
+    setScrollMetrics(nextMetrics);
+  }, [heights, listRef, scrollContainerRef]);
 
   useEffect(() => {
     const resolvedNode = scrollContainerRef?.current ?? listRef.current?.parentElement;
     if (!resolvedNode) return;
     const node = resolvedNode;
     function updateMetrics(): void {
-      setScrollMetrics({
+      const nextMetrics = {
         scrollTop: node.scrollTop,
         viewportHeight: node.clientHeight || 720,
         listWidth: Math.max(320, node.clientWidth - 80),
-      });
+      };
+      const currentMetrics = scrollMetricsRef.current;
+      if (nextMetrics.scrollTop === currentMetrics.scrollTop
+        && nextMetrics.viewportHeight === currentMetrics.viewportHeight
+        && nextMetrics.listWidth === currentMetrics.listWidth) return;
+      if (nextMetrics.listWidth !== currentMetrics.listWidth) {
+        const anchor = calculateMeasurementAnchor(cells, heightsRef.current, node);
+        if (anchor) {
+          const nextHeights = buildTranscriptCellHeights({
+            cells,
+            expandedCells,
+            groupedByTurn,
+            measuredCellHeights: {},
+            listWidth: nextMetrics.listWidth,
+          });
+          pendingMeasurementAnchorRef.current = {
+            ...anchor,
+            generation: generationRef.current,
+            nextAnchorOffset: anchorOffsetForCell(cells, nextHeights, anchor.cellId),
+          };
+        }
+        measuredCellHeightsRef.current = {};
+        setMeasuredCellHeights({});
+      }
+      scrollMetricsRef.current = nextMetrics;
+      setScrollMetrics(nextMetrics);
     }
     updateMetrics();
     node.addEventListener("scroll", updateMetrics);
@@ -149,7 +229,7 @@ function useTranscriptVirtualization({
       node.removeEventListener("scroll", updateMetrics);
       window.removeEventListener("resize", updateMetrics);
     };
-  }, [listRef, scrollContainerRef]);
+  }, [cells, expandedCells, groupedByTurn, listRef, scrollContainerRef]);
 
   return {
     ...range,
@@ -163,6 +243,49 @@ function useTranscriptVirtualization({
       });
     },
   };
+}
+
+type MeasurementAnchor = {
+  cellId: string;
+  offsetWithinCell: number;
+  pinned: boolean;
+  generation: number;
+  nextAnchorOffset: number | null;
+};
+
+function buildTranscriptCellHeights({ cells, expandedCells, groupedByTurn, measuredCellHeights, listWidth }: {
+  cells: ParentAgentTranscriptCell[];
+  expandedCells: Set<string>;
+  groupedByTurn: boolean;
+  measuredCellHeights: Record<string, number>;
+  listWidth: number;
+}): number[] {
+  return cells.map((cell, index) => (
+    measuredCellHeights[cell.id] ?? estimateTranscriptCellHeight(cell, {
+      expanded: expandedCells.has(cell.id),
+      width: listWidth,
+    })
+  ) + (groupedByTurn && index > 0 ? sameProviderTurn(cells[index - 1], cell) ? 8 : 20 : 0));
+}
+
+function calculateMeasurementAnchor(cells: ParentAgentTranscriptCell[], heights: number[], node: HTMLElement): Omit<MeasurementAnchor, "generation" | "nextAnchorOffset"> | null {
+  if (cells.length === 0) return null;
+  const offsets = buildTranscriptOffsets(heights);
+  const scrollTop = Math.max(0, node.scrollTop);
+  const index = findTranscriptOffsetIndex(offsets, scrollTop);
+  const cell = cells[index];
+  if (!cell) return null;
+  return {
+    cellId: cell.id,
+    offsetWithinCell: scrollTop - (offsets[index] ?? 0),
+    pinned: node.scrollHeight - node.scrollTop - node.clientHeight <= 140,
+  };
+}
+
+function anchorOffsetForCell(cells: ParentAgentTranscriptCell[], heights: number[], cellId: string): number | null {
+  const index = cells.findIndex((cell) => cell.id === cellId);
+  if (index < 0) return null;
+  return buildTranscriptOffsets(heights)[index] ?? null;
 }
 
 function sameProviderTurn(previous: ParentAgentTranscriptCell | undefined, current: ParentAgentTranscriptCell): boolean {

@@ -50,6 +50,8 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
+  const isMessage = cell.kind === "user-message" || cell.kind === "assistant-message";
+  const hasTimestamp = Boolean(cell.timestamp && isMessage);
   return (
     <div
       className={`parent-agent-message-row transcript-cell-row ${rowKind} ${cell.kind}`}
@@ -59,30 +61,35 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
       data-thread-id={cell.threadId}
       data-turn-id={cell.turnId}
       data-realtime={cell.realtime ? "true" : undefined}
+      data-timestamp-available={hasTimestamp ? "true" : undefined}
+      tabIndex={hasTimestamp ? 0 : undefined}
+      onTouchStart={hasTimestamp ? (event) => event.currentTarget.focus({ preventScroll: true }) : undefined}
     >
-      <div className={`parent-agent-bubble transcript-cell-surface ${rowKind} ${cell.kind}`}>
-        {cell.kind === "user-message" ? (
-          <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onRetryPending={onRetryPending} onRestorePending={onRestorePending} />
-        ) : cell.kind === "assistant-message" ? (
-          <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
-        ) : cell.kind === "review-card" ? (
-          <TranscriptReviewCard cell={cell} onFork={onFork} onOpenProjectFile={onOpenProjectFile} />
-        ) : cell.kind === "user-input" && cell.interactionHistory ? (
-          <InteractionHistoryView history={cell.interactionHistory} />
-        ) : cell.kind === "document-preview" && cell.documentRef ? (
-          <PlanDocumentPreview
-            document={cell.documentRef}
-            resource={documentResources?.[cell.documentRef.documentId] ?? null}
-            onEnsure={() => onEnsureDocument?.(cell.documentRef!)}
-            onOpen={() => onOpenDocument?.(cell.documentRef!)}
-          />
-        ) : cell.activityKind === "reasoning" ? (
-          <TranscriptReasoningSummary cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
-        ) : (
-          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} onRetry={onRetry} onFork={onFork} />
-        )}
+      <div className={`parent-agent-message-stack ${rowKind} ${cell.kind}`}>
+        <div className={`parent-agent-bubble transcript-cell-surface ${rowKind} ${cell.kind}`}>
+          {cell.kind === "user-message" ? (
+            <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onRetryPending={onRetryPending} onRestorePending={onRestorePending} />
+          ) : cell.kind === "assistant-message" ? (
+            <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
+          ) : cell.kind === "review-card" ? (
+            <TranscriptReviewCard cell={cell} onFork={onFork} onOpenProjectFile={onOpenProjectFile} />
+          ) : cell.kind === "user-input" && cell.interactionHistory ? (
+            <InteractionHistoryView history={cell.interactionHistory} />
+          ) : cell.kind === "document-preview" && cell.documentRef ? (
+            <PlanDocumentPreview
+              document={cell.documentRef}
+              resource={documentResources?.[cell.documentRef.documentId] ?? null}
+              onEnsure={() => onEnsureDocument?.(cell.documentRef!)}
+              onOpen={() => onOpenDocument?.(cell.documentRef!)}
+            />
+          ) : cell.activityKind === "reasoning" ? (
+            <TranscriptReasoningSummary cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
+          ) : (
+            <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} onRetry={onRetry} onFork={onFork} />
+          )}
+        </div>
+        {isMessage ? <time className="parent-agent-message-timestamp" dateTime={cell.timestamp} aria-label={hasTimestamp ? `消息时间 ${formatTime(cell.timestamp)}` : undefined} aria-hidden={!hasTimestamp}>{formatTime(cell.timestamp)}</time> : null}
       </div>
-      {cell.timestamp && (cell.kind === "user-message" || cell.kind === "assistant-message") ? <time>{formatTime(cell.timestamp)}</time> : null}
     </div>
   );
 }

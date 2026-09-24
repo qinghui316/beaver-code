@@ -903,11 +903,15 @@ body.is-resizing-column {
 }
 
 .agent-transcript-pane .parent-agent-message-row {
-  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
 }
 
-.agent-transcript-pane .parent-agent-message-row time {
-  justify-self: end;
+.agent-transcript-pane .parent-agent-message-stack {
+  width: 100%;
+}
+
+.agent-transcript-pane .parent-agent-message-stack.user {
+  width: min(640px, 88%);
 }
 
 .agent-transcript-pane .parent-agent-bubble.parent {

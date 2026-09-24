@@ -129,6 +129,27 @@ describe("main conversation virtualization", () => {
     expect(screen.queryByRole("button", { name: "创建恢复会话" })).toBeNull();
   });
 
+  it("keeps message timestamps beside their own bubble and reveals them without changing the row contract", () => {
+    renderTranscript([
+      { id: "user-timestamp", kind: "user-message", source: "user", text: "你好", timestamp: "2026-08-20T06:30:00.000Z" },
+      { id: "assistant-timestamp", kind: "assistant-message", source: "provider-runtime", text: "你好！", timestamp: "2026-08-20T06:31:00.000Z" },
+    ], vi.fn(async () => undefined));
+
+    const userRow = screen.getByTestId("parent-message-user");
+    const assistantRow = screen.getByTestId("parent-message-parent-agent");
+    expect(userRow.querySelector(".parent-agent-message-stack.user > .parent-agent-bubble.user")).toBeTruthy();
+    expect(userRow.querySelector(".parent-agent-message-stack.user > .parent-agent-message-timestamp")).toBeTruthy();
+    expect(assistantRow.querySelector(".parent-agent-message-stack.parent > .parent-agent-bubble.parent")).toBeTruthy();
+    expect(assistantRow.querySelector(".parent-agent-message-stack.parent > .parent-agent-message-timestamp")).toBeTruthy();
+    expect(userRow.getAttribute("data-timestamp-available")).toBe("true");
+    expect(userRow.getAttribute("tabindex")).toBe("0");
+
+    fireEvent.touchStart(userRow);
+    expect(document.activeElement).toBe(userRow);
+    expect(userRow.matches(":focus-within")).toBe(true);
+    fireEvent.blur(userRow);
+  });
+
   it("keeps a sub-threshold transcript at natural grid height after repeated measurements", async () => {
     renderConversation(35);
 
@@ -160,9 +181,36 @@ describe("main conversation virtualization", () => {
     expect(rows()).toHaveLength(settledRowCount);
     expect(list.style.minHeight).toBe("");
   });
+
+  it("keeps the scroll position anchored when measured rows change", async () => {
+    const scrollNode = renderConversation(120);
+    Object.defineProperties(scrollNode, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, writable: true, value: 10_000 },
+      scrollTop: { configurable: true, writable: true, value: 1_000 },
+    });
+    fireEvent.scroll(scrollNode);
+    await waitFor(() => expect(screen.getByTestId("transcript-virtual-list").querySelectorAll("[data-transcript-cell-id]").length).toBeGreaterThan(0));
+    const rows = screen.getByTestId("transcript-virtual-list").querySelectorAll("[data-transcript-cell-id]");
+    await publishMeasurements(rows, 1, 144);
+    expect(scrollNode.scrollTop).toBeGreaterThan(1_000);
+  });
+
+  it("keeps a pinned viewport at the bottom after measured rows change", async () => {
+    const scrollNode = renderConversation(120);
+    Object.defineProperties(scrollNode, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, writable: true, value: 10_000 },
+      scrollTop: { configurable: true, writable: true, value: 9_600 },
+    });
+    fireEvent.scroll(scrollNode);
+    const rows = screen.getByTestId("transcript-virtual-list").querySelectorAll("[data-transcript-cell-id]");
+    await publishMeasurements(rows, 1, 144);
+    expect(scrollNode.scrollTop).toBe(10_000);
+  });
 });
 
-function renderConversation(cellCount: number): void {
+function renderConversation(cellCount: number): HTMLDivElement {
   const scrollRef = createRef<HTMLDivElement>();
   const transcript: ParentAgentTranscript = {
     title: "Virtual transcript",
@@ -187,6 +235,7 @@ function renderConversation(cellCount: number): void {
       />
     </div>,
   );
+  return scrollRef.current!;
 }
 
 function renderTranscript(cells: ParentAgentTranscriptCell[], onRetry: NonNullable<Parameters<typeof MainConversationView>[0]["onRetry"]>): void {

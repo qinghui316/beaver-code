@@ -48,6 +48,28 @@ describe("transcript virtual list pressure guards", () => {
     expect(expandedHeight).toBeGreaterThan(foldedHeight);
   });
 
+  it("reserves the hidden timestamp slot for message estimates", () => {
+    const message: ParentAgentTranscriptCell = {
+      id: "cell:assistant:timestamp",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      text: "short response",
+      timestamp: "2026-08-20T06:31:00.000Z",
+    };
+    const activity: ParentAgentTranscriptCell = {
+      id: "cell:process:timestamp",
+      kind: "process-row",
+      source: "provider-runtime",
+      activityKind: "turn",
+      title: "执行完成",
+      text: "",
+      status: "completed",
+    };
+
+    expect(estimateTranscriptCellHeight(message, { expanded: false, width: 720 }))
+      .toBeGreaterThan(estimateTranscriptCellHeight(activity, { expanded: false, width: 720 }));
+  });
+
   it("keeps activity row estimates compact while preserving expanded detail height", () => {
     const cell: ParentAgentTranscriptCell = {
       id: "cell:process:activity",

@@ -74,31 +74,42 @@
 }
 
 .parent-agent-message-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  display: flex;
+  width: 100%;
   align-items: start;
 }
 
 .parent-agent-message-row.user {
-  grid-template-columns: auto minmax(0, 1fr);
+  justify-content: flex-end;
 }
 
-.parent-agent-message-row.user .parent-agent-bubble {
-  grid-column: 2;
-  justify-self: end;
+.parent-agent-message-stack {
+  display: grid;
+  width: min(860px, 100%);
+  gap: 4px;
+  align-items: start;
 }
 
-.parent-agent-message-row.user time {
-  grid-column: 1;
-  grid-row: 1;
-  align-self: end;
+.parent-agent-message-stack.user {
+  width: min(640px, 88%);
+  justify-items: end;
 }
 
-.parent-agent-message-row time {
+.parent-agent-message-timestamp {
+  min-height: 16px;
   color: var(--text-faint);
   font-size: 12px;
+  line-height: 16px;
+  opacity: 0;
   white-space: nowrap;
+  transition: opacity 120ms ease;
+  user-select: none;
+  pointer-events: none;
+}
+
+.parent-agent-message-row:hover .parent-agent-message-timestamp,
+.parent-agent-message-row:focus-within .parent-agent-message-timestamp {
+  opacity: 1;
 }
 
 .parent-agent-bubble {
@@ -119,7 +130,7 @@
 }
 
 .parent-agent-bubble.user {
-  max-width: min(640px, 88%);
+  max-width: 100%;
   background: var(--bg-subtle);
   color: var(--text-strong);
 }
