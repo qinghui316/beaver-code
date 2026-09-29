@@ -106,7 +106,7 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
         }
         activityRef.current = value;
         setActivity(value);
-        if (activeUpdate && (value.phase === "stopping" || value.phase === "installing")) {
+        if (activeUpdate && value.phase === "installing") {
           shutdownExpected = true;
           setFailed(false);
         } else if (activeUpdate && value.phase === "failed") {
@@ -165,7 +165,7 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
             method: "POST", headers: { "content-type": "application/json" },
             body: JSON.stringify({ requestId: value.requestId, connectionId, ok }),
           });
-          if (!ack.ok && activeUpdate && !shutdownExpected) setFailed(true);
+          if (!ack.ok && activeUpdate) setFailed(true);
         })().catch(() => { if (!disposed && activeUpdate && !shutdownExpected) setFailed(true); });
       });
       events.onerror = () => {

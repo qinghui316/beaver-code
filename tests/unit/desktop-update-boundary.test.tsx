@@ -288,7 +288,23 @@ describe("desktop update save boundary", () => {
     expect(screen.queryByText("更新暂未完成")).toBeNull();
   });
 
-  it("treats a stopping activity as expected shutdown but keeps an explicit failure visible", async () => {
+  it("reports an explicit rejected confirmation acknowledgement", async () => {
+    unregister = rendererUpdateParticipants.register(async () => () => true);
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => new Response(JSON.stringify({
+      accepted: !String(init?.body).includes('"requestId":"request-confirm"'),
+      ...(url === "/api/app/status" ? { desktopUpdates: true } : {}),
+    }), { status: String(init?.body).includes('"requestId":"request-confirm"') ? 409 : 200 })));
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("connected", {
+      data: JSON.stringify({ connectionId: "connection" }),
+    })));
+    await send("prepare");
+    await send("confirm");
+    expect(screen.getByRole("alert").textContent).toContain("更新暂未完成");
+  });
+
+  it("reports a connection loss before shutdown confirmation and keeps an explicit failure visible", async () => {
     unregister = rendererUpdateParticipants.register(async () => () => true);
     render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
     await waitFor(() => expect(FakeEvents.current).not.toBeNull());
@@ -299,9 +315,9 @@ describe("desktop update save boundary", () => {
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify({
       attemptId: "attempt", version: "0.1.17", phase: "stopping",
     }) })));
-    act(() => FakeEvents.current!.onerror?.());
     expect(screen.getByRole("dialog").textContent).toContain("正在重启并安装");
-    expect(screen.queryByText("更新暂未完成")).toBeNull();
+    act(() => FakeEvents.current!.onerror?.());
+    expect(screen.getByRole("alert").textContent).toContain("更新暂未完成");
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify({
       attemptId: "attempt", version: "0.1.17", phase: "failed",
     }) })));
