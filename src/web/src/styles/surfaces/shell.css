@@ -95,12 +95,7 @@
 .desktop-update-popover {
   position: fixed;
   z-index: 500;
-  display: grid;
   width: min(400px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
-  gap: 16px;
-  padding: 22px;
   border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
   border-radius: 16px;
   color: var(--text-strong);
@@ -111,6 +106,16 @@
 }
 
 .desktop-update-popover[data-positioned="false"] { visibility: hidden; }
+
+.desktop-update-popover-content {
+  display: grid;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  gap: 16px;
+  padding: 22px;
+  border-radius: inherit;
+  box-sizing: border-box;
+}
 
 .desktop-update-popover-arrow {
   position: absolute;

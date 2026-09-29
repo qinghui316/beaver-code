@@ -137,6 +137,7 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
         style={popoverStyle}
       >
         <span className="desktop-update-popover-arrow" aria-hidden="true" style={position ? { left: position.arrowLeft } : undefined} />
+        <div className="desktop-update-popover-content">
         <div className="desktop-update-popover-heading">
           <span className="desktop-update-popover-icon"><Download size={19} aria-hidden="true" /></span>
           <div><strong>Beaver Code {surface.view.version}</strong><p><span className="desktop-update-phase-label">{heading}</span> · {detail}</p></div>
@@ -152,6 +153,7 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
           {surface.view.submitting ? "正在准备…" : "重新启动并更新"}
         </button> : null}
         {ready && surface.view.releaseUrl ? <button type="button" className="desktop-update-release-notes" onClick={surface.actions.openReleaseNotes}>查看更新说明</button> : null}
+        </div>
       </div>,
       document.body,
     ) : null}
