@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { WorkbenchUpdateIdentity, WorkbenchUpdateReceipt } from "../types/workbench-update.js";
+import type { DesktopUpdateActivity, WorkbenchUpdateIdentity, WorkbenchUpdateReceipt } from "../types/workbench-update.js";
 import { sameWorkbenchUpdate } from "../types/workbench-update.js";
 import { isNewerStableVersion } from "./update-policy.js";
 import type { BeaverReleaseNoteContent } from "./update-manifest.js";
@@ -13,10 +13,15 @@ export interface DesktopUpdateArtifact {
 
 export interface DesktopUpdateDownloadPort {
   check(signal: AbortSignal): Promise<DesktopUpdateArtifact | null>;
-  download(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
+  download(artifact: DesktopUpdateArtifact, signal: AbortSignal, onProgress: (progress: DesktopDownloadProgress) => void): Promise<void>;
   revalidate(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
   install(): Promise<void>;
   notes?(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<BeaverReleaseNoteContent>;
+}
+
+export interface DesktopDownloadProgress {
+  readonly transferred: number;
+  readonly total: number;
 }
 
 export interface DesktopUpdateHostPort {
@@ -28,7 +33,7 @@ export interface DesktopUpdateHostPort {
   authorizeInstallerExit(identity: WorkbenchUpdateIdentity): void;
 }
 
-export type DesktopUpdateState = "idle" | "checking" | "downloading" | "ready-to-install" | "preparing" | "stopping" | "installing" | "failed";
+export type DesktopUpdateState = "idle" | "checking" | "downloading" | "verifying" | "ready-to-install" | "preparing" | "stopping" | "installing" | "failed";
 
 /** One transaction owns the entire update; library download events never authorize installation. */
 export class DesktopUpdateCoordinator {
@@ -40,12 +45,14 @@ export class DesktopUpdateCoordinator {
   private failureStage: DesktopUpdateState | null = null;
   private recoveryRequired = false;
   private readyArtifact: DesktopUpdateArtifact | null = null;
+  private attempt: { id: string; artifact: DesktopUpdateArtifact; percent: number | null; lastPercent: number } | null = null;
 
   constructor(
     private readonly installedVersion: string,
     private readonly downloads: DesktopUpdateDownloadPort,
     private readonly host: DesktopUpdateHostPort,
     private readonly onState: (state: DesktopUpdateState) => void | Promise<void>,
+    private readonly onProgress: (activity: DesktopUpdateActivity) => void = () => {},
   ) {}
 
   read(): DesktopUpdateState { return this.state; }
@@ -53,6 +60,16 @@ export class DesktopUpdateCoordinator {
     return { stage: this.failureStage, recoveryRequired: this.recoveryRequired };
   }
   offer(): DesktopUpdateArtifact | null { return this.readyArtifact ? Object.freeze({ ...this.readyArtifact }) : null; }
+
+  activity(): DesktopUpdateActivity | null {
+    const attempt = this.attempt;
+    if (!attempt) return null;
+    const phase = this.state === "ready-to-install" ? "ready" : this.state;
+    if (phase === "idle" || phase === "checking") return null;
+    return phase === "downloading"
+      ? { attemptId: attempt.id, version: attempt.artifact.version, phase, percent: attempt.percent }
+      : { attemptId: attempt.id, version: attempt.artifact.version, phase };
+  }
 
   async readyNotes(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<BeaverReleaseNoteContent> {
     if (this.state !== "ready-to-install" || !this.readyArtifact || !sameReadyArtifact(artifact, this.readyArtifact)
@@ -93,6 +110,7 @@ export class DesktopUpdateCoordinator {
   async dismissReady(): Promise<void> {
     if (this.pending || this.state !== "ready-to-install") return;
     this.readyArtifact = null;
+    this.attempt = null;
     await this.setState("idle");
   }
 
@@ -105,6 +123,7 @@ export class DesktopUpdateCoordinator {
     this.failureStage = null;
     this.recoveryRequired = false;
     this.readyArtifact = null;
+    this.attempt = null;
     try {
       await this.setState("checking");
       const offered = await this.downloads.check(controller.signal);
@@ -116,9 +135,22 @@ export class DesktopUpdateCoordinator {
       }
       const artifact = Object.freeze({ ...offered });
       if (!/^[A-Za-z0-9+/]{86}==$/.test(artifact.sha512)) throw new Error("Invalid update artifact.");
+      const attempt = { id: randomUUID(), artifact, percent: null as number | null, lastPercent: -1 };
+      this.attempt = attempt;
       await this.setState("downloading");
-      await this.downloads.download(artifact, controller.signal);
+      await this.downloads.download(artifact, controller.signal, (progress) => {
+        if (this.attempt !== attempt || this.state !== "downloading" || controller.signal.aborted || this.ending) return;
+        const transferred = progress.transferred;
+        const total = progress.total;
+        const valid = Number.isFinite(transferred) && Number.isFinite(total)
+          && transferred >= 0 && total > 0 && transferred <= total;
+        const next = valid ? Math.floor(transferred / total * 100) : null;
+        attempt.percent = next !== null && next >= attempt.lastPercent ? next : null;
+        if (attempt.percent !== null) attempt.lastPercent = attempt.percent;
+        try { this.onProgress(this.activity()!); } catch { /* Presentation cannot fail the download. */ }
+      });
       this.assertSession(controller);
+      await this.setState("verifying");
       await this.downloads.revalidate(artifact, controller.signal);
       this.assertSession(controller);
       this.readyArtifact = artifact;

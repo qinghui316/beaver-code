@@ -97,6 +97,14 @@ describe("desktop host protocol", () => {
     expect(isDesktopHostMessage({ type: "update-offer", generation: "generation-1", offer: { ...offer, releaseUrl: "https://example.com/v0.1.3" } })).toBe(false);
     expect(isDesktopHostMessage({ type: "update-choice", generation: "generation-1", offerId: "offer-1", action: "install" })).toBe(true);
     expect(isDesktopHostMessage({ type: "update-choice", generation: "generation-1", offerId: "offer-1", action: "force" })).toBe(false);
+    const activity = { attemptId: "offer-1", version: "0.1.3", phase: "downloading", percent: 37 };
+    expect(DESKTOP_PROTOCOL_VERSION).toBe(5);
+    expect(isDesktopHostMessage({ type: "update-activity", generation: "generation-1", activity })).toBe(true);
+    for (const percent of [-1, 101, Number.NaN, Number.POSITIVE_INFINITY, 2.5]) {
+      expect(isDesktopHostMessage({ type: "update-activity", generation: "generation-1", activity: { ...activity, percent } })).toBe(false);
+    }
+    expect(isDesktopHostMessage({ type: "update-activity", generation: "generation-1", activity: { ...activity, phase: "ready", percent: 37 } })).toBe(false);
+    expect(isDesktopHostMessage({ type: "update-activity", generation: "generation-1", activity: { attemptId: "offer-1", version: "0.1.3", phase: "ready" } })).toBe(true);
   });
 
   it("requires correlated installed-note acknowledgment messages", () => {

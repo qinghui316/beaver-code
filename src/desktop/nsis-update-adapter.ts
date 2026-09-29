@@ -1,5 +1,5 @@
 import type { NsisUpdater } from "electron-updater";
-import type { DesktopUpdateArtifact, DesktopUpdateDownloadPort } from "./update-coordinator.js";
+import type { DesktopDownloadProgress, DesktopUpdateArtifact, DesktopUpdateDownloadPort } from "./update-coordinator.js";
 import type { DesktopUpdatePolicy } from "./update-policy.js";
 import { verifyDesktopUpdateHash, verifyDesktopUpdateSignature } from "./update-signature.js";
 import type { DesktopSignedProduct } from "./update-signature.js";
@@ -15,7 +15,7 @@ interface NsisInstallArgumentOptions {
 type NsisPort = Pick<NsisUpdater,
   "autoDownload" | "autoInstallOnAppQuit" | "autoRunAppAfterInstall" | "allowPrerelease" |
   "allowDowngrade" | "disableWebInstaller" | "verifyUpdateCodeSignature" | "logger" |
-  "checkForUpdates" | "downloadUpdate" | "on"> & { launchVerifiedUpdate(): Promise<void> };
+  "checkForUpdates" | "downloadUpdate" | "on" | "removeListener"> & { launchVerifiedUpdate(): Promise<void> };
 
 export interface DesktopArtifactVerifier {
   signature(file: string, publisherSubject: string, product: DesktopSignedProduct): Promise<void>;
@@ -110,22 +110,34 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
     return this.offered;
   }
 
-  async download(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void> {
+  async download(artifact: DesktopUpdateArtifact, signal: AbortSignal, onProgress: (progress: DesktopDownloadProgress) => void = () => {}): Promise<void> {
     this.assertArtifact(artifact);
     if (signal.aborted || !this.cancellation) throw new Error("Update download is not current.");
-    const cancel = () => this.cancellation?.cancel();
+    const token = this.cancellation;
+    const cancel = () => token.cancel();
+    const progress = (value: { transferred?: unknown; total?: unknown }): void => {
+      if (signal.aborted || this.errored || this.cancellation !== token || !this.offered || !sameArtifact(this.offered, artifact)) return;
+      try {
+        onProgress({
+          transferred: typeof value?.transferred === "number" ? value.transferred : Number.NaN,
+          total: typeof value?.total === "number" ? value.total : Number.NaN,
+        });
+      }
+      catch { /* A display observer cannot interrupt the verified update. */ }
+    };
     signal.addEventListener("abort", cancel, { once: true });
+    this.nsis.on("download-progress", progress);
     this.cached = null;
     this.validated = false;
     try {
-      const files = await this.nsis.downloadUpdate(this.cancellation);
+      const files = await this.nsis.downloadUpdate(token);
       if (signal.aborted || this.errored || files.length !== 1 || !files[0].toLowerCase().endsWith(".exe")) {
         throw new Error("Update download did not complete.");
       }
       this.cached = { artifact: Object.freeze({ ...artifact }), path: files[0] };
-      await this.revalidate(artifact, signal);
     } finally {
       signal.removeEventListener("abort", cancel);
+      this.nsis.removeListener("download-progress", progress);
     }
   }
 

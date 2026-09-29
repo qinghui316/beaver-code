@@ -26,6 +26,28 @@ export interface DesktopUpdateOffer {
   readonly notes?: DesktopReleaseNotes | null;
 }
 
+export type DesktopUpdateActivityPhase = "downloading" | "verifying" | "ready" | "preparing" | "stopping" | "installing" | "failed";
+
+export interface DesktopUpdateActivity {
+  readonly attemptId: string;
+  readonly version: string;
+  readonly phase: DesktopUpdateActivityPhase;
+  /** Null means that the download has no trustworthy total. */
+  readonly percent?: number | null;
+}
+
+export function isDesktopUpdateActivity(value: unknown): value is DesktopUpdateActivity {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  if (!boundedId(item.attemptId) || typeof item.version !== "string"
+    || !/^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(item.version)) return false;
+  if (item.phase === "downloading") {
+    return item.percent === null || (Number.isInteger(item.percent) && Number(item.percent) >= 0 && Number(item.percent) <= 100);
+  }
+  return ["verifying", "ready", "preparing", "stopping", "installing", "failed"].includes(String(item.phase))
+    && item.percent === undefined;
+}
+
 export interface DesktopReleaseNotes {
   readonly version: string;
   readonly zhCN: { readonly summary: string; readonly changes: readonly string[] };

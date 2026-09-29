@@ -60,6 +60,49 @@ describe("signature evidence", () => {
 });
 
 describe("desktop update coordinator", () => {
+  it("keeps one attempt through download and verification without treating progress as readiness", async () => {
+    const { downloads, host, onState } = fixture();
+    const progress = vi.fn();
+    let releaseVerification!: () => void;
+    const verification = new Promise<void>((resolve) => { releaseVerification = resolve; });
+    vi.mocked(downloads.download).mockImplementation(async (_artifact, _signal, report) => {
+      report({ transferred: 40, total: 100 });
+      report({ transferred: 60, total: 200 });
+      report({ transferred: 90, total: 200 });
+      report({ transferred: Number.POSITIVE_INFINITY, total: 200 });
+    });
+    vi.mocked(downloads.revalidate).mockImplementationOnce(async () => verification);
+    const owner = new DesktopUpdateCoordinator("0.1.2", downloads, host, onState, progress);
+    const checking = owner.check();
+    await vi.waitFor(() => expect(owner.read()).toBe("verifying"));
+    const attemptId = progress.mock.calls[0][0].attemptId;
+    expect(progress.mock.calls.map(([activity]) => activity.percent)).toEqual([40, null, 45, null]);
+    expect(progress.mock.calls.every(([activity]) => activity.attemptId === attemptId)).toBe(true);
+    expect(owner.activity()).toEqual({ attemptId, version: "0.1.3", phase: "verifying" });
+    expect(owner.offer()).toBeNull();
+    const installWhileChecking = owner.installReady();
+    expect(downloads.install).not.toHaveBeenCalled();
+    releaseVerification();
+    await checking;
+    await installWhileChecking;
+    expect(owner.activity()).toEqual({ attemptId, version: "0.1.3", phase: "ready" });
+  });
+
+  it("ignores late progress and uses a new attempt ID after dismissal", async () => {
+    const { downloads, host, onState } = fixture();
+    const progress = vi.fn();
+    let report!: (value: { transferred: number; total: number }) => void;
+    vi.mocked(downloads.download).mockImplementation(async (_artifact, _signal, callback) => { report = callback; });
+    const owner = new DesktopUpdateCoordinator("0.1.2", downloads, host, onState, progress);
+    await owner.check();
+    const first = owner.activity()!.attemptId;
+    report({ transferred: 80, total: 100 });
+    expect(progress).not.toHaveBeenCalled();
+    await owner.dismissReady();
+    await owner.check();
+    expect(owner.activity()!.attemptId).not.toBe(first);
+  });
+
   it("keeps a verified installer ready when optional notes fail", async () => {
     const { owner, downloads } = fixture();
     downloads.notes = vi.fn(async () => { throw new Error("notes unavailable"); });
@@ -78,7 +121,7 @@ describe("desktop update coordinator", () => {
     const first = owner.check();
     expect(owner.check()).toBe(first);
     await first;
-    expect(onState.mock.calls.flat()).toEqual(["checking", "downloading", "ready-to-install"]);
+    expect(onState.mock.calls.flat()).toEqual(["checking", "downloading", "verifying", "ready-to-install"]);
     expect(downloads.revalidate).toHaveBeenCalledTimes(1);
     expect(downloads.install).not.toHaveBeenCalled();
     await owner.installReady();

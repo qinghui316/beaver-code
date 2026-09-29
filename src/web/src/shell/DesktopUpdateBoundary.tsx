@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { rendererUpdateParticipants } from "../controllers/RendererUpdateParticipants.js";
 import { DesktopUpdateOfferContext, type DesktopUpdateOfferSurface } from "./DesktopUpdateOfferContext.js";
 import { DesktopReleaseNotes } from "./DesktopReleaseNotes.js";
-import type { DesktopReleaseNotes as ReleaseNotes, DesktopUpdateOffer } from "../../../types/workbench-update.js";
+import { isDesktopUpdateActivity, type DesktopReleaseNotes as ReleaseNotes, type DesktopUpdateActivity, type DesktopUpdateOffer } from "../../../types/workbench-update.js";
 
 export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const [frozen, setFrozen] = useState(false);
@@ -11,13 +11,16 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const notice = useRef<HTMLDialogElement>(null);
   const focusBeforeUpdate = useRef<HTMLElement | null>(null);
   const [offer, setOffer] = useState<DesktopUpdateOffer | null>(null);
+  const [activity, setActivity] = useState<DesktopUpdateActivity | null>(null);
+  const activityRef = useRef<DesktopUpdateActivity | null>(null);
   const [installedNotes, setInstalledNotes] = useState<ReleaseNotes | null>(null);
   const [installedFailure, setInstalledFailure] = useState(false);
   const installedDialog = useRef<HTMLDialogElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [choiceFailure, setChoiceFailure] = useState<string | null>(null);
-  const autoOpenedOffers = useRef(new Set<string>());
+  const autoOpenedAttempts = useRef(new Set<string>());
+  const currentAttemptId = useRef<string | null>(null);
   const currentOfferId = useRef<string | null>(null);
   const choosingOfferId = useRef<string | null>(null);
   const choiceEpoch = useRef(0);
@@ -54,15 +57,12 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
         const value = JSON.parse((event as MessageEvent).data) as DesktopUpdateOffer | null;
         if (disposed) return;
         if (!value) {
-          choiceEpoch.current += 1;
           currentOfferId.current = null;
-          choosingOfferId.current = null;
           setOffer(null);
-          setExpanded(false);
-          setChoosing(false);
-          setChoiceFailure(null);
           return;
         }
+        if (activityRef.current?.phase !== "ready" || activityRef.current.attemptId !== value.offerId
+          || activityRef.current.version !== value.version) return;
         const sameOffer = currentOfferId.current === value.offerId;
         currentOfferId.current = value.offerId;
         if (!sameOffer) {
@@ -72,8 +72,44 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
           setChoiceFailure(null);
         }
         setOffer(value);
-        if (!autoOpenedOffers.current.has(value.offerId)) {
-          autoOpenedOffers.current.add(value.offerId);
+        if (!autoOpenedAttempts.current.has(value.offerId)) {
+          autoOpenedAttempts.current.add(value.offerId);
+          setExpanded(true);
+        }
+      });
+      events.addEventListener("activity", (event) => {
+        const value = JSON.parse((event as MessageEvent).data) as DesktopUpdateActivity | null;
+        if (disposed || (value !== null && !isDesktopUpdateActivity(value))) return;
+        if (!value) {
+          activityRef.current = null;
+          currentAttemptId.current = null;
+          currentOfferId.current = null;
+          choiceEpoch.current += 1;
+          choosingOfferId.current = null;
+          setActivity(null);
+          setOffer(null);
+          setExpanded(false);
+          setChoosing(false);
+          setChoiceFailure(null);
+          return;
+        }
+        if (currentAttemptId.current !== value.attemptId) {
+          currentAttemptId.current = value.attemptId;
+          choiceEpoch.current += 1;
+          choosingOfferId.current = null;
+          currentOfferId.current = null;
+          setOffer(null);
+          setChoosing(false);
+          setChoiceFailure(null);
+        }
+        activityRef.current = value;
+        setActivity(value);
+        if (value.phase !== "ready") {
+          currentOfferId.current = null;
+          setOffer(null);
+        }
+        if (!autoOpenedAttempts.current.has(value.attemptId)) {
+          autoOpenedAttempts.current.add(value.attemptId);
           setExpanded(true);
         }
       });
@@ -129,6 +165,8 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       epoch += 1;
       choiceEpoch.current += 1;
       currentOfferId.current = null;
+      currentAttemptId.current = null;
+      activityRef.current = null;
       choosingOfferId.current = null;
       events?.close();
     };
@@ -149,7 +187,8 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   }, [installedNotes]);
 
   const install = useCallback(async (): Promise<void> => {
-    if (!offer || choosingOfferId.current) return;
+    if (!offer || activityRef.current?.phase !== "ready" || activityRef.current.attemptId !== offer.offerId
+      || choosingOfferId.current) return;
     const selectedOffer = offer;
     const requestEpoch = ++choiceEpoch.current;
     choosingOfferId.current = selectedOffer.offerId;
@@ -177,16 +216,18 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
 
   const offerSurface = useMemo<DesktopUpdateOfferSurface>(() => ({
     view: {
-      available: Boolean(offer),
-      version: offer?.version ?? null,
+      available: Boolean(activity),
+      phase: activity?.phase ?? null,
+      percent: activity?.phase === "downloading" ? activity.percent ?? null : null,
+      version: activity?.version ?? null,
       releaseUrl: offer?.releaseUrl ?? null,
       notes: offer?.notes,
-      expanded: Boolean(offer) && expanded && !frozen,
+      expanded: Boolean(activity) && expanded && !frozen,
       submitting: choosing,
       failure: choiceFailure,
     },
     actions: {
-      open: () => { if (offer) setExpanded(true); },
+      open: () => { if (activity) setExpanded(true); },
       dismiss: () => setExpanded(false),
       openReleaseNotes: () => {
         if (!offer?.releaseUrl) return;
@@ -195,16 +236,19 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       },
       install,
     },
-  }), [choiceFailure, choosing, expanded, frozen, install, offer]);
+  }), [activity, choiceFailure, choosing, expanded, frozen, install, offer]);
 
   return <>
     <DesktopUpdateOfferContext.Provider value={offerSurface}>
       <div inert={frozen} aria-busy={frozen || undefined}>{children}</div>
     </DesktopUpdateOfferContext.Provider>
-    <span className="sr-only" role="status" aria-live="polite">{offer ? `Beaver Code ${offer.version} 更新已准备好` : ""}</span>
+    <span className="sr-only" role="status" aria-live="polite">{activity?.phase === "ready"
+      ? `Beaver Code ${activity.version} 更新已准备好`
+      : activity?.phase === "verifying" ? "正在校验安装包" : ""}</span>
     {frozen && <dialog ref={notice} className="desktop-update-notice" aria-labelledby="desktop-update-title" aria-modal="true"
       onCancel={(event) => event.preventDefault()}>
-      <strong id="desktop-update-title" role={failed ? "alert" : "status"}>{failed ? "更新暂未完成" : "正在保存并更新…"}</strong>
+      <strong id="desktop-update-title" role={failed ? "alert" : "status"}>{failed ? "更新暂未完成"
+        : activity?.phase === "stopping" || activity?.phase === "installing" ? "正在重启并安装…" : "正在保存工作状态…"}</strong>
       <p>{failed ? "请在帮助菜单中查看诊断，或重新启动工作台。" : "保存完成后将自动重启 Beaver Code。"}</p>
     </dialog>}
     {installedNotes && <dialog ref={installedDialog} className="desktop-installed-notes" aria-labelledby="desktop-installed-notes-title"

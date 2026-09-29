@@ -65,6 +65,33 @@
 .desktop-update-trigger:active { transform: scale(0.97); }
 .desktop-update-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 
+.desktop-update-ring {
+  --update-progress: 0%;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--on-accent) var(--update-progress, 0%), color-mix(in srgb, var(--on-accent) 28%, transparent) 0);
+  position: relative;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.desktop-update-ring::before {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--focus);
+  content: "";
+}
+
+.desktop-update-ring > * { position: relative; }
+.desktop-update-ring-indeterminate { background: none; border: 2px solid color-mix(in srgb, var(--on-accent) 35%, transparent); border-top-color: var(--on-accent); animation: desktop-update-spin 1s linear infinite; }
+.desktop-update-ring-indeterminate > * { animation: desktop-update-spin 1s linear infinite reverse; }
+.desktop-update-spinning { animation: desktop-update-spin 1s linear infinite; }
+
 .desktop-update-popover {
   position: fixed;
   z-index: 500;
@@ -130,6 +157,20 @@
   font-size: 13px;
   line-height: 1.45;
 }
+
+.desktop-update-phase-label { white-space: nowrap; color: var(--text-strong); font-weight: 650; }
+
+.desktop-update-download-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.desktop-update-download-status progress { width: 100%; height: 6px; accent-color: var(--focus); }
+.desktop-update-phase-status { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
 
 .desktop-update-install,
 .desktop-update-release-notes {
@@ -208,12 +249,17 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes desktop-update-spin { to { transform: rotate(360deg); } }
+
 @media (prefers-reduced-motion: reduce) {
   .desktop-update-trigger,
   .desktop-update-install { transition: none; }
   .desktop-update-trigger:active,
   .desktop-update-install:active { transform: none; }
   .desktop-update-popover { animation: none; }
+  .desktop-update-ring-indeterminate,
+  .desktop-update-ring-indeterminate > *,
+  .desktop-update-spinning { animation: none; }
 }
 
 .app-shell {

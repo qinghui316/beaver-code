@@ -2,11 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { connect as connectSocket, type Socket } from "node:net";
+import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 import type { ProviderDescriptor } from "../../src/provider-runtime/contracts.js";
 import { startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
+import { WorkbenchUpdateRendererChannel } from "../../src/server/workbench/update-renderer-channel.js";
 
 let root: string | undefined;
 let server: WorkbenchServerHandle | undefined;
@@ -33,7 +35,7 @@ async function start() {
   return server;
 }
 
-async function connect(handle: WorkbenchServerHandle, ok = true) {
+async function connect(handle: WorkbenchServerHandle, ok = true, observed?: Array<{ event: string; value: unknown }>) {
   streamAbort = new AbortController();
   const response = await fetch(handle.url + "/api/desktop/update/events", {
     headers: { Cookie: cookie }, signal: streamAbort.signal,
@@ -56,6 +58,9 @@ async function connect(handle: WorkbenchServerHandle, ok = true) {
         const data = block.split("\n").find((line) => line.startsWith("data: "));
         if (!data) continue;
         const value = JSON.parse(data.slice(6));
+        if (observed && (block.startsWith("event: activity") || block.startsWith("event: offer"))) {
+          observed.push({ event: block.split("\n")[0].slice(7), value });
+        }
         if (block.startsWith("event: connected")) connected();
         else if (block.startsWith("event: update")) {
           actions.push(value.action);
@@ -72,6 +77,53 @@ async function connect(handle: WorkbenchServerHandle, ok = true) {
 }
 
 describe("real update HTTP/SSE composition", () => {
+  it("sends the ready activity before its offer when progress is backpressured", () => {
+    const channel = new WorkbenchUpdateRendererChannel();
+    const writes: string[] = [];
+    const response = Object.assign(new EventEmitter(), {
+      write: vi.fn((chunk: string) => {
+        writes.push(chunk);
+        return writes.length !== 1;
+      }),
+    });
+    (channel as unknown as { connection: unknown }).connection = { id: "connection", response };
+    channel.publishActivity({ attemptId: "attempt-1", version: "0.1.3", phase: "downloading", percent: 24 });
+    channel.publishActivity({ attemptId: "attempt-1", version: "0.1.3", phase: "ready" });
+    const offer = { offerId: "attempt-1", version: "0.1.3",
+      releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3" };
+    channel.publishOffer(offer);
+    expect(writes).toHaveLength(1);
+    response.emit("drain");
+    expect(writes).toHaveLength(3);
+    expect(writes[1]).toContain('"phase":"ready"');
+    expect(writes[2]).toContain('"offerId":"attempt-1"');
+  });
+
+  it("replays the current attempt across SSE connections without granting download-stage installation", async () => {
+    const handle = await start();
+    const observed: Array<{ event: string; value: unknown }> = [];
+    handle.updates!.publishActivity({ attemptId: "attempt-1", version: "0.1.3", phase: "downloading", percent: 24 });
+    await connect(handle, true, observed);
+    await vi.waitFor(() => expect(observed).toContainEqual({ event: "activity",
+      value: { attemptId: "attempt-1", version: "0.1.3", phase: "downloading", percent: 24 } }));
+    const offer = { offerId: "attempt-1", version: "0.1.3",
+      releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3" };
+    handle.updates!.publishActivity({ attemptId: "attempt-1", version: "0.1.3", phase: "ready" });
+    handle.updates!.publishOffer(offer);
+    await vi.waitFor(() => expect(observed).toContainEqual({ event: "offer", value: offer }));
+    streamAbort!.abort();
+    let replay!: Response;
+    await vi.waitFor(async () => {
+      replay = await fetch(handle.url + "/api/desktop/update/events", { headers: { Cookie: cookie } });
+      expect(replay.status).toBe(200);
+    });
+    const reader = replay.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    expect(first).toContain('"phase":"ready"');
+    expect(first).toContain('"offerId":"attempt-1"');
+    await reader.cancel();
+  });
+
   it("replays installed notes and acknowledges only the current version", async () => {
     root = await mkdtemp(join(tmpdir(), "aho-installed-notes-http-"));
     const acknowledged: string[] = [];
@@ -218,6 +270,14 @@ describe("real update HTTP/SSE composition", () => {
     });
     await connect(server);
     const offer = { offerId: "offer-1", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3" };
+    expect(() => server!.updates!.publishOffer(offer)).toThrow("not ready");
+    server.updates!.publishActivity({ attemptId: "offer-1", version: "0.1.3", phase: "downloading", percent: 42 });
+    const premature = await fetch(server.url + "/api/desktop/update/choice", {
+      method: "POST", headers: { Cookie: cookie, Origin: server.url, "content-type": "application/json" },
+      body: JSON.stringify({ offerId: offer.offerId, action: "install" }),
+    });
+    expect(premature.status).toBe(409);
+    server.updates!.publishActivity({ attemptId: "offer-1", version: "0.1.3", phase: "ready" });
     server.updates!.publishOffer(offer);
     const accepted = await fetch(server.url + "/api/desktop/update/choice", {
       method: "POST", headers: { Cookie: cookie, Origin: server.url, "content-type": "application/json" },

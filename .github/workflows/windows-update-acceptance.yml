@@ -31,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Validate acceptance-owned contracts
-        run: npx vitest run tests/unit/desktop-build-variant.test.ts tests/unit/nsis-update-adapter.test.ts tests/unit/desktop-update-coordinator.test.ts tests/unit/desktop-update-host-bridge.test.ts tests/unit/workbench-update-request-gate.test.ts tests/unit/workbench-update-lifecycle.test.ts tests/unit/workbench-update-http.test.ts tests/unit/composer-update-save.test.ts tests/unit/renderer-update-participants.test.ts tests/unit/terminal-update-shutdown.test.ts tests/unit/desktop-update-boundary.test.tsx tests/unit/windows-update-acceptance-contract.test.ts
+        run: npx vitest run tests/unit/desktop-build-variant.test.ts tests/unit/desktop-host-protocol.test.ts tests/unit/nsis-update-adapter.test.ts tests/unit/desktop-update-coordinator.test.ts tests/unit/desktop-update-host-bridge.test.ts tests/unit/workbench-update-request-gate.test.ts tests/unit/workbench-update-lifecycle.test.ts tests/unit/workbench-update-http.test.ts tests/unit/composer-update-save.test.ts tests/unit/renderer-update-participants.test.ts tests/unit/terminal-update-shutdown.test.ts tests/unit/desktop-update-boundary.test.tsx tests/unit/windows-update-acceptance-contract.test.ts
       - name: Build signed old and new packages, update, repair and reinstall
         shell: bash
         timeout-minutes: 75

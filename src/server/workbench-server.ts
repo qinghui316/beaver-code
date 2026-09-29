@@ -386,6 +386,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       cancel: (identity) => lifecycle.cancel(identity),
       snapshot: () => lifecycle.snapshot(),
       publishOffer: (offer) => updateChannel.publishOffer(offer),
+      publishActivity: (activity) => updateChannel.publishActivity(activity),
       publishInstalledNotes: (notes) => updateChannel.publishInstalledNotes(notes),
     };
   }

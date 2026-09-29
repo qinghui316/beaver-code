@@ -1,9 +1,11 @@
 import { createContext, useContext } from "react";
-import type { DesktopReleaseNotes } from "../../../types/workbench-update.js";
+import type { DesktopReleaseNotes, DesktopUpdateActivityPhase } from "../../../types/workbench-update.js";
 
 export interface DesktopUpdateOfferSurface {
   view: {
     available: boolean;
+    phase: DesktopUpdateActivityPhase | null;
+    percent: number | null;
     version: string | null;
     releaseUrl: string | null;
     notes: DesktopReleaseNotes | null | undefined;
@@ -22,6 +24,8 @@ export interface DesktopUpdateOfferSurface {
 const unavailableSurface: DesktopUpdateOfferSurface = {
   view: {
     available: false,
+    phase: null,
+    percent: null,
     version: null,
     releaseUrl: null,
     notes: null,

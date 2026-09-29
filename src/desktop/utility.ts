@@ -72,6 +72,10 @@ async function receive(message: DesktopHostMessage): Promise<void> {
     server?.updates?.publishOffer(message.offer);
     return;
   }
+  if (message.type === "update-activity") {
+    server?.updates?.publishActivity(message.activity);
+    return;
+  }
   if (message.type === "installed-notes") {
     server?.updates?.publishInstalledNotes(message.notes);
     return;

@@ -14,12 +14,20 @@ const signed = {
 };
 function fixture() {
   const cancellation = { cancel: vi.fn() };
-  let errorListener: () => void = () => {};
+  const listeners = new Map<string, Set<(value?: unknown) => void>>();
+  const emit = (event: string, value?: unknown) => {
+    for (const listener of listeners.get(event) ?? []) listener(value);
+  };
   const nsis = {
     autoDownload: true, autoInstallOnAppQuit: true, autoRunAppAfterInstall: false,
     allowPrerelease: true, allowDowngrade: true, disableWebInstaller: false, logger: null,
     verifyUpdateCodeSignature: vi.fn(async () => null),
-    on: vi.fn((_event: string, listener: () => void) => { errorListener = listener; }),
+    on: vi.fn((event: string, listener: (value?: unknown) => void) => {
+      const current = listeners.get(event) ?? new Set();
+      current.add(listener);
+      listeners.set(event, current);
+    }),
+    removeListener: vi.fn((event: string, listener: (value?: unknown) => void) => { listeners.get(event)?.delete(listener); }),
     checkForUpdates: vi.fn(async () => ({
       isUpdateAvailable: true, updateInfo: { version: "0.1.3", files: [{ url: "Beaver-Code-Setup-0.1.3-win-x64.exe", sha512 }] },
       cancellationToken: cancellation,
@@ -31,9 +39,29 @@ function fixture() {
   const manifests = { latest: vi.fn(async () => signed), exact: vi.fn(async () => {}) };
   const adapter = new NsisUpdateAdapter(nsis as unknown as ConstructorParameters<typeof NsisUpdateAdapter>[0],
     { mode: "stable", owner: "qinghui316", repo: "beaver-code", trustedKeys: [{ keyId: "test", publicKey: "unused-by-mock" }] }, verifier, manifests);
-  return { nsis, verifier, manifests, adapter, cancellation, emitError: () => errorListener() };
+  return { nsis, verifier, manifests, adapter, cancellation, emitError: () => emit("error"),
+    emitProgress: (transferred: unknown, total: unknown) => emit("download-progress", { transferred, total }),
+    progressListeners: () => listeners.get("download-progress")?.size ?? 0 };
 }
 describe("NSIS adapter security defaults", () => {
+  it("reports current download bytes and removes its listener after completion", async () => {
+    const { adapter, nsis, emitProgress, progressListeners } = fixture();
+    const artifact = (await adapter.check())!;
+    const observed = vi.fn();
+    nsis.downloadUpdate.mockImplementationOnce(async () => {
+      expect(progressListeners()).toBe(1);
+      emitProgress(50, 100);
+      emitProgress("invalid", 100);
+      return ["C:/cache/update.exe"];
+    });
+    await adapter.download(artifact, new AbortController().signal, observed);
+    expect(observed.mock.calls[0][0]).toEqual({ transferred: 50, total: 100 });
+    expect(Number.isNaN(observed.mock.calls[1][0].transferred)).toBe(true);
+    expect(progressListeners()).toBe(0);
+    emitProgress(100, 100);
+    expect(observed).toHaveBeenCalledTimes(2);
+  });
+
   it("disables implicit download/install, downgrade, prerelease and web installers", () => {
     const { nsis } = fixture();
     expect(nsis).toMatchObject({
@@ -46,6 +74,8 @@ describe("NSIS adapter security defaults", () => {
     const artifact = (await adapter.check())!;
     await adapter.download(artifact, new AbortController().signal);
     expect(verifier.signature).not.toHaveBeenCalled();
+    expect(verifier.hash).not.toHaveBeenCalled();
+    await adapter.revalidate(artifact);
     expect(verifier.hash).toHaveBeenCalledWith("C:/cache/update.exe", sha512);
     expect(manifests.exact).toHaveBeenCalled();
     await adapter.install();
@@ -56,7 +86,8 @@ describe("NSIS adapter security defaults", () => {
     const { adapter, verifier, nsis } = fixture();
     const artifact = (await adapter.check())!;
     verifier.hash.mockRejectedValue(new Error("untrusted"));
-    await expect(adapter.download(artifact, new AbortController().signal)).rejects.toThrow();
+    await adapter.download(artifact, new AbortController().signal);
+    await expect(adapter.revalidate(artifact)).rejects.toThrow();
     await expect(adapter.install()).rejects.toThrow();
     expect(nsis.launchVerifiedUpdate).not.toHaveBeenCalled();
   });
@@ -75,19 +106,25 @@ describe("NSIS adapter security defaults", () => {
     const { adapter, emitError } = fixture();
     const artifact = (await adapter.check())!;
     await adapter.download(artifact, new AbortController().signal);
+    await adapter.revalidate(artifact);
     emitError();
     await expect(adapter.install()).rejects.toThrow();
   });
 
   it("passes the check's cancellation token into the actual download", async () => {
-    const { adapter, nsis, cancellation } = fixture();
+    const { adapter, nsis, cancellation, emitProgress, progressListeners } = fixture();
     const artifact = (await adapter.check())!;
     const abort = new AbortController();
+    const observed = vi.fn();
     nsis.downloadUpdate.mockImplementationOnce(async () => {
+      expect(progressListeners()).toBe(1);
       abort.abort();
+      emitProgress(50, 100);
       return ["C:/cache/update.exe"];
     });
-    await expect(adapter.download(artifact, abort.signal)).rejects.toThrow();
+    await expect(adapter.download(artifact, abort.signal, observed)).rejects.toThrow();
+    expect(observed).not.toHaveBeenCalled();
+    expect(progressListeners()).toBe(0);
     expect(nsis.downloadUpdate).toHaveBeenCalledWith(cancellation);
     expect(cancellation.cancel).toHaveBeenCalledTimes(1);
     await expect(adapter.install()).rejects.toThrow();

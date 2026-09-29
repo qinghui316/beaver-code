@@ -351,8 +351,11 @@ try {
   $version = (Get-Item -LiteralPath $installedExecutable).VersionInfo.ProductVersion
   if ($version -ne "${newVersion}.0" -and $version -ne $newVersion) { throw "Installed executable version is not the update version." }
   $log = Get-Content -LiteralPath $desktopLog -Raw -Encoding UTF8
-  foreach ($state in @("checking", "downloading", "preparing", "stopping", "installing")) {
+  foreach ($state in @("checking", "downloading", "verifying", "preparing", "stopping", "installing")) {
     if (-not $log.Contains("update $state")) { throw "Prompted update did not record the $state state." }
+  }
+  if ($log -notmatch "update-download-progress version=0\.1\.3 percent=(?:100|[1-9]?[0-9])(?:\r?\n|$)") {
+    throw "The installed updater did not report measured download progress."
   }
   if (-not $oldProcess.HasExited) {
     Wait-Until { $oldProcess.Refresh(); $oldProcess.HasExited } 60 "The old application process did not exit after authorizing the installer."
@@ -409,6 +412,8 @@ try {
     signedPublisher = $publisher
     promptedUpdate = $true
     explicitInstallEntryPointObserved = $true
+    measuredDownloadProgressObserved = $true
+    verificationPhaseObserved = $true
     oldMainPid = $oldProcess.Id
     updateInstallerPid = $script:updateInstallerProcess.Id
     newMainPid = $newMain[0].ProcessId

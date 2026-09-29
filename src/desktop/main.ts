@@ -25,6 +25,7 @@ import {
   type DesktopHostMessage,
   type DesktopSafeDiagnostic,
   type DesktopReleaseNotes,
+  type DesktopUpdateActivity,
   type DesktopUpdateOffer,
 } from "./protocol.js";
 import { normalizeWindowState, type DesktopWindowState } from "./window-state.js";
@@ -57,6 +58,12 @@ let ordinaryExitRequested = false;
 let systemSessionEnding = false;
 let updatesPausedForRecovery = false;
 let activeUpdateOfferId: string | null = null;
+let activeUpdateOffer: DesktopUpdateOffer | null = null;
+let activeUpdateActivity: DesktopUpdateActivity | null = null;
+let progressPublishTimer: ReturnType<typeof setTimeout> | null = null;
+let lastProgressPublish = 0;
+let progressEvidenceAttemptId: string | null = null;
+let progressEvidenceWrite: Promise<void> | null = null;
 let activeOfferNotesController: AbortController | null = null;
 let installedNotesStore: InstalledReleaseNotes | null = null;
 let pendingInstalledNotes: DesktopReleaseNotes | null = null;
@@ -112,7 +119,7 @@ async function startApplication(): Promise<void> {
   if (app.isPackaged && process.platform === "win32" && process.arch === "x64" && policy && policy.mode !== "disabled") {
     const adapter = await createNsisUpdateAdapter(policy);
     const bridge = new DesktopUpdateHostBridge(() => ({ child: utility, generation }), () => { quitting = true; app.quit(); });
-    updateCoordinator = new DesktopUpdateCoordinator(buildInfo.version, adapter, bridge, onUpdateState);
+    updateCoordinator = new DesktopUpdateCoordinator(buildInfo.version, adapter, bridge, onUpdateState, onUpdateProgress);
   }
   await log("build", `version=${buildInfo.version} commit=${buildInfo.commit} channel=${buildInfo.channel} platform=${process.platform} arch=${process.arch}`);
   installApplicationMenu();
@@ -227,6 +234,10 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
       path: "/",
     });
     await window.loadURL(origin);
+    source.postMessage({ type: "update-activity", generation: message.generation,
+      activity: activeUpdateActivity } satisfies DesktopHostMessage);
+    if (activeUpdateOffer) source.postMessage({ type: "update-offer", generation: message.generation,
+      offer: activeUpdateOffer } satisfies DesktopHostMessage);
     source.postMessage({ type: "installed-notes", generation: message.generation,
       notes: pendingInstalledNotes } satisfies DesktopHostMessage);
     await log("workbench-ready", `version=${buildInfo.version} commit=${buildInfo.commit}`);
@@ -291,6 +302,7 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
     activeOfferNotesController?.abort();
     activeOfferNotesController = null;
     activeUpdateOfferId = null;
+    activeUpdateOffer = null;
     if (message.action === "install") void updateCoordinator?.installReady();
     else void updateCoordinator?.dismissReady();
     return;
@@ -455,39 +467,47 @@ function updateMenuLabel(): string {
   if (updatesPausedForRecovery) return "重启应用后检查更新";
   if (!updateCoordinator) return "当前版本暂不支持自动更新";
   const labels: Record<DesktopUpdateState, string> = {
-    idle: "检查更新", checking: "正在检查更新…", downloading: "正在下载更新…",
+    idle: "检查更新", checking: "正在检查更新…", downloading: "正在下载更新…", verifying: "正在校验安装包…",
     "ready-to-install": "重新启动并更新", preparing: "正在保存…", stopping: "正在准备重启…", installing: "正在安装更新…", failed: "重试检查更新",
   };
   return labels[updateState];
 }
 
 async function onUpdateState(state: DesktopUpdateState): Promise<void> {
+  if (progressPublishTimer) clearTimeout(progressPublishTimer);
+  progressPublishTimer = null;
+  if (state === "checking") {
+    progressEvidenceAttemptId = null;
+    progressEvidenceWrite = null;
+  }
   updateState = state;
+  activeUpdateActivity = updateCoordinator?.activity() ?? null;
+  publishUpdateActivity();
   if (state === "ready-to-install") {
     const offer = updateCoordinator?.offer();
-    if (offer?.releaseUrl) {
-      activeUpdateOfferId = randomUUID();
+    if (offer?.releaseUrl && activeUpdateActivity?.phase === "ready") {
+      activeUpdateOfferId = activeUpdateActivity.attemptId;
       const offerId = activeUpdateOfferId;
       const visibleOffer: DesktopUpdateOffer = {
         offerId, version: offer.version, releaseUrl: offer.releaseUrl,
         ...(buildInfo.channel === "stable" ? {} : { notes: null }),
       };
+      activeUpdateOffer = visibleOffer;
       utility?.postMessage({ type: "update-offer", generation: generation!, offer: visibleOffer } satisfies DesktopHostMessage);
       if (buildInfo.channel === "stable") {
         activeOfferNotesController = new AbortController();
         const controller = activeOfferNotesController;
-        const offerGeneration = generation;
         void updateCoordinator!.readyNotes(offer, controller.signal).then((notes) => {
-          if (!controller.signal.aborted && generation === offerGeneration
-            && activeUpdateOfferId === offerId && updateState === "ready-to-install") {
-            utility?.postMessage({ type: "update-offer", generation: generation!,
-              offer: { ...visibleOffer, notes } } satisfies DesktopHostMessage);
+          if (!controller.signal.aborted && activeUpdateOfferId === offerId && updateState === "ready-to-install") {
+            activeUpdateOffer = { ...visibleOffer, notes };
+            if (generation) utility?.postMessage({ type: "update-offer", generation,
+              offer: activeUpdateOffer } satisfies DesktopHostMessage);
           }
         }).catch(() => {
-          if (!controller.signal.aborted && generation === offerGeneration
-            && activeUpdateOfferId === offerId && updateState === "ready-to-install") {
-            utility?.postMessage({ type: "update-offer", generation: generation!,
-              offer: { ...visibleOffer, notes: null } } satisfies DesktopHostMessage);
+          if (!controller.signal.aborted && activeUpdateOfferId === offerId && updateState === "ready-to-install") {
+            activeUpdateOffer = { ...visibleOffer, notes: null };
+            if (generation) utility?.postMessage({ type: "update-offer", generation,
+              offer: activeUpdateOffer } satisfies DesktopHostMessage);
           }
         });
       }
@@ -496,10 +516,12 @@ async function onUpdateState(state: DesktopUpdateState): Promise<void> {
     activeOfferNotesController?.abort();
     activeOfferNotesController = null;
     activeUpdateOfferId = null;
+    activeUpdateOffer = null;
     utility?.postMessage({ type: "update-offer", generation: generation!, offer: null } satisfies DesktopHostMessage);
   }
   if (state === "preparing") updateRuntimeActive = true;
   if (state === "stopping") ready = false;
+  if (state === "verifying") await progressEvidenceWrite;
   await log("update", state);
   if (state === "ready-to-install" && buildInfo.channel === "test"
     && process.env.BEAVER_UPDATE_ACCEPTANCE === "1"
@@ -519,6 +541,34 @@ async function onUpdateState(state: DesktopUpdateState): Promise<void> {
     }
   }
   installApplicationMenu();
+}
+
+function onUpdateProgress(activity: DesktopUpdateActivity): void {
+  if (updateState !== "downloading" || updateCoordinator?.activity()?.attemptId !== activity.attemptId) return;
+  if (activity.percent !== null && progressEvidenceAttemptId !== activity.attemptId) {
+    progressEvidenceAttemptId = activity.attemptId;
+    progressEvidenceWrite = log("update-download-progress", `version=${activity.version} percent=${activity.percent}`).catch(() => undefined);
+  }
+  if (activeUpdateActivity?.attemptId === activity.attemptId && activeUpdateActivity.percent === activity.percent) return;
+  activeUpdateActivity = activity;
+  const remaining = 200 - (Date.now() - lastProgressPublish);
+  if (remaining <= 0) {
+    publishUpdateActivity();
+    return;
+  }
+  if (!progressPublishTimer) {
+    progressPublishTimer = setTimeout(() => {
+      progressPublishTimer = null;
+      if (updateState === "downloading") publishUpdateActivity();
+    }, remaining);
+    progressPublishTimer.unref();
+  }
+}
+
+function publishUpdateActivity(): void {
+  if (!utility || !generation) return;
+  utility.postMessage({ type: "update-activity", generation, activity: activeUpdateActivity } satisfies DesktopHostMessage);
+  lastProgressPublish = Date.now();
 }
 
 async function requestOpenFolder(): Promise<void> {

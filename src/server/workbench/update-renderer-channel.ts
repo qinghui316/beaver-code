@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isDesktopReleaseNotes, isDesktopUpdateOffer, type DesktopReleaseNotes, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../../types/workbench-update.js";
+import { isDesktopReleaseNotes, isDesktopUpdateActivity, isDesktopUpdateOffer, type DesktopReleaseNotes, type DesktopUpdateActivity, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../../types/workbench-update.js";
 import { assertLocalWorkbenchRequest, sendJson } from "./http.js";
 
 /** Authenticated transport only. Preparation can be started only through the host port. */
@@ -10,6 +10,9 @@ export class WorkbenchUpdateRendererChannel {
     id: string; connectionId: string; resolve: () => void; reject: (cause: Error) => void;
   } | null = null;
   private offer: DesktopUpdateOffer | null = null;
+  private activity: DesktopUpdateActivity | null = null;
+  private activityBackpressured = false;
+  private offerPending = false;
   private installedNotes: DesktopReleaseNotes | null = null;
   private notesAckInFlight = false;
 
@@ -29,13 +32,19 @@ export class WorkbenchUpdateRendererChannel {
       this.connection = connection;
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
       response.write(`event: connected\ndata: ${JSON.stringify({ connectionId: connection.id })}\n\n`);
-      if (this.offer) response.write(`event: offer\ndata: ${JSON.stringify(this.offer)}\n\n`);
+      if (this.activity) this.writeActivity(connection);
+      if (this.offer) {
+        if (this.activityBackpressured) this.offerPending = true;
+        else response.write(`event: offer\ndata: ${JSON.stringify(this.offer)}\n\n`);
+      }
       if (this.installedNotes) response.write(`event: installed-notes\ndata: ${JSON.stringify(this.installedNotes)}\n\n`);
-      const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 10_000);
+      const heartbeat = setInterval(() => { if (!this.activityBackpressured) response.write(": heartbeat\n\n"); }, 10_000);
       heartbeat.unref();
       response.once("close", () => {
         clearInterval(heartbeat);
         if (this.connection === connection) this.connection = null;
+        this.activityBackpressured = false;
+        this.offerPending = false;
         if (this.pending?.connectionId === connection.id) this.pending.reject(new Error("Update renderer disconnected."));
       });
       return true;
@@ -47,12 +56,17 @@ export class WorkbenchUpdateRendererChannel {
       const value = await readBoundedJson(request, response);
       if (value === null) return true;
       const choice = value as { offerId?: unknown; action?: unknown };
-      if (!this.offer || choice.offerId !== this.offer.offerId || !["install", "later"].includes(String(choice.action))) {
+      if (!this.offer || this.activity?.phase !== "ready" || this.activity.attemptId !== this.offer.offerId
+        || this.activity.version !== this.offer.version || choice.offerId !== this.offer.offerId
+        || !["install", "later"].includes(String(choice.action))) {
         sendJson(response, 409, { error: "这个更新已发生变化。" }); return true;
       }
       const offerId = this.offer.offerId;
       const action = choice.action as DesktopUpdateChoice;
       this.offer = null;
+      this.activity = null;
+      if (this.activityBackpressured) this.offerPending = true;
+      this.publishActivity(null);
       sendJson(response, 200, { accepted: true });
       this.choose(offerId, action);
       return true;
@@ -120,8 +134,42 @@ export class WorkbenchUpdateRendererChannel {
 
   publishOffer(offer: DesktopUpdateOffer | null): void {
     if (offer !== null && !isDesktopUpdateOffer(offer)) throw new Error("Desktop update offer is invalid.");
+    if (offer !== null && (this.activity?.phase !== "ready" || this.activity.attemptId !== offer.offerId
+      || this.activity.version !== offer.version)) throw new Error("Desktop update offer is not ready.");
     this.offer = offer;
-    if (this.connection) this.connection.response.write(`event: offer\ndata: ${JSON.stringify(offer)}\n\n`);
+    if (this.connection) {
+      if (this.activityBackpressured) this.offerPending = true;
+      else this.connection.response.write(`event: offer\ndata: ${JSON.stringify(offer)}\n\n`);
+    }
+  }
+
+  publishActivity(activity: DesktopUpdateActivity | null): void {
+    if (activity !== null && !isDesktopUpdateActivity(activity)) throw new Error("Desktop update activity is invalid.");
+    this.activity = activity;
+    if (this.offer && (activity?.phase !== "ready" || activity.attemptId !== this.offer.offerId)) {
+      this.offer = null;
+      if (this.connection) {
+        if (this.activityBackpressured) this.offerPending = true;
+        else this.connection.response.write("event: offer\ndata: null\n\n");
+      }
+    }
+    if (this.connection) this.writeActivity(this.connection);
+  }
+
+  private writeActivity(connection: { id: string; response: ServerResponse }): void {
+    if (this.activityBackpressured || this.connection !== connection) return;
+    if (!connection.response.write(`event: activity\ndata: ${JSON.stringify(this.activity)}\n\n`)) {
+      this.activityBackpressured = true;
+      connection.response.once("drain", () => {
+        if (this.connection !== connection) return;
+        this.activityBackpressured = false;
+        this.writeActivity(connection);
+        if (!this.activityBackpressured && this.offerPending) {
+          this.offerPending = false;
+          connection.response.write(`event: offer\ndata: ${JSON.stringify(this.offer)}\n\n`);
+        }
+      });
+    }
   }
 
   publishInstalledNotes(notes: DesktopReleaseNotes | null): void {

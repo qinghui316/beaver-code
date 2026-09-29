@@ -10,6 +10,14 @@ class FakeEvents extends EventTarget {
   static current: FakeEvents | null = null;
   onerror: (() => void) | null = null;
   constructor() { super(); FakeEvents.current = this; }
+  override dispatchEvent(event: Event): boolean {
+    if (event.type === "offer") {
+      const value = JSON.parse((event as MessageEvent).data) as { offerId: string; version: string } | null;
+      super.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify(value
+        ? { attemptId: value.offerId, version: value.version, phase: "ready" } : null) }));
+    }
+    return super.dispatchEvent(event);
+  }
   close() {}
 }
 beforeEach(() => {
@@ -31,6 +39,46 @@ async function send(action: "prepare" | "confirm" | "cancel") {
   });
 }
 describe("desktop update save boundary", () => {
+  it("does not offer installation until the matching ready offer arrives", async () => {
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify({
+      attemptId: "attempt-1", version: "0.1.17", phase: "ready",
+    }) })));
+    expect(screen.getByText("Beaver Code 0.1.17")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "重新启动并更新" })).toBeNull();
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
+      offerId: "attempt-1", version: "0.1.17",
+      releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.17",
+    }) })));
+    expect(screen.getByRole("button", { name: "重新启动并更新" })).toBeTruthy();
+  });
+
+  it("shows bounded download progress and does not reopen one attempt after dismissal or verification", async () => {
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    const publish = (phase: string, percent?: number | null) => act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("activity", {
+      data: JSON.stringify({ attemptId: "attempt-1", version: "0.1.17", phase,
+        ...(phase === "downloading" ? { percent: percent ?? null } : {}) }),
+    })));
+    publish("downloading", 37);
+    expect(screen.getByText("Beaver Code 0.1.17")).toBeTruthy();
+    expect((screen.getByRole("progressbar") as HTMLProgressElement).value).toBe(37);
+    expect(screen.queryByRole("button", { name: "重新启动并更新" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "正在下载更新 37%" }));
+    publish("downloading", 38);
+    expect(screen.queryByText("Beaver Code 0.1.17")).toBeNull();
+    expect(screen.getByRole("button", { name: "正在下载更新 38%" })).toBeTruthy();
+    publish("verifying");
+    expect(screen.queryByText("Beaver Code 0.1.17")).toBeNull();
+    const offer = { offerId: "attempt-1", version: "0.1.17",
+      releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.17" };
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify(offer) })));
+    expect(screen.queryByText("Beaver Code 0.1.17")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    expect(screen.getByRole("button", { name: "重新启动并更新" })).toBeTruthy();
+  });
+
   const releaseNotes = {
     version: "0.1.16",
     zhCN: { summary: "中文摘要", changes: ["中文改动"] },
@@ -83,27 +131,27 @@ describe("desktop update save boundary", () => {
       offerId: "offer", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3",
     }) })));
     expect(container.firstElementChild?.hasAttribute("inert")).toBe(false);
-    expect(screen.getByText("Beaver Code 0.1.3 已准备好")).toBeTruthy();
+    expect(screen.getByText("Beaver Code 0.1.3")).toBeTruthy();
     expect(document.activeElement).toBe(draft);
     fireEvent.pointerDown(draft);
-    await waitFor(() => expect(screen.queryByText("Beaver Code 0.1.3 已准备好")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Beaver Code 0.1.3")).toBeNull());
     expect(screen.getByRole("button", { name: "更新" })).toBeTruthy();
     expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/desktop/update/choice")).toBe(false);
 
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
       offerId: "offer", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3",
     }) })));
-    expect(screen.queryByText("Beaver Code 0.1.3 已准备好")).toBeNull();
+    expect(screen.queryByText("Beaver Code 0.1.3")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更新" }));
-    expect(screen.getByText("Beaver Code 0.1.3 已准备好")).toBeTruthy();
+    expect(screen.getByText("Beaver Code 0.1.3")).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByText("Beaver Code 0.1.3 已准备好")).toBeNull();
+    expect(screen.queryByText("Beaver Code 0.1.3")).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "更新" }));
 
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
       offerId: "offer-next", version: "0.1.4", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.4",
     }) })));
-    expect(screen.getByText("Beaver Code 0.1.4 已准备好")).toBeTruthy();
+    expect(screen.getByText("Beaver Code 0.1.4")).toBeTruthy();
   });
 
   it.each([["desktop", false], ["mobile after resize", true]] as const)(
@@ -143,7 +191,7 @@ describe("desktop update save boundary", () => {
     expect(screen.getByRole("button", { name: "更新" })).toBeTruthy();
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: "null" })));
     expect(screen.queryByRole("button", { name: "更新" })).toBeNull();
-    expect(screen.queryByText("Beaver Code 0.1.3 已准备好")).toBeNull();
+    expect(screen.queryByText("Beaver Code 0.1.3")).toBeNull();
   });
 
   it.each([200, 503])("keeps a newer offer when an older delayed choice settles with %s", async (choiceStatus) => {
@@ -170,11 +218,11 @@ describe("desktop update save boundary", () => {
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
       offerId: "offer-next", version: "0.1.4", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.4",
     }) })));
-    expect(screen.getByText("Beaver Code 0.1.4 已准备好")).toBeTruthy();
+    expect(screen.getByText("Beaver Code 0.1.4")).toBeTruthy();
     expect((screen.getByRole("button", { name: "重新启动并更新" }) as HTMLButtonElement).disabled).toBe(false);
 
     await act(async () => { settleChoice?.(new Response(JSON.stringify({ accepted: choiceStatus === 200 }), { status: choiceStatus })); });
-    expect(screen.getByText("Beaver Code 0.1.4 已准备好")).toBeTruthy();
+    expect(screen.getByText("Beaver Code 0.1.4")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -205,12 +253,12 @@ describe("desktop update save boundary", () => {
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify({
       offerId: "offer", version: "0.1.3", releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.3",
     }) })));
-    expect(screen.getByText("Beaver Code 0.1.3 已准备好")).toBeTruthy();
+    expect(screen.getByText("Beaver Code 0.1.3")).toBeTruthy();
     act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("connected", { data: JSON.stringify({ connectionId: "connection" }) })));
     await send("prepare");
     expect(container.firstElementChild?.hasAttribute("inert")).toBe(true);
-    expect(screen.queryByText("Beaver Code 0.1.3 已准备好")).toBeNull();
-    expect(screen.getByRole("dialog").textContent).toContain("正在保存并更新");
+    expect(screen.queryByText("Beaver Code 0.1.3")).toBeNull();
+    expect(screen.getByRole("dialog").textContent).toContain("正在保存工作状态");
     await send("confirm");
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => String(init?.body).includes('"ok":true'))).toBe(true);
     await send("cancel");

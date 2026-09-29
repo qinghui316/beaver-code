@@ -18,7 +18,7 @@ import type { ConversationTurnQueueOwner } from "../../workbench/conversation-tu
 import type { ConversationLifecycleAction, ConversationLifecycleOwner } from "../../workbench/conversation-lifecycle.js";
 import type { ConversationReviewLifecycleOwner } from "../../workbench/conversation-review-lifecycle.js";
 import type { WorkbenchUpdateLifecycle } from "../../workbench/update-lifecycle.js";
-import type { DesktopReleaseNotes, DesktopUpdateChoice, DesktopUpdateOffer } from "../../types/workbench-update.js";
+import type { DesktopReleaseNotes, DesktopUpdateActivity, DesktopUpdateChoice, DesktopUpdateOffer } from "../../types/workbench-update.js";
 import type { DesktopMenuOpenRequest, DesktopMenuOpenResult } from "../../types/desktop-shell.js";
 import type { WorkbenchUpdateRendererChannel } from "./update-renderer-channel.js";
 import type { WorkbenchUpdateRequestGate } from "./update-request-gate.js";
@@ -51,6 +51,7 @@ export interface WorkbenchServerHandle {
   close(deadlineMs?: number): Promise<void>;
   updates?: Pick<WorkbenchUpdateLifecycle, "prepare" | "stop" | "cancel" | "snapshot"> & {
     publishOffer(offer: DesktopUpdateOffer | null): void;
+    publishActivity(activity: DesktopUpdateActivity | null): void;
     publishInstalledNotes(notes: DesktopReleaseNotes | null): void;
   };
 }

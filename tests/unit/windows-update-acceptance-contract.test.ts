@@ -107,6 +107,10 @@ describe("Windows update acceptance boundary", () => {
     expect(runner).toContain('function Write-SafeUpdateLogEvidence');
     expect(runner).toContain('Get-Content -LiteralPath $desktopLog -Tail 120');
     expect(runner).toContain('$_ -match " (build|workbench-ready|update|update-failed|startup-failed|utility-exit) "');
+    expect(runner).toContain('"verifying"');
+    expect(runner).toContain('update-download-progress version=0\\.1\\.3 percent=');
+    expect(runner).toContain('measuredDownloadProgressObserved = $true');
+    expect(runner).toContain('verificationPhaseObserved = $true');
   });
 });
 

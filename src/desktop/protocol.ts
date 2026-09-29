@@ -1,8 +1,8 @@
-import { isDesktopReleaseNotes, isDesktopUpdateOffer, isWorkbenchUpdateIdentity, type DesktopReleaseNotes, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../types/workbench-update.js";
-export type { DesktopReleaseNotes, DesktopUpdateOffer } from "../types/workbench-update.js";
+import { isDesktopReleaseNotes, isDesktopUpdateActivity, isDesktopUpdateOffer, isWorkbenchUpdateIdentity, type DesktopReleaseNotes, type DesktopUpdateActivity, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../types/workbench-update.js";
+export type { DesktopReleaseNotes, DesktopUpdateActivity, DesktopUpdateOffer } from "../types/workbench-update.js";
 import { isDesktopMenuId, isDesktopMenuOpenRequest, type DesktopMenuId, type DesktopMenuOpenRequest } from "../types/desktop-shell.js";
 
-export const DESKTOP_PROTOCOL_VERSION = 4 as const;
+export const DESKTOP_PROTOCOL_VERSION = 5 as const;
 export const DESKTOP_SESSION_COOKIE = "beaver_code_session";
 
 export interface DesktopSafeDiagnostic {
@@ -19,8 +19,8 @@ export interface DesktopRuntimeSnapshot {
 }
 
 export type DesktopHostMessage =
-  | { type: "bootstrap"; protocolVersion: 4; sessionToken: string; generation: string }
-  | { type: "ready"; protocolVersion: 4; origin: string; generation: string }
+  | { type: "bootstrap"; protocolVersion: 5; sessionToken: string; generation: string }
+  | { type: "ready"; protocolVersion: 5; origin: string; generation: string }
   | { type: "startup-failed"; generation: string; diagnostic: DesktopSafeDiagnostic }
   | { type: "read-quit-snapshot"; requestId: string; generation: string }
   | ({ type: "quit-snapshot"; requestId: string; generation: string } & DesktopRuntimeSnapshot)
@@ -36,6 +36,7 @@ export type DesktopHostMessage =
   | { type: "update-request"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; action: "prepare" | "stop" | "cancel" }
   | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed"; diagnostic?: DesktopSafeDiagnostic }
   | { type: "update-offer"; generation: string; offer: DesktopUpdateOffer | null }
+  | { type: "update-activity"; generation: string; activity: DesktopUpdateActivity | null }
   | { type: "installed-notes"; generation: string; notes: DesktopReleaseNotes | null }
   | { type: "installed-notes-ack"; requestId: string; generation: string; version: string }
   | { type: "installed-notes-ack-result"; requestId: string; generation: string; version: string; ok: boolean }
@@ -54,6 +55,7 @@ export function isDesktopHostMessage(value: unknown): value is DesktopHostMessag
           && (value.diagnostic === undefined || isDiagnostic(value.diagnostic));
     }
     case "update-offer": return value.offer === null || isDesktopUpdateOffer(value.offer);
+    case "update-activity": return value.activity === null || isDesktopUpdateActivity(value.activity);
     case "installed-notes": return value.notes === null || isDesktopReleaseNotes(value.notes);
     case "installed-notes-ack":
     case "installed-notes-ack-result":

@@ -5,7 +5,8 @@
     "changes": [
       "发送首条消息后立即显示目标会话和用户文字，快照加载期间保留会话界面。",
       "修正消息与时间戳对齐，稳定虚拟列表在内容高度变化时的阅读位置。",
-      "桌面更新卡片显示经过签名验证的版本说明；自动更新完成后展示一次本版本说明。"
+      "桌面更新卡片显示经过签名验证的版本说明；自动更新完成后展示一次本版本说明。",
+      "桌面版在下载更新时显示实际进度，并单独提示安装包校验与重启准备阶段。"
     ]
   },
   "enUS": {
@@ -13,7 +14,8 @@
     "changes": [
       "The target conversation and first user message appear immediately while the snapshot loads.",
       "Message timestamps align with their bubbles, and virtualized scrolling holds position as content grows.",
-      "The desktop update card shows signed release notes, and automatic updates show this version's notes once after installation."
+      "The desktop update card shows signed release notes, and automatic updates show this version's notes once after installation.",
+      "The desktop app shows actual update download progress and separate verification and restart preparation stages."
     ]
   }
 }
