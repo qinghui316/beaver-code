@@ -11,10 +11,13 @@ export class WorkbenchUpdateRendererChannel {
   } | null = null;
   private offer: DesktopUpdateOffer | null = null;
   private installedNotes: DesktopReleaseNotes | null = null;
+  private notesAckInFlight = false;
 
   constructor(
     private readonly choose: (offerId: string, action: DesktopUpdateChoice) => void = () => {},
-    private readonly acknowledgeNotes: (version: string) => void = () => {},
+    private readonly acknowledgeNotes: (version: string) => Promise<void> = async () => {
+      throw new Error("Installed release notes persistence is unavailable.");
+    },
   ) {}
 
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
@@ -64,10 +67,26 @@ export class WorkbenchUpdateRendererChannel {
       if (!this.installedNotes || version !== this.installedNotes.version) {
         sendJson(response, 409, { error: "更新说明已发生变化。" }); return true;
       }
-      this.installedNotes = null;
-      this.acknowledgeNotes(version);
-      sendJson(response, 200, { accepted: true });
-      if (this.connection) this.connection.response.write("event: installed-notes\ndata: null\n\n");
+      if (this.notesAckInFlight) {
+        sendJson(response, 409, { error: "更新说明确认正在进行。" }); return true;
+      }
+      const notes = this.installedNotes;
+      this.notesAckInFlight = true;
+      try {
+        await this.acknowledgeNotes(version);
+        if (this.installedNotes !== notes) {
+          sendJson(response, 409, { error: "更新说明已发生变化。" }); return true;
+        }
+        this.installedNotes = null;
+        try {
+          if (this.connection) this.connection.response.write("event: installed-notes\ndata: null\n\n");
+        } catch { /* The persisted acknowledgement does not depend on an open SSE connection. */ }
+        sendJson(response, 200, { accepted: true });
+      } catch {
+        sendJson(response, 503, { error: "更新说明暂时无法确认，请重试。" });
+      } finally {
+        this.notesAckInFlight = false;
+      }
       return true;
     }
     if (request.method === "POST" && url.pathname === "/api/desktop/update/ack") {

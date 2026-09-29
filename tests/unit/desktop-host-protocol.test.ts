@@ -99,6 +99,16 @@ describe("desktop host protocol", () => {
     expect(isDesktopHostMessage({ type: "update-choice", generation: "generation-1", offerId: "offer-1", action: "force" })).toBe(false);
   });
 
+  it("requires correlated installed-note acknowledgment messages", () => {
+    const request = { type: "installed-notes-ack", requestId: "notes-1", generation: "generation-1", version: "0.1.17" };
+    const result = { ...request, type: "installed-notes-ack-result", ok: true };
+    expect(isDesktopHostMessage(request)).toBe(true);
+    expect(isDesktopHostMessage(result)).toBe(true);
+    expect(isDesktopHostMessage({ ...request, requestId: "" })).toBe(false);
+    expect(isDesktopHostMessage({ ...request, version: "latest" })).toBe(false);
+    expect(isDesktopHostMessage({ ...result, ok: "yes" })).toBe(false);
+  });
+
   it("redacts local paths and bounds diagnostics", () => {
     const diagnostic = safeDiagnostic("runtime", new Error(`Failed at C:\\Users\\Jane Doe\\秘密项目\\secret.ts\n${"x".repeat(800)}`));
     expect(diagnostic.summary).toContain("[本地路径]");

@@ -35,9 +35,15 @@ export class InstalledReleaseNotes {
   }
 
   async acknowledge(version: string): Promise<void> {
-    if (version !== this.version) return;
-    const marker = JSON.parse(await readFile(this.pendingPath, "utf8")) as { version?: unknown };
-    if (marker.version !== version) return;
+    if (version !== this.version) throw new Error("Installed release notes version changed.");
+    let marker: { version?: unknown };
+    try {
+      marker = JSON.parse(await readFile(this.pendingPath, "utf8")) as { version?: unknown };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (marker.version !== version) throw new Error("Installed release notes marker changed.");
     await rm(this.pendingPath);
   }
 }

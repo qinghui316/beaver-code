@@ -80,13 +80,31 @@ describe("bilingual desktop release notes", () => {
     expect(await state.load(true)).toEqual(notes);
     const restarted = new InstalledReleaseNotes(join(root, "user"), packaged, notes.version);
     expect(await restarted.load(false)).toEqual(notes);
-    await restarted.acknowledge("0.1.15");
+    await expect(restarted.acknowledge("0.1.15")).rejects.toThrow("version changed");
     expect(await restarted.load(false)).toEqual(notes);
     await restarted.acknowledge(notes.version);
+    await expect(restarted.acknowledge(notes.version)).resolves.toBeUndefined();
     expect(await restarted.load(false)).toBeNull();
     expect(await readFile(packaged, "utf8")).toContain(notes.version);
     const nextVersion = new InstalledReleaseNotes(join(root, "user"), packaged, "0.1.17");
     await expect(nextVersion.load(false)).rejects.toThrow("invalid");
+  });
+
+  it("keeps a malformed pending marker for explicit repair", async () => {
+    const root = await mkdtemp(join(tmpdir(), "beaver-note-ack-failure-"));
+    roots.push(root);
+    const packaged = join(root, "release-notes.json");
+    const userData = join(root, "user");
+    await writeFile(packaged, JSON.stringify(notes), "utf8");
+    const state = new InstalledReleaseNotes(userData, packaged, notes.version);
+    await state.load(true);
+    const markerPath = join(userData, "pending-release-notes.json");
+    await writeFile(markerPath, "{invalid", "utf8");
+    await expect(state.acknowledge(notes.version)).rejects.toThrow();
+    expect(await readFile(markerPath, "utf8")).toBe("{invalid");
+    await writeFile(markerPath, JSON.stringify({ version: notes.version }), "utf8");
+    await expect(state.acknowledge(notes.version)).resolves.toBeUndefined();
+    await expect(state.acknowledge("0.1.15")).rejects.toThrow("version changed");
   });
 
   it("replaces an unread older notice with the version actually installed", async () => {

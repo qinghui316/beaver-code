@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { connect as connectSocket, type Socket } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
 import type { ProviderDescriptor } from "../../src/provider-runtime/contracts.js";
@@ -78,7 +78,7 @@ describe("real update HTTP/SSE composition", () => {
     server = await startWorkbenchServer(null, {
       port: 0, store: new ProjectRegistryStore(root), providerRegistry: new ProviderRegistry(),
       desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation,
-        acknowledgeInstalledNotes: (version) => { acknowledged.push(version); } },
+        acknowledgeInstalledNotes: async (version) => { acknowledged.push(version); } },
     });
     const notes = { version: "0.1.16",
       zhCN: { summary: "中文摘要", changes: ["中文改动"] },
@@ -104,6 +104,89 @@ describe("real update HTTP/SSE composition", () => {
     expect(accepted.status).toBe(200);
     expect(acknowledged).toEqual([notes.version]);
     await reader.cancel();
+  });
+
+  it("waits for durable installed-notes acknowledgment and rejects concurrent dismissal", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-installed-notes-pending-"));
+    let complete!: () => void;
+    const persisted = new Promise<void>((resolve) => { complete = resolve; });
+    const calls: string[] = [];
+    server = await startWorkbenchServer(null, {
+      port: 0, store: new ProjectRegistryStore(root), providerRegistry: new ProviderRegistry(),
+      desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation,
+        acknowledgeInstalledNotes: async (version) => { calls.push(version); await persisted; } },
+    });
+    const notes = { version: "0.1.17",
+      zhCN: { summary: "中文摘要", changes: ["中文改动"] },
+      enUS: { summary: "English summary", changes: ["English change"] } };
+    server.updates!.publishInstalledNotes(notes);
+    const postAck = () => fetch(server!.url + "/api/desktop/update/notes-ack", {
+      method: "POST", headers: { Cookie: cookie, Origin: server!.url, "content-type": "application/json" },
+      body: JSON.stringify({ version: notes.version }),
+    });
+    const first = postAck();
+    await vi.waitFor(() => expect(calls).toEqual([notes.version]));
+    expect((await postAck()).status).toBe(409);
+    expect(server.updates).toBeDefined();
+    complete();
+    expect((await first).status).toBe(200);
+    expect((await postAck()).status).toBe(409);
+    expect(calls).toEqual([notes.version]);
+  });
+
+  it("keeps installed notes retryable when Main persistence fails", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-installed-notes-retry-"));
+    let fail = true;
+    const calls: string[] = [];
+    server = await startWorkbenchServer(null, {
+      port: 0, store: new ProjectRegistryStore(root), providerRegistry: new ProviderRegistry(),
+      desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation,
+        acknowledgeInstalledNotes: async (version) => {
+          calls.push(version);
+          if (fail) throw new Error("marker deletion failed");
+        } },
+    });
+    const notes = { version: "0.1.17",
+      zhCN: { summary: "中文摘要", changes: ["中文改动"] },
+      enUS: { summary: "English summary", changes: ["English change"] } };
+    server.updates!.publishInstalledNotes(notes);
+    const postAck = () => fetch(server!.url + "/api/desktop/update/notes-ack", {
+      method: "POST", headers: { Cookie: cookie, Origin: server!.url, "content-type": "application/json" },
+      body: JSON.stringify({ version: notes.version }),
+    });
+    expect((await postAck()).status).toBe(503);
+    fail = false;
+    expect((await postAck()).status).toBe(200);
+    expect(calls).toEqual([notes.version, notes.version]);
+  });
+
+  it("does not clear newer notes when an older acknowledgment completes late", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-installed-notes-stale-"));
+    let complete!: () => void;
+    let started!: () => void;
+    const persisted = new Promise<void>((resolve) => { complete = resolve; });
+    const called = new Promise<void>((resolve) => { started = resolve; });
+    server = await startWorkbenchServer(null, {
+      port: 0, store: new ProjectRegistryStore(root), providerRegistry: new ProviderRegistry(),
+      desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation,
+        acknowledgeInstalledNotes: async () => { started(); await persisted; } },
+    });
+    const makeNotes = (version: string) => ({
+      version, zhCN: { summary: "中文摘要", changes: ["中文改动"] },
+      enUS: { summary: "English summary", changes: ["English change"] },
+    });
+    server.updates!.publishInstalledNotes(makeNotes("0.1.17"));
+    const postAck = (version: string) => fetch(server!.url + "/api/desktop/update/notes-ack", {
+      method: "POST", headers: { Cookie: cookie, Origin: server!.url, "content-type": "application/json" },
+      body: JSON.stringify({ version }),
+    });
+    const oldAck = postAck("0.1.17");
+    await called;
+    server.updates!.publishInstalledNotes(makeNotes("0.1.18"));
+    complete();
+    expect((await oldAck).status).toBe(409);
+    expect((await postAck("0.1.17")).status).toBe(409);
+    expect((await postAck("0.1.18")).status).toBe(200);
   });
 
   it("does not poison later update preparation after a definite bad request", async () => {

@@ -22,6 +22,7 @@ const operationGate = new DesktopHostOperationGate();
 const folderRequests = new Map<string, (result: FolderDialogResult) => void>();
 const menuRequests = new Map<string, (result: DesktopMenuOpenResult) => void>();
 const leaseAcks = new Map<string, () => void>();
+const pendingNotesAcks = new Map<string, { version: string; complete: (ok: boolean) => void }>();
 
 hostPort.on("message", (event) => {
   const message = event.data;
@@ -45,7 +46,7 @@ async function receive(message: DesktopHostMessage): Promise<void> {
           openMenu: requestMenu,
           updateGeneration: generation,
           chooseUpdate: (offerId, action) => post({ type: "update-choice", generation: generation!, offerId, action }),
-          acknowledgeInstalledNotes: (version) => post({ type: "installed-notes-ack", generation: generation!, version }),
+          acknowledgeInstalledNotes: acknowledgeInstalledNotes,
         },
       });
       post({
@@ -73,6 +74,11 @@ async function receive(message: DesktopHostMessage): Promise<void> {
   }
   if (message.type === "installed-notes") {
     server?.updates?.publishInstalledNotes(message.notes);
+    return;
+  }
+  if (message.type === "installed-notes-ack-result") {
+    const pending = pendingNotesAcks.get(message.requestId);
+    if (pending?.version === message.version) pending.complete(message.ok);
     return;
   }
   if (message.type === "update-request") {
@@ -213,6 +219,22 @@ async function requestMenu(request: DesktopMenuOpenRequest): Promise<DesktopMenu
       menuId: request.menuId,
       anchor: request.anchor,
     });
+  });
+}
+
+async function acknowledgeInstalledNotes(version: string): Promise<void> {
+  if (!generation) throw new Error("Desktop host is not ready.");
+  const requestId = randomUUID();
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => complete(false), 10_000);
+    const complete = (ok: boolean): void => {
+      if (!pendingNotesAcks.delete(requestId)) return;
+      clearTimeout(timer);
+      if (ok) resolve();
+      else reject(new Error("Installed release notes acknowledgment failed."));
+    };
+    pendingNotesAcks.set(requestId, { version, complete });
+    post({ type: "installed-notes-ack", requestId, generation: generation!, version });
   });
 }
 

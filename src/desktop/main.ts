@@ -295,11 +295,18 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
     else void updateCoordinator?.dismissReady();
     return;
   }
-  if (message.type === "installed-notes-ack" && pendingInstalledNotes?.version === message.version) {
+  if (message.type === "installed-notes-ack") {
+    let ok = false;
     try {
-      await installedNotesStore?.acknowledge(message.version);
-      pendingInstalledNotes = null;
+      if (!installedNotesStore || message.version !== buildInfo.version) throw new Error("Installed notes version changed.");
+      await installedNotesStore.acknowledge(message.version);
+      ok = true;
+      if (pendingInstalledNotes?.version === message.version) pendingInstalledNotes = null;
     } catch (cause) { await log("installed-notes-ack-failed", cause); }
+    if (source === utility && message.generation === generation) {
+      source.postMessage({ type: "installed-notes-ack-result", requestId: message.requestId,
+        generation: message.generation, version: message.version, ok } satisfies DesktopHostMessage);
+    }
     return;
   }
   if (message.type === "quit-snapshot") {

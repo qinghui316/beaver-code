@@ -37,7 +37,8 @@ export type DesktopHostMessage =
   | { type: "update-result"; requestId: string; generation: string; identity: WorkbenchUpdateIdentity; result: "prepared" | "stopped" | "canceled" | "failed"; diagnostic?: DesktopSafeDiagnostic }
   | { type: "update-offer"; generation: string; offer: DesktopUpdateOffer | null }
   | { type: "installed-notes"; generation: string; notes: DesktopReleaseNotes | null }
-  | { type: "installed-notes-ack"; generation: string; version: string }
+  | { type: "installed-notes-ack"; requestId: string; generation: string; version: string }
+  | { type: "installed-notes-ack-result"; requestId: string; generation: string; version: string; ok: boolean }
   | { type: "update-choice"; generation: string; offerId: string; action: DesktopUpdateChoice };
 
 export function isDesktopHostMessage(value: unknown): value is DesktopHostMessage {
@@ -54,7 +55,11 @@ export function isDesktopHostMessage(value: unknown): value is DesktopHostMessag
     }
     case "update-offer": return value.offer === null || isDesktopUpdateOffer(value.offer);
     case "installed-notes": return value.notes === null || isDesktopReleaseNotes(value.notes);
-    case "installed-notes-ack": return typeof value.version === "string" && /^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(value.version);
+    case "installed-notes-ack":
+    case "installed-notes-ack-result":
+      return isBoundedId(value.requestId) && typeof value.version === "string"
+        && /^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(value.version)
+        && (value.type === "installed-notes-ack" || typeof value.ok === "boolean");
     case "update-choice": return isBoundedId(value.offerId) && ["install", "later"].includes(String(value.action));
     case "bootstrap": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isNonEmpty(value.sessionToken);
     case "ready": return value.protocolVersion === DESKTOP_PROTOCOL_VERSION && isLoopbackOrigin(value.origin);

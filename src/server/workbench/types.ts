@@ -63,7 +63,7 @@ export interface WorkbenchDesktopHostPort {
   openMenu?: (request: DesktopMenuOpenRequest) => Promise<DesktopMenuOpenResult>;
   updateGeneration?: string;
   chooseUpdate?: (offerId: string, action: DesktopUpdateChoice) => void;
-  acknowledgeInstalledNotes?: (version: string) => void;
+  acknowledgeInstalledNotes?: (version: string) => Promise<void>;
 }
 
 export interface WorkbenchRuntimeSnapshot {
