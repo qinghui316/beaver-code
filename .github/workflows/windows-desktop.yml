@@ -34,6 +34,7 @@ jobs:
           $env:BEAVER_RELEASE_COMMIT = (git rev-parse HEAD).Trim()
           node scripts/verify-desktop-release-input.mjs
       - run: npm ci
+      - run: node scripts/print-release-body.mjs
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run lint:desktop-boundaries
@@ -104,13 +105,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $assets = Get-ChildItem -LiteralPath release/desktop/stable -File | Where-Object {
-            $_.Name -match '\.exe$|\.exe\.blockmap$|^latest\.yml$|^beaver-update-win-x64\.json(?:\.sig)?$|^release-receipt\.json$|^SHA256SUMS\.txt$'
+            $_.Name -match '\.exe$|\.exe\.blockmap$|^latest\.yml$|^beaver-update-win-x64\.json(?:\.sig)?$|^beaver-release-notes\.json(?:\.sig)?$|^release-receipt\.json$|^SHA256SUMS\.txt$'
           }
-          if ($assets.Count -ne 7) { throw 'Stable release assets are incomplete.' }
+          if ($assets.Count -ne 9) { throw 'Stable release assets are incomplete.' }
           $commit = (git rev-parse HEAD).Trim()
           gh release create '${{ github.ref_name }}' --repo '${{ github.repository }}' --draft --verify-tag `
-            --target $commit --title 'Beaver Code ${{ github.ref_name }}' --generate-notes @($assets.FullName)
+            --target $commit --title 'Beaver Code ${{ github.ref_name }}' --notes-file release/desktop/release-body.md @($assets.FullName)
           if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed.' }
+          $release = gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}' --json body | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.body.TrimEnd() -ne (Get-Content -LiteralPath release/desktop/release-body.md -Raw -Encoding UTF8).TrimEnd()) {
+            throw 'Draft release notes differ from the authored source.'
+          }
       - name: Re-download and verify the draft assets
         shell: pwsh
         env:
@@ -123,6 +128,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Draft release download failed.' }
           $env:DESKTOP_RELEASE_DIR = $download
           node scripts/verify-update-release.mjs
+          $publishedAssets = @(gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}' --json assets --jq '.assets[].name')
+          $expectedNames = (@($publishedAssets | Sort-Object) -join ',')
+          $actualNames = (@((Get-ChildItem -LiteralPath $download -File).Name | Sort-Object) -join ',')
+          if ($LASTEXITCODE -ne 0 -or $publishedAssets.Count -ne 9 -or $expectedNames -ne $actualNames) {
+            throw 'Draft release asset set is invalid.'
+          }
   release:
     if: startsWith(github.ref, 'refs/tags/') && github.repository == 'qinghui316/beaver-code'
     needs: release-draft
@@ -156,6 +167,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Approved draft release download failed.' }
           $env:DESKTOP_RELEASE_DIR = $download
           node scripts/verify-update-release.mjs
+          $release = gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}' --json body | ConvertFrom-Json
+          $expectedBody = node scripts/print-release-body.mjs
+          if ($LASTEXITCODE -ne 0 -or $release.body.TrimEnd() -ne (@($expectedBody) -join "`n").TrimEnd()) {
+            throw 'Approved draft release notes differ from the authored source.'
+          }
+          $publishedAssets = @(gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}' --json assets --jq '.assets[].name')
+          $expectedNames = (@($publishedAssets | Sort-Object) -join ',')
+          $actualNames = (@((Get-ChildItem -LiteralPath $download -File).Name | Sort-Object) -join ',')
+          if ($LASTEXITCODE -ne 0 -or $publishedAssets.Count -ne 9 -or $expectedNames -ne $actualNames) {
+            throw 'Approved draft release asset set is invalid.'
+          }
       - name: Publish immutable latest release
         shell: pwsh
         env:

@@ -22,6 +22,30 @@ export interface DesktopUpdateOffer {
   readonly offerId: string;
   readonly version: string;
   readonly releaseUrl: string;
+  /** Undefined while loading, null when unavailable. */
+  readonly notes?: DesktopReleaseNotes | null;
+}
+
+export interface DesktopReleaseNotes {
+  readonly version: string;
+  readonly zhCN: { readonly summary: string; readonly changes: readonly string[] };
+  readonly enUS: { readonly summary: string; readonly changes: readonly string[] };
+}
+
+export function isDesktopReleaseNotes(value: unknown): value is DesktopReleaseNotes {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  const validText = (text: unknown): text is string => typeof text === "string" && text.length > 0
+    && text.length <= 500 && text.trim() === text && !Array.from(text).some((character) =>
+      character.charCodeAt(0) < 32 || character === "<" || character === ">");
+  const validLanguage = (language: unknown): boolean => {
+    if (!language || typeof language !== "object") return false;
+    const note = language as Record<string, unknown>;
+    return validText(note.summary) && Array.isArray(note.changes) && note.changes.length > 0
+      && note.changes.length <= 20 && note.changes.every(validText);
+  };
+  return typeof item.version === "string" && /^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(item.version)
+    && validLanguage(item.zhCN) && validLanguage(item.enUS);
 }
 
 export type DesktopUpdateChoice = "install" | "later";
@@ -31,6 +55,8 @@ export function isDesktopUpdateOffer(value: unknown): value is DesktopUpdateOffe
   const item = value as Record<string, unknown>;
   if (!boundedId(item.offerId) || typeof item.version !== "string"
     || !/^\d{1,8}\.\d{1,8}\.\d{1,8}$/.test(item.version) || typeof item.releaseUrl !== "string") return false;
+  if (item.notes !== undefined && item.notes !== null
+    && (!isDesktopReleaseNotes(item.notes) || item.notes.version !== item.version)) return false;
   try {
     const url = new URL(item.releaseUrl);
     return url.protocol === "https:" && url.hostname === "github.com" && !url.username && !url.password

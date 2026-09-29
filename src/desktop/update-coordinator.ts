@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WorkbenchUpdateIdentity, WorkbenchUpdateReceipt } from "../types/workbench-update.js";
 import { sameWorkbenchUpdate } from "../types/workbench-update.js";
 import { isNewerStableVersion } from "./update-policy.js";
+import type { BeaverReleaseNoteContent } from "./update-manifest.js";
 
 export interface DesktopUpdateArtifact {
   readonly version: string;
@@ -15,6 +16,7 @@ export interface DesktopUpdateDownloadPort {
   download(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
   revalidate(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<void>;
   install(): Promise<void>;
+  notes?(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<BeaverReleaseNoteContent>;
 }
 
 export interface DesktopUpdateHostPort {
@@ -51,6 +53,16 @@ export class DesktopUpdateCoordinator {
     return { stage: this.failureStage, recoveryRequired: this.recoveryRequired };
   }
   offer(): DesktopUpdateArtifact | null { return this.readyArtifact ? Object.freeze({ ...this.readyArtifact }) : null; }
+
+  async readyNotes(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<BeaverReleaseNoteContent> {
+    if (this.state !== "ready-to-install" || !this.readyArtifact || !sameReadyArtifact(artifact, this.readyArtifact)
+      || !this.downloads.notes) throw new Error("Release notes are unavailable.");
+    const notes = await this.downloads.notes(artifact, signal);
+    if (this.state !== "ready-to-install" || !this.readyArtifact || !sameReadyArtifact(artifact, this.readyArtifact)) {
+      throw new Error("Release notes are stale.");
+    }
+    return notes;
+  }
 
   check(manual = false): Promise<void> {
     if (this.pending) return this.pending;
@@ -171,4 +183,9 @@ export class DesktopUpdateCoordinator {
     this.state = state;
     await this.onState(state);
   }
+}
+
+function sameReadyArtifact(left: DesktopUpdateArtifact, right: DesktopUpdateArtifact): boolean {
+  return left.version === right.version && left.sha512 === right.sha512
+    && left.manifestSha256 === right.manifestSha256;
 }

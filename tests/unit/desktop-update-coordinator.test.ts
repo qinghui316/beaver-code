@@ -60,6 +60,14 @@ describe("signature evidence", () => {
 });
 
 describe("desktop update coordinator", () => {
+  it("keeps a verified installer ready when optional notes fail", async () => {
+    const { owner, downloads } = fixture();
+    downloads.notes = vi.fn(async () => { throw new Error("notes unavailable"); });
+    await owner.check();
+    await expect(owner.readyNotes(owner.offer()!, new AbortController().signal)).rejects.toThrow("notes unavailable");
+    expect(owner.read()).toBe("ready-to-install");
+    expect(owner.offer()).toEqual(artifact);
+  });
   it("loads the Windows signature module explicitly instead of relying on module autoload", () => {
     const source = readFileSync(new URL("../../src/desktop/update-signature.ts", import.meta.url), "utf8");
     expect(source).toContain("Microsoft.PowerShell.Security.psd1");

@@ -24,6 +24,8 @@ import {
   safeDiagnostic,
   type DesktopHostMessage,
   type DesktopSafeDiagnostic,
+  type DesktopReleaseNotes,
+  type DesktopUpdateOffer,
 } from "./protocol.js";
 import { normalizeWindowState, type DesktopWindowState } from "./window-state.js";
 import { parseOfficeRendererConsoleDiagnostic } from "./renderer-diagnostic.js";
@@ -31,6 +33,7 @@ import { readDesktopBuildInfo } from "./build-info.js";
 import { DesktopUpdateCoordinator, type DesktopUpdateState } from "./update-coordinator.js";
 import { DesktopUpdateHostBridge } from "./update-host-bridge.js";
 import { createNsisUpdateAdapter } from "./nsis-update-adapter.js";
+import { InstalledReleaseNotes, packagedReleaseNotesPath } from "./installed-release-notes.js";
 import type { DesktopMenuId, DesktopMenuOpenResult } from "../types/desktop-shell.js";
 
 const buildInfo = readDesktopBuildInfo();
@@ -54,6 +57,9 @@ let ordinaryExitRequested = false;
 let systemSessionEnding = false;
 let updatesPausedForRecovery = false;
 let activeUpdateOfferId: string | null = null;
+let activeOfferNotesController: AbortController | null = null;
+let installedNotesStore: InstalledReleaseNotes | null = null;
+let pendingInstalledNotes: DesktopReleaseNotes | null = null;
 
 let window: BrowserWindow | null = null;
 let utility: UtilityProcess | null = null;
@@ -96,6 +102,11 @@ app.on("activate", () => {
 async function startApplication(): Promise<void> {
   await mkdir(desktopDir, { recursive: true });
   app.setName(productName);
+  if (app.isPackaged) {
+    installedNotesStore = new InstalledReleaseNotes(app.getPath("userData"), packagedReleaseNotesPath(import.meta.url), buildInfo.version);
+    try { pendingInstalledNotes = await installedNotesStore.load(process.argv.includes("--updated")); }
+    catch (cause) { await log("installed-notes-unavailable", cause); }
+  }
   app.setAppUserModelId(buildInfo.channel === "test" ? "com.agentharness.desktop.update-test" : "com.agentharness.desktop");
   const policy = buildInfo.updatePolicy;
   if (app.isPackaged && process.platform === "win32" && process.arch === "x64" && policy && policy.mode !== "disabled") {
@@ -216,6 +227,8 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
       path: "/",
     });
     await window.loadURL(origin);
+    source.postMessage({ type: "installed-notes", generation: message.generation,
+      notes: pendingInstalledNotes } satisfies DesktopHostMessage);
     await log("workbench-ready", `version=${buildInfo.version} commit=${buildInfo.commit}`);
     if (updateCoordinator && !updateTimer) {
       const initialCheckDelayMs = buildInfo.channel === "test" ? 2_000 : 60_000;
@@ -275,8 +288,18 @@ async function receiveUtilityMessage(source: UtilityProcess, message: unknown): 
     return;
   }
   if (message.type === "update-choice" && message.offerId === activeUpdateOfferId) {
+    activeOfferNotesController?.abort();
+    activeOfferNotesController = null;
+    activeUpdateOfferId = null;
     if (message.action === "install") void updateCoordinator?.installReady();
     else void updateCoordinator?.dismissReady();
+    return;
+  }
+  if (message.type === "installed-notes-ack" && pendingInstalledNotes?.version === message.version) {
+    try {
+      await installedNotesStore?.acknowledge(message.version);
+      pendingInstalledNotes = null;
+    } catch (cause) { await log("installed-notes-ack-failed", cause); }
     return;
   }
   if (message.type === "quit-snapshot") {
@@ -437,11 +460,34 @@ async function onUpdateState(state: DesktopUpdateState): Promise<void> {
     const offer = updateCoordinator?.offer();
     if (offer?.releaseUrl) {
       activeUpdateOfferId = randomUUID();
-      utility?.postMessage({ type: "update-offer", generation: generation!, offer: {
-        offerId: activeUpdateOfferId, version: offer.version, releaseUrl: offer.releaseUrl,
-      } } satisfies DesktopHostMessage);
+      const offerId = activeUpdateOfferId;
+      const visibleOffer: DesktopUpdateOffer = {
+        offerId, version: offer.version, releaseUrl: offer.releaseUrl,
+        ...(buildInfo.channel === "stable" ? {} : { notes: null }),
+      };
+      utility?.postMessage({ type: "update-offer", generation: generation!, offer: visibleOffer } satisfies DesktopHostMessage);
+      if (buildInfo.channel === "stable") {
+        activeOfferNotesController = new AbortController();
+        const controller = activeOfferNotesController;
+        const offerGeneration = generation;
+        void updateCoordinator!.readyNotes(offer, controller.signal).then((notes) => {
+          if (!controller.signal.aborted && generation === offerGeneration
+            && activeUpdateOfferId === offerId && updateState === "ready-to-install") {
+            utility?.postMessage({ type: "update-offer", generation: generation!,
+              offer: { ...visibleOffer, notes } } satisfies DesktopHostMessage);
+          }
+        }).catch(() => {
+          if (!controller.signal.aborted && generation === offerGeneration
+            && activeUpdateOfferId === offerId && updateState === "ready-to-install") {
+            utility?.postMessage({ type: "update-offer", generation: generation!,
+              offer: { ...visibleOffer, notes: null } } satisfies DesktopHostMessage);
+          }
+        });
+      }
     }
   } else if (activeUpdateOfferId) {
+    activeOfferNotesController?.abort();
+    activeOfferNotesController = null;
     activeUpdateOfferId = null;
     utility?.postMessage({ type: "update-offer", generation: generation!, offer: null } satisfies DesktopHostMessage);
   }

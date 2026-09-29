@@ -8,6 +8,7 @@ import { extractFile, listPackage } from "@electron/asar";
 import { createHash } from "node:crypto";
 import { load } from "js-yaml";
 import { desktopBuildVariant } from "./desktop-build-variant.mjs";
+import { readBuildReleaseNotes } from "./release-notes.mjs";
 
 const root = process.cwd();
 const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
@@ -54,6 +55,9 @@ if (asar) {
     if (JSON.stringify(buildInfo.updatePolicy) !== JSON.stringify(variant.updatePolicy)) failures.push("Packaged update policy does not match build input.");
     const { parseDesktopBuildInfo } = await import("../dist/desktop/build-info.js");
     parseDesktopBuildInfo(buildInfo);
+    const packagedNotes = JSON.parse(extractFile(asar, join("dist", "desktop", "release-notes.json")).toString("utf8"));
+    const sourceNotes = await readBuildReleaseNotes(root, packageJson.version, variant.version, variant.channel);
+    if (JSON.stringify(packagedNotes) !== JSON.stringify(sourceNotes)) failures.push("Packaged release notes differ from the source.");
   } catch (cause) {
     failures.push(`Packaged build identity is missing or invalid: ${cause instanceof Error ? cause.message : String(cause)}`);
   }

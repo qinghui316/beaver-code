@@ -21,6 +21,7 @@ await writeFile(configPath, JSON.stringify(variant.config, null, 2), "utf8");
 run(process.execPath, ["scripts/generate-desktop-build-info.mjs", "--require-clean"], unprivilegedEnvironment);
 run(process.execPath, [npmCli, "run", "build:desktop"], unprivilegedEnvironment);
 run(process.execPath, ["scripts/generate-desktop-build-info.mjs", "--require-clean"], unprivilegedEnvironment);
+run(process.execPath, ["scripts/generate-release-notes.mjs"], unprivilegedEnvironment);
 run(process.execPath, [resolve(root, "node_modules", "electron-builder", "cli.js"), "--config", configPath, "--win", "nsis", "--x64", "--publish", "never"], unprivilegedEnvironment);
 if (variant.channel === "stable") run(process.execPath, ["scripts/generate-update-manifest.mjs"]);
 run(process.execPath, ["scripts/verify-desktop-package.mjs"], unprivilegedEnvironment);

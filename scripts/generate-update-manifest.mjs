@@ -6,6 +6,7 @@ import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import { load } from "js-yaml";
 import { desktopBuildVariant } from "./desktop-build-variant.mjs";
+import { readReleaseNoteSource } from "./release-notes.mjs";
 
 const root = process.cwd();
 const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
@@ -57,6 +58,21 @@ const manifestPath = join(release, "beaver-update-win-x64.json");
 const signaturePath = `${manifestPath}.sig`;
 await writeFile(manifestPath, manifestBytes);
 await writeFile(signaturePath, `${JSON.stringify(envelope)}\n`, { encoding: "utf8", mode: 0o644 });
+const notes = await readReleaseNoteSource(root, variant.version);
+const packagedNotes = JSON.parse(await readFile(resolve(root, "dist/desktop/release-notes.json"), "utf8"));
+if (JSON.stringify(notes) !== JSON.stringify(packagedNotes)) throw new Error("Packaged release notes differ from the source.");
+const sidecar = {
+  schemaVersion: 1, version: manifest.version, tag: manifest.tag, commit: manifest.commit,
+  manifestSha256: createHash("sha256").update(manifestBytes).digest("hex"), notes,
+};
+const notesPath = join(release, "beaver-release-notes.json");
+const notesSignaturePath = `${notesPath}.sig`;
+const notesBytes = Buffer.from(`${JSON.stringify(sidecar)}\n`, "utf8");
+if (notesBytes.byteLength > 32_768) throw new Error("Signed release notes are too large.");
+await writeFile(notesPath, notesBytes);
+await writeFile(notesSignaturePath, `${JSON.stringify({
+  schemaVersion: 1, algorithm: "ed25519", keyId, signature: sign(null, notesBytes, privateKey).toString("base64"),
+})}\n`, "utf8");
 const receipt = {
   schemaVersion: 1,
   version: variant.version,
@@ -66,7 +82,8 @@ const receipt = {
   manifestSha256: createHash("sha256").update(manifestBytes).digest("hex"),
 };
 await writeFile(join(release, "release-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-const checksumFiles = [installerPath, blockmapPath, metadataPath, manifestPath, signaturePath, join(release, "release-receipt.json")];
+const checksumFiles = [installerPath, blockmapPath, metadataPath, manifestPath, signaturePath,
+  notesPath, notesSignaturePath, join(release, "release-receipt.json")];
 const sums = [];
 for (const file of checksumFiles) sums.push(`${await hashFile(file, "sha256", "hex")}  ${basename(file)}`);
 await writeFile(join(release, "SHA256SUMS.txt"), `${sums.join("\n")}\n`, "utf8");

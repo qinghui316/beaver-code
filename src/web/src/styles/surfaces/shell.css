@@ -70,6 +70,8 @@
   z-index: 500;
   display: grid;
   width: min(400px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   gap: 16px;
   padding: 22px;
   border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
@@ -167,6 +169,39 @@
   font-size: 13px;
   line-height: 1.4;
 }
+
+.desktop-release-notes {
+  min-width: 0;
+  max-height: min(280px, 38vh);
+  overflow-y: auto;
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.desktop-release-notes p { margin: 10px 0 6px; }
+.desktop-release-notes ul { margin: 0; padding-inline-start: 20px; }
+.desktop-release-notes li + li { margin-block-start: 6px; }
+.desktop-release-notes-state { margin: 0; color: var(--text-muted); font-size: 13px; }
+.desktop-release-notes-languages { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.desktop-release-notes-languages button { min-height: 32px; border: 0; padding: 0 12px; color: var(--text-strong); background: transparent; font: inherit; cursor: pointer; }
+.desktop-release-notes-languages button[aria-pressed="true"] { background: var(--focus); color: var(--on-accent); }
+.desktop-release-notes-languages button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.desktop-installed-notes {
+  width: min(480px, calc(100vw - 24px));
+  max-height: min(640px, calc(100vh - 24px));
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-strong);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+.desktop-installed-notes::backdrop { background: var(--overlay); }
+.desktop-installed-notes h2 { margin: 0 0 16px; font-size: 18px; }
+.desktop-installed-notes .desktop-release-notes { max-height: min(440px, 55vh); }
+.desktop-installed-notes > button { min-height: 40px; margin-block-start: 18px; padding: 0 18px; border: 0; border-radius: 6px; color: var(--on-accent); background: var(--accent); font: inherit; cursor: pointer; }
 
 @keyframes desktop-update-popover-in {
   from { opacity: 0; transform: translateY(6px); }

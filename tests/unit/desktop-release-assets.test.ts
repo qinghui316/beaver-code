@@ -21,6 +21,8 @@ describe("desktop release asset cleanup", () => {
       "latest.yml",
       "beaver-update-win-x64.json",
       "beaver-update-win-x64.json.sig",
+      "beaver-release-notes.json",
+      "beaver-release-notes.json.sig",
       "release-receipt.json",
       "SHA256SUMS.txt",
     ];

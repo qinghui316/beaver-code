@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 
 import { createPortal } from "react-dom";
 import { Download } from "lucide-react";
 import { useDesktopUpdateOffer } from "./DesktopUpdateOfferContext.js";
+import { DesktopReleaseNotes } from "./DesktopReleaseNotes.js";
 
 interface PopoverPosition {
   left: number;
@@ -124,6 +125,7 @@ export function DesktopUpdateDock({ className = "", displayWhen = "always" }: { 
           <span className="desktop-update-popover-icon"><Download size={19} aria-hidden="true" /></span>
           <div><strong>Beaver Code {surface.view.version} 已准备好</strong><p>更新已下载，重新启动后即可使用。</p></div>
         </div>
+        <DesktopReleaseNotes key={surface.view.version} notes={surface.view.notes} />
         {surface.view.failure ? <p className="desktop-update-popover-error" role="alert">{surface.view.failure}</p> : null}
         <button type="button" className="desktop-update-install" disabled={surface.view.submitting} onClick={() => void surface.actions.install()}>
           {surface.view.submitting ? "正在准备…" : "重新启动并更新"}

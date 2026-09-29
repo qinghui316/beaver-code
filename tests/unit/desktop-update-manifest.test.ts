@@ -4,6 +4,7 @@ import {
   GitHubBeaverUpdateManifestClient,
   parseBeaverWindowsUpdateManifest,
   verifyBeaverUpdateManifest,
+  verifyBeaverReleaseNotes,
 } from "../../src/desktop/update-manifest.js";
 
 const pair = generateKeyPairSync("ed25519");
@@ -73,6 +74,25 @@ describe("Beaver Code signed update manifest", () => {
     const offered = await client.latest();
     expect(String(request.mock.calls[0]?.[0])).toContain("/releases/latest/download/beaver-update-win-x64.json");
     await expect(client.exact(offered)).rejects.toThrow("changed after download");
+  });
+
+  it("reads optional release notes from the exact signed tag and rejects mismatched identity", async () => {
+    const signedManifest = signed();
+    const expected = verifyBeaverUpdateManifest(signedManifest.bytes, signedManifest.envelope, trust);
+    const notes = { version: manifest.version,
+      zhCN: { summary: "中文摘要", changes: ["中文改动"] },
+      enUS: { summary: "English summary", changes: ["English change"] } };
+    const sidecar = signed({ schemaVersion: 1, version: manifest.version, tag: manifest.tag,
+      commit: manifest.commit, manifestSha256: expected.manifestSha256, notes });
+    const responses = [sidecar.bytes, sidecar.envelope];
+    const request = vi.fn(async () => new Response(responses.shift(), { status: 200 }));
+    const client = new GitHubBeaverUpdateManifestClient(trust, request as typeof fetch);
+    await expect(client.notes(expected)).resolves.toEqual(notes);
+    expect(String(request.mock.calls[0]?.[0])).toContain("/releases/download/v0.1.3/beaver-release-notes.json");
+    expect(String(request.mock.calls[1]?.[0])).toContain("/releases/download/v0.1.3/beaver-release-notes.json.sig");
+    const mismatched = signed({ schemaVersion: 1, version: manifest.version, tag: "v0.1.4",
+      commit: manifest.commit, manifestSha256: expected.manifestSha256, notes });
+    expect(() => verifyBeaverReleaseNotes(mismatched.bytes, mismatched.envelope, trust, expected)).toThrow("identity");
   });
 
   it("accepts bounded GitHub asset redirects with signed CDN query parameters", async () => {

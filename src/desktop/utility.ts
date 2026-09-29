@@ -45,6 +45,7 @@ async function receive(message: DesktopHostMessage): Promise<void> {
           openMenu: requestMenu,
           updateGeneration: generation,
           chooseUpdate: (offerId, action) => post({ type: "update-choice", generation: generation!, offerId, action }),
+          acknowledgeInstalledNotes: (version) => post({ type: "installed-notes-ack", generation: generation!, version }),
         },
       });
       post({
@@ -68,6 +69,10 @@ async function receive(message: DesktopHostMessage): Promise<void> {
   if (message.generation !== generation) return;
   if (message.type === "update-offer") {
     server?.updates?.publishOffer(message.offer);
+    return;
+  }
+  if (message.type === "installed-notes") {
+    server?.updates?.publishInstalledNotes(message.notes);
     return;
   }
   if (message.type === "update-request") {

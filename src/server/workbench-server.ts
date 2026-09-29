@@ -119,7 +119,8 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   });
   const productModeActivity = options.productModeActivity ?? new ProductModeActivityProjectionOwner();
   const updateGate = options.desktopHost?.updateGeneration ? new WorkbenchUpdateRequestGate() : undefined;
-  const updateChannel = updateGate ? new WorkbenchUpdateRendererChannel(options.desktopHost?.chooseUpdate) : undefined;
+  const updateChannel = updateGate ? new WorkbenchUpdateRendererChannel(
+    options.desktopHost?.chooseUpdate, options.desktopHost?.acknowledgeInstalledNotes) : undefined;
   const releaseAdmissionObserver = updateGate
     ? turnControl.subscribeAdmission(() => updateGate.managedExecutionRegistered())
     : () => {};
@@ -385,6 +386,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       cancel: (identity) => lifecycle.cancel(identity),
       snapshot: () => lifecycle.snapshot(),
       publishOffer: (offer) => updateChannel.publishOffer(offer),
+      publishInstalledNotes: (notes) => updateChannel.publishInstalledNotes(notes),
     };
   }
   return handle;

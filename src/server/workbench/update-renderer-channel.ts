@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isDesktopUpdateOffer, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../../types/workbench-update.js";
+import { isDesktopReleaseNotes, isDesktopUpdateOffer, type DesktopReleaseNotes, type DesktopUpdateChoice, type DesktopUpdateOffer, type WorkbenchUpdateIdentity } from "../../types/workbench-update.js";
 import { assertLocalWorkbenchRequest, sendJson } from "./http.js";
 
 /** Authenticated transport only. Preparation can be started only through the host port. */
@@ -10,8 +10,12 @@ export class WorkbenchUpdateRendererChannel {
     id: string; connectionId: string; resolve: () => void; reject: (cause: Error) => void;
   } | null = null;
   private offer: DesktopUpdateOffer | null = null;
+  private installedNotes: DesktopReleaseNotes | null = null;
 
-  constructor(private readonly choose: (offerId: string, action: DesktopUpdateChoice) => void = () => {}) {}
+  constructor(
+    private readonly choose: (offerId: string, action: DesktopUpdateChoice) => void = () => {},
+    private readonly acknowledgeNotes: (version: string) => void = () => {},
+  ) {}
 
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
     if (!url.pathname.startsWith("/api/desktop/update/")) return false;
@@ -23,6 +27,7 @@ export class WorkbenchUpdateRendererChannel {
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
       response.write(`event: connected\ndata: ${JSON.stringify({ connectionId: connection.id })}\n\n`);
       if (this.offer) response.write(`event: offer\ndata: ${JSON.stringify(this.offer)}\n\n`);
+      if (this.installedNotes) response.write(`event: installed-notes\ndata: ${JSON.stringify(this.installedNotes)}\n\n`);
       const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 10_000);
       heartbeat.unref();
       response.once("close", () => {
@@ -47,6 +52,22 @@ export class WorkbenchUpdateRendererChannel {
       this.offer = null;
       sendJson(response, 200, { accepted: true });
       this.choose(offerId, action);
+      return true;
+    }
+    if (request.method === "POST" && url.pathname === "/api/desktop/update/notes-ack") {
+      if (request.headers.origin !== `http://${request.headers.host}`) {
+        sendJson(response, 403, { error: "更新说明操作来源无效。" }); return true;
+      }
+      const value = await readBoundedJson(request, response);
+      if (value === null) return true;
+      const version = (value as { version?: unknown } | null)?.version;
+      if (!this.installedNotes || version !== this.installedNotes.version) {
+        sendJson(response, 409, { error: "更新说明已发生变化。" }); return true;
+      }
+      this.installedNotes = null;
+      this.acknowledgeNotes(version);
+      sendJson(response, 200, { accepted: true });
+      if (this.connection) this.connection.response.write("event: installed-notes\ndata: null\n\n");
       return true;
     }
     if (request.method === "POST" && url.pathname === "/api/desktop/update/ack") {
@@ -82,6 +103,12 @@ export class WorkbenchUpdateRendererChannel {
     if (offer !== null && !isDesktopUpdateOffer(offer)) throw new Error("Desktop update offer is invalid.");
     this.offer = offer;
     if (this.connection) this.connection.response.write(`event: offer\ndata: ${JSON.stringify(offer)}\n\n`);
+  }
+
+  publishInstalledNotes(notes: DesktopReleaseNotes | null): void {
+    if (notes !== null && !isDesktopReleaseNotes(notes)) throw new Error("Installed release notes are invalid.");
+    this.installedNotes = notes;
+    if (this.connection) this.connection.response.write(`event: installed-notes\ndata: ${JSON.stringify(notes)}\n\n`);
   }
 
   async request(action: "prepare" | "confirm" | "cancel", identity: WorkbenchUpdateIdentity, signal?: AbortSignal): Promise<void> {

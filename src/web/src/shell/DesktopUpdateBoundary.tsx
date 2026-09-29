@@ -2,13 +2,18 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { flushSync } from "react-dom";
 import { rendererUpdateParticipants } from "../controllers/RendererUpdateParticipants.js";
 import { DesktopUpdateOfferContext, type DesktopUpdateOfferSurface } from "./DesktopUpdateOfferContext.js";
+import { DesktopReleaseNotes } from "./DesktopReleaseNotes.js";
+import type { DesktopReleaseNotes as ReleaseNotes, DesktopUpdateOffer } from "../../../types/workbench-update.js";
 
 export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
   const [frozen, setFrozen] = useState(false);
   const [failed, setFailed] = useState(false);
   const notice = useRef<HTMLDialogElement>(null);
   const focusBeforeUpdate = useRef<HTMLElement | null>(null);
-  const [offer, setOffer] = useState<{ offerId: string; version: string; releaseUrl: string } | null>(null);
+  const [offer, setOffer] = useState<DesktopUpdateOffer | null>(null);
+  const [installedNotes, setInstalledNotes] = useState<ReleaseNotes | null>(null);
+  const [installedFailure, setInstalledFailure] = useState(false);
+  const installedDialog = useRef<HTMLDialogElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [choiceFailure, setChoiceFailure] = useState<string | null>(null);
@@ -20,6 +25,12 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
     if (frozen && notice.current && !notice.current.open) notice.current.showModal();
     if (!frozen) focusBeforeUpdate.current?.focus();
   }, [frozen]);
+  useLayoutEffect(() => {
+    if (installedNotes && !frozen && installedDialog.current && !installedDialog.current.open) {
+      installedDialog.current.showModal();
+    }
+    if (frozen && installedDialog.current?.open) installedDialog.current.close();
+  }, [installedNotes, frozen]);
   useEffect(() => {
     let disposed = false;
     let events: EventSource | null = null;
@@ -40,7 +51,7 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
         connectionId = value.connectionId ?? null;
       });
       events.addEventListener("offer", (event) => {
-        const value = JSON.parse((event as MessageEvent).data) as typeof offer;
+        const value = JSON.parse((event as MessageEvent).data) as DesktopUpdateOffer | null;
         if (disposed) return;
         if (!value) {
           choiceEpoch.current += 1;
@@ -65,6 +76,12 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
           autoOpenedOffers.current.add(value.offerId);
           setExpanded(true);
         }
+      });
+      events.addEventListener("installed-notes", (event) => {
+        if (disposed) return;
+        const value = JSON.parse((event as MessageEvent).data) as ReleaseNotes | null;
+        setInstalledNotes(value);
+        setInstalledFailure(false);
       });
       events.addEventListener("update", (event) => {
         const myEpoch = ++epoch;
@@ -117,6 +134,20 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const dismissInstalledNotes = useCallback(async (): Promise<void> => {
+    if (!installedNotes) return;
+    try {
+      const response = await fetch("/api/desktop/update/notes-ack", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ version: installedNotes.version }),
+      });
+      if (!response.ok) throw new Error("ack rejected");
+      installedDialog.current?.close();
+      setInstalledNotes((current) => current?.version === installedNotes.version ? null : current);
+      setInstalledFailure(false);
+    } catch { setInstalledFailure(true); }
+  }, [installedNotes]);
+
   const install = useCallback(async (): Promise<void> => {
     if (!offer || choosingOfferId.current) return;
     const selectedOffer = offer;
@@ -149,6 +180,7 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       available: Boolean(offer),
       version: offer?.version ?? null,
       releaseUrl: offer?.releaseUrl ?? null,
+      notes: offer?.notes,
       expanded: Boolean(offer) && expanded && !frozen,
       submitting: choosing,
       failure: choiceFailure,
@@ -174,6 +206,13 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
       onCancel={(event) => event.preventDefault()}>
       <strong id="desktop-update-title" role={failed ? "alert" : "status"}>{failed ? "更新暂未完成" : "正在保存并更新…"}</strong>
       <p>{failed ? "请在帮助菜单中查看诊断，或重新启动工作台。" : "保存完成后将自动重启 Beaver Code。"}</p>
+    </dialog>}
+    {installedNotes && <dialog ref={installedDialog} className="desktop-installed-notes" aria-labelledby="desktop-installed-notes-title"
+      onCancel={(event) => { event.preventDefault(); void dismissInstalledNotes(); }}>
+      <h2 id="desktop-installed-notes-title">Beaver Code {installedNotes.version} 更新内容</h2>
+      <DesktopReleaseNotes key={installedNotes.version} notes={installedNotes} />
+      {installedFailure && <p role="alert">暂时无法确认已读，请重试。</p>}
+      <button type="button" onClick={() => void dismissInstalledNotes()}>完成</button>
     </dialog>}
   </>;
 }

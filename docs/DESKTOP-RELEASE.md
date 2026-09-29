@@ -61,15 +61,20 @@ existing version or `keyId`.
 2. Run all repository, desktop-native, package, privacy, and update-manifest gates.
 3. Confirm the canonical commit contains the intended public key and new-repository identity.
 4. Create and push the exact `v<version>` tag.
-5. Let `windows-signing` build and sign the update manifest, create the draft, re-download all seven
+5. Write and review `release-notes/v<version>.json` with complete Chinese and English content before tagging.
+   The build validates the exact package version and generates the installer copy and Release body from it.
+6. Let `windows-signing` build and sign the update manifest and independent release-note sidecar,
+   create the draft, re-download all nine
    assets from GitHub, and verify them independently.
-6. Inspect that exact draft, then review and approve the `windows-release` Environment deployment;
+7. Inspect that exact draft and its bilingual body, then review and approve the `windows-release` Environment deployment;
    the publication job re-downloads and verifies it again before making it latest.
-7. Verify the public Release contains exactly the installer, blockmap, `latest.yml`, signed manifest,
-   signature, release receipt, and SHA-256 list.
+8. Verify the public Release contains exactly the installer, blockmap, `latest.yml`, signed manifest,
+   its signature, signed bilingual notes, their signature, release receipt, and SHA-256 list.
 
 The signed manifest is verified before JSON parsing. The client then checks stable SemVer, full
 commit, platform, architecture, filenames, sizes, SHA-512, `latest.yml`, and exact repository URL.
+The note sidecar has its own Ed25519 signature and binds the unchanged v1 manifest digest, version,
+tag and commit. Older clients ignore it; missing or invalid notes do not block a valid installer.
 Immediately before installation it re-reads the exact tagged Release and rechecks the cached
 installer. The Workbench remains usable after download until the user chooses “重新启动并更新”.
 

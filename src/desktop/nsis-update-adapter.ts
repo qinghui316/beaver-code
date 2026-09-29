@@ -3,7 +3,7 @@ import type { DesktopUpdateArtifact, DesktopUpdateDownloadPort } from "./update-
 import type { DesktopUpdatePolicy } from "./update-policy.js";
 import { verifyDesktopUpdateHash, verifyDesktopUpdateSignature } from "./update-signature.js";
 import type { DesktopSignedProduct } from "./update-signature.js";
-import { GitHubBeaverUpdateManifestClient, type BeaverUpdateManifestPort, type VerifiedBeaverUpdateManifest } from "./update-manifest.js";
+import { GitHubBeaverUpdateManifestClient, type BeaverReleaseNoteContent, type BeaverUpdateManifestPort, type VerifiedBeaverUpdateManifest } from "./update-manifest.js";
 import { stat } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -127,6 +127,15 @@ export class NsisUpdateAdapter implements DesktopUpdateDownloadPort {
     } finally {
       signal.removeEventListener("abort", cancel);
     }
+  }
+
+  async notes(artifact: DesktopUpdateArtifact, signal: AbortSignal): Promise<BeaverReleaseNoteContent> {
+    this.assertArtifact(artifact);
+    const signed = this.signedManifest;
+    if (!signed || signed.manifestSha256 !== artifact.manifestSha256 || !this.manifests?.notes) {
+      throw new Error("Release notes are unavailable.");
+    }
+    return this.manifests.notes(signed, signal);
   }
 
   async revalidate(artifact: DesktopUpdateArtifact, signal: AbortSignal = new AbortController().signal): Promise<void> {

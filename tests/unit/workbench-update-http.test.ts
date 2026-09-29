@@ -72,6 +72,40 @@ async function connect(handle: WorkbenchServerHandle, ok = true) {
 }
 
 describe("real update HTTP/SSE composition", () => {
+  it("replays installed notes and acknowledges only the current version", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-installed-notes-http-"));
+    const acknowledged: string[] = [];
+    server = await startWorkbenchServer(null, {
+      port: 0, store: new ProjectRegistryStore(root), providerRegistry: new ProviderRegistry(),
+      desktopHost: { sessionToken: "test-token", updateGeneration: identity.generation,
+        acknowledgeInstalledNotes: (version) => { acknowledged.push(version); } },
+    });
+    const notes = { version: "0.1.16",
+      zhCN: { summary: "中文摘要", changes: ["中文改动"] },
+      enUS: { summary: "English summary", changes: ["English change"] } };
+    server.updates!.publishInstalledNotes(notes);
+    const rejected = await fetch(server.url + "/api/desktop/update/notes-ack", {
+      method: "POST", headers: { Cookie: cookie, Origin: server.url, "content-type": "application/json" },
+      body: JSON.stringify({ version: "0.1.15" }),
+    });
+    expect(rejected.status).toBe(409);
+    expect(acknowledged).toEqual([]);
+    streamAbort = new AbortController();
+    const response = await fetch(server.url + "/api/desktop/update/events", {
+      headers: { Cookie: cookie }, signal: streamAbort.signal,
+    });
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain("installed-notes");
+    const accepted = await fetch(server.url + "/api/desktop/update/notes-ack", {
+      method: "POST", headers: { Cookie: cookie, Origin: server.url, "content-type": "application/json" },
+      body: JSON.stringify({ version: notes.version }),
+    });
+    expect(accepted.status).toBe(200);
+    expect(acknowledged).toEqual([notes.version]);
+    await reader.cancel();
+  });
+
   it("does not poison later update preparation after a definite bad request", async () => {
     const handle = await start();
     const rejected = await fetch(handle.url + "/api/projects", {

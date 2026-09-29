@@ -2,6 +2,28 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 
 export const BEAVER_UPDATE_MANIFEST_ASSET = "beaver-update-win-x64.json";
 export const BEAVER_UPDATE_SIGNATURE_ASSET = `${BEAVER_UPDATE_MANIFEST_ASSET}.sig`;
+export const BEAVER_RELEASE_NOTES_ASSET = "beaver-release-notes.json";
+export const BEAVER_RELEASE_NOTES_SIGNATURE_ASSET = `${BEAVER_RELEASE_NOTES_ASSET}.sig`;
+
+export interface BeaverReleaseNoteText {
+  readonly summary: string;
+  readonly changes: readonly string[];
+}
+
+export interface BeaverReleaseNoteContent {
+  readonly version: string;
+  readonly zhCN: BeaverReleaseNoteText;
+  readonly enUS: BeaverReleaseNoteText;
+}
+
+export interface BeaverSignedReleaseNotes {
+  readonly schemaVersion: 1;
+  readonly version: string;
+  readonly tag: string;
+  readonly commit: string;
+  readonly manifestSha256: string;
+  readonly notes: BeaverReleaseNoteContent;
+}
 
 export interface BeaverWindowsUpdateManifest {
   readonly schemaVersion: 1;
@@ -37,6 +59,7 @@ export interface VerifiedBeaverUpdateManifest {
 export interface BeaverUpdateManifestPort {
   latest(signal?: AbortSignal): Promise<VerifiedBeaverUpdateManifest>;
   exact(expected: VerifiedBeaverUpdateManifest, signal?: AbortSignal): Promise<void>;
+  notes?(expected: VerifiedBeaverUpdateManifest, signal?: AbortSignal): Promise<BeaverReleaseNoteContent>;
 }
 
 const STABLE_OWNER = "qinghui316";
@@ -95,6 +118,51 @@ export function verifyBeaverUpdateManifest(
   });
 }
 
+export function parseBeaverReleaseNoteContent(value: unknown, version: string): BeaverReleaseNoteContent {
+  if (!isRecord(value) || !exactKeys(value, ["version", "zhCN", "enUS"]) || value.version !== version
+    || !stableVersion(version)) throw new Error("Release notes are invalid.");
+  const parseText = (item: unknown): BeaverReleaseNoteText => {
+    if (!isRecord(item) || !exactKeys(item, ["summary", "changes"]) || !noteText(item.summary)
+      || !Array.isArray(item.changes) || item.changes.length < 1 || item.changes.length > 20
+      || !item.changes.every(noteText)) throw new Error("Release notes are invalid.");
+    return Object.freeze({ summary: item.summary, changes: Object.freeze([...item.changes]) });
+  };
+  return Object.freeze({ version, zhCN: parseText(value.zhCN), enUS: parseText(value.enUS) });
+}
+
+export function verifyBeaverReleaseNotes(
+  notesBytes: Uint8Array,
+  signatureBytes: Uint8Array,
+  keys: readonly BeaverUpdatePublicKey[],
+  expected: VerifiedBeaverUpdateManifest,
+): BeaverReleaseNoteContent {
+  if (notesBytes.byteLength < 2 || notesBytes.byteLength > 32_768 || signatureBytes.byteLength > 4_096) {
+    throw new Error("Release notes size is invalid.");
+  }
+  let envelope: unknown;
+  try { envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(signatureBytes)); }
+  catch { throw new Error("Release notes signature is invalid."); }
+  if (!isRecord(envelope) || !exactKeys(envelope, ["schemaVersion", "algorithm", "keyId", "signature"])
+    || envelope.schemaVersion !== 1 || envelope.algorithm !== "ed25519" || !boundedKeyId(envelope.keyId)
+    || typeof envelope.signature !== "string" || !/^[A-Za-z0-9+/]{86}==$/.test(envelope.signature)) {
+    throw new Error("Release notes signature is invalid.");
+  }
+  const trust = keys.find((candidate) => candidate.keyId === envelope.keyId);
+  if (!trust || !verify(null, notesBytes, createPublicKey(trust.publicKey), Buffer.from(envelope.signature, "base64"))) {
+    throw new Error("Release notes signature is invalid.");
+  }
+  let raw: unknown;
+  try { raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(notesBytes)); }
+  catch { throw new Error("Signed release notes are invalid."); }
+  const manifest = expected.manifest;
+  if (!isRecord(raw) || !exactKeys(raw, ["schemaVersion", "version", "tag", "commit", "manifestSha256", "notes"])
+    || raw.schemaVersion !== 1 || raw.version !== manifest.version || raw.tag !== manifest.tag
+    || raw.commit !== manifest.commit || raw.manifestSha256 !== expected.manifestSha256) {
+    throw new Error("Release notes identity is invalid.");
+  }
+  return parseBeaverReleaseNoteContent(raw.notes, manifest.version);
+}
+
 export function parseBeaverWindowsUpdateManifest(value: unknown): BeaverWindowsUpdateManifest {
   const fields = ["schemaVersion", "channel", "version", "tag", "commit", "platform", "arch", "publishedAt", "installer", "blockmap"];
   if (!isRecord(value) || !exactKeys(value, fields) || value.schemaVersion !== 1 || value.channel !== "stable"
@@ -144,6 +212,17 @@ export class GitHubBeaverUpdateManifestClient implements BeaverUpdateManifestPor
       || JSON.stringify(current.manifest) !== JSON.stringify(expected.manifest)) {
       throw new Error("The published update changed after download.");
     }
+  }
+
+  async notes(expected: VerifiedBeaverUpdateManifest, signal?: AbortSignal): Promise<BeaverReleaseNoteContent> {
+    return this.withDeadline(signal, async (boundedSignal) => {
+      const root = `https://github.com/${STABLE_OWNER}/${STABLE_REPO}/releases/download/${expected.manifest.tag}`;
+      const [notes, signature] = await Promise.all([
+        fetchBounded(`${root}/${BEAVER_RELEASE_NOTES_ASSET}`, 32_768, this.request, boundedSignal),
+        fetchBounded(`${root}/${BEAVER_RELEASE_NOTES_SIGNATURE_ASSET}`, 4_096, this.request, boundedSignal),
+      ]);
+      return verifyBeaverReleaseNotes(notes, signature, this.keys, expected);
+    });
   }
 
   private async read(release: string, signal: AbortSignal): Promise<VerifiedBeaverUpdateManifest> {
@@ -289,6 +368,12 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
 
 function stableVersion(value: unknown): value is string {
   return typeof value === "string" && /^(0|[1-9]\d{0,7})\.(0|[1-9]\d{0,7})\.(0|[1-9]\d{0,7})$/.test(value);
+}
+
+function noteText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 500
+    && value.trim() === value && !Array.from(value).some((character) =>
+      character.charCodeAt(0) < 32 || character === "<" || character === ">");
 }
 
 function boundedKeyId(value: unknown): value is string {

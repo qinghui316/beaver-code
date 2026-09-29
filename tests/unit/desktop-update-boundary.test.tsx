@@ -19,6 +19,7 @@ beforeEach(() => {
     url === "/api/app/status" ? { desktopUpdates: true } : { accepted: true },
   ), { status: 200 })));
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 afterEach(() => { unregister?.(); cleanup(); vi.unstubAllGlobals(); });
 async function send(action: "prepare" | "confirm" | "cancel") {
@@ -30,6 +31,42 @@ async function send(action: "prepare" | "confirm" | "cancel") {
   });
 }
 describe("desktop update save boundary", () => {
+  const releaseNotes = {
+    version: "0.1.16",
+    zhCN: { summary: "中文摘要", changes: ["中文改动"] },
+    enUS: { summary: "English summary", changes: ["English change"] },
+  };
+
+  it("loads signed offer notes without reopening a dismissed offer and switches language", async () => {
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    const offer = { offerId: "offer", version: "0.1.16",
+      releaseUrl: "https://github.com/qinghui316/beaver-code/releases/tag/v0.1.16" };
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", { data: JSON.stringify(offer) })));
+    expect(screen.getByText("正在加载更新说明…")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("offer", {
+      data: JSON.stringify({ ...offer, notes: releaseNotes }),
+    })));
+    expect(screen.queryByText("中文摘要")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    expect(screen.getByText("中文摘要")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByText("English summary")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重新启动并更新" })).toBeTruthy();
+  });
+
+  it("shows packaged installed notes and acknowledges only after dismissal", async () => {
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("installed-notes", { data: JSON.stringify(releaseNotes) })));
+    expect(screen.getByText("Beaver Code 0.1.16 更新内容")).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/desktop/update/notes-ack")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/desktop/update/notes-ack")).toBe(true));
+    expect(screen.queryByText("Beaver Code 0.1.16 更新内容")).toBeNull();
+  });
+
   it("does not expose desktop update presentation in the pure Web runtime", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ desktopUpdates: false }), { status: 200 })));
     render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
