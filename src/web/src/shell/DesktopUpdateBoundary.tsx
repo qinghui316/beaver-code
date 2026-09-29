@@ -38,10 +38,12 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
     let disposed = false;
     let events: EventSource | null = null;
     let activeUpdate: string | null = null;
+    let shutdownExpected = false;
     let connectionId: string | null = null;
     let epoch = 0;
     const release = (): void => {
       activeUpdate = null;
+      shutdownExpected = false;
       setFrozen(false);
     };
     void fetch("/api/app/status").then(async (response) => {
@@ -104,6 +106,12 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
         }
         activityRef.current = value;
         setActivity(value);
+        if (activeUpdate && (value.phase === "stopping" || value.phase === "installing")) {
+          shutdownExpected = true;
+          setFailed(false);
+        } else if (activeUpdate && value.phase === "failed") {
+          setFailed(true);
+        }
         if (value.phase !== "ready") {
           currentOfferId.current = null;
           setOffer(null);
@@ -139,12 +147,17 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
               ok = true;
             } else if (value.action === "prepare") {
               activeUpdate = updateId;
+              shutdownExpected = false;
               focusBeforeUpdate.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
               flushSync(() => { setFrozen(true); setFailed(false); setExpanded(false); });
               await rendererUpdateParticipants.prepare(updateId);
               ok = activeUpdate === updateId && rendererUpdateParticipants.confirm(updateId);
             } else if (value.action === "confirm") {
               ok = activeUpdate === updateId && rendererUpdateParticipants.confirm(updateId);
+              if (ok) {
+                shutdownExpected = true;
+                setFailed(false);
+              }
             }
           } catch { ok = false; }
           if (disposed || epoch !== myEpoch) return;
@@ -152,12 +165,13 @@ export function DesktopUpdateBoundary({ children }: { children: ReactNode }) {
             method: "POST", headers: { "content-type": "application/json" },
             body: JSON.stringify({ requestId: value.requestId, connectionId, ok }),
           });
-          if (!ack.ok && activeUpdate) setFailed(true);
-        })().catch(() => { if (!disposed && activeUpdate) setFailed(true); });
+          if (!ack.ok && activeUpdate && !shutdownExpected) setFailed(true);
+        })().catch(() => { if (!disposed && activeUpdate && !shutdownExpected) setFailed(true); });
       });
       events.onerror = () => {
         epoch += 1;
-        if (activeUpdate) setFailed(true);
+        // Workbench intentionally closes this stream after shutdown confirmation.
+        if (activeUpdate && !shutdownExpected) setFailed(true);
       };
     }).catch(() => { /* Update discovery must not prevent normal Web startup. */ });
     return () => {

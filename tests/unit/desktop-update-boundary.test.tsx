@@ -266,4 +266,59 @@ describe("desktop update save boundary", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect((screen.getByLabelText("草稿") as HTMLInputElement).value).toBe("待保存内容");
   });
+
+  it("keeps the restart notice when confirmation closes SSE and its acknowledgement response is lost", async () => {
+    unregister = rendererUpdateParticipants.register(async () => () => true);
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/app/status") return new Response(JSON.stringify({ desktopUpdates: true }), { status: 200 });
+      if (url === "/api/desktop/update/ack" && String(init?.body).includes('"requestId":"request-confirm"')) {
+        throw new Error("Workbench closed after accepting the acknowledgement.");
+      }
+      return new Response(JSON.stringify({ accepted: true }), { status: 200 });
+    }));
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("connected", {
+      data: JSON.stringify({ connectionId: "connection" }),
+    })));
+    await send("prepare");
+    await send("confirm");
+    act(() => FakeEvents.current!.onerror?.());
+    expect(screen.getByRole("dialog").textContent).toContain("正在保存工作状态");
+    expect(screen.queryByText("更新暂未完成")).toBeNull();
+  });
+
+  it("treats a stopping activity as expected shutdown but keeps an explicit failure visible", async () => {
+    unregister = rendererUpdateParticipants.register(async () => () => true);
+    render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("connected", {
+      data: JSON.stringify({ connectionId: "connection" }),
+    })));
+    await send("prepare");
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify({
+      attemptId: "attempt", version: "0.1.17", phase: "stopping",
+    }) })));
+    act(() => FakeEvents.current!.onerror?.());
+    expect(screen.getByRole("dialog").textContent).toContain("正在重启并安装");
+    expect(screen.queryByText("更新暂未完成")).toBeNull();
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify({
+      attemptId: "attempt", version: "0.1.17", phase: "failed",
+    }) })));
+    expect(screen.getByRole("alert").textContent).toContain("更新暂未完成");
+  });
+
+  it("still reports a connection loss during preparation and releases the surface on cancel", async () => {
+    unregister = rendererUpdateParticipants.register(async () => () => true);
+    const { container } = render(<DesktopUpdateBoundary><DesktopUpdateDock /></DesktopUpdateBoundary>);
+    await waitFor(() => expect(FakeEvents.current).not.toBeNull());
+    act(() => FakeEvents.current!.dispatchEvent(new MessageEvent("connected", {
+      data: JSON.stringify({ connectionId: "connection" }),
+    })));
+    await send("prepare");
+    act(() => FakeEvents.current!.onerror?.());
+    expect(screen.getByRole("alert").textContent).toContain("更新暂未完成");
+    await send("cancel");
+    expect(container.firstElementChild?.hasAttribute("inert")).toBe(false);
+  });
 });
