@@ -7,6 +7,7 @@ import type {
   DecisionAction,
   DecisionContext,
   Snapshot,
+  ProductMode,
   WorkbenchLiveEvent,
 } from "../types.js";
 import { workflowActionPayloadFromScope } from "../workflow-actions.js";
@@ -65,7 +66,8 @@ export interface ConversationActionController {
   executeDecisionAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   requestDecisionFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
   runWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
-  interruptAgentTurn: (request: {
+  interruptTurn: (request: {
+    productMode?: ProductMode;
     projectId: string;
     conversationId: string;
     providerId: string;
@@ -273,7 +275,8 @@ export function useConversationActionController({
     }
   }, [runWorkflowAction]);
 
-  const interruptAgentTurn = useCallback(async (request: {
+  const interruptTurn = useCallback(async (request: {
+    productMode?: ProductMode;
     projectId: string;
     conversationId: string;
     providerId: string;
@@ -282,7 +285,7 @@ export function useConversationActionController({
     await (portsRef.current.postJson ?? postJson)(
       `/api/projects/${encodeURIComponent(request.projectId)}/workbench/conversations/${encodeURIComponent(request.conversationId)}/turn/interrupt`,
       {
-        productMode: "agent",
+        productMode: request.productMode ?? "agent",
         providerId: request.providerId,
         expectedAttemptId: request.expectedAttemptId,
       },
@@ -599,7 +602,7 @@ export function useConversationActionController({
     executeDecisionAction,
     requestDecisionFeedback,
     runWorkflowAction,
-    interruptAgentTurn,
+    interruptTurn,
     steerAgentTurn,
     steerHarnessTurn,
     retryAgentTurn,

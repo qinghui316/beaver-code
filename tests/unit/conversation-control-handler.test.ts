@@ -21,7 +21,7 @@ describe("conversation interrupt handler", () => {
     mocks.close.mockClear();
   });
 
-  it("persists steering evidence only after the shared Provider Turn owner accepts it", async () => {
+  it("delegates accepted steering persistence to the delivery owner", async () => {
     const order: string[] = [];
     const steerProviderTurn = vi.fn(async () => {
       order.push("provider-accepted");
@@ -42,14 +42,13 @@ describe("conversation interrupt handler", () => {
       { steerProviderTurn, findRunningRunForChange },
     )).resolves.toMatchObject({ status: "steered", realtime: true, runId: "run-provider" });
 
-    expect(order).toEqual(["provider-accepted", "timeline-upsert", "timeline-upsert"]);
+    expect(order).toEqual(["provider-accepted"]);
     expect(steerProviderTurn).toHaveBeenCalledWith(project(), "conversation-1", "request-1", "add one constraint");
-    expect(mocks.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "steer:attempt-provider:request-1:user", status: "steering-sent" }));
-    expect(mocks.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "steer:attempt-provider:request-1:ack", status: "steering-sent" }));
-    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.close).not.toHaveBeenCalled();
   });
 
-  it("keeps canonical steering evidence distinct when a client request id is reused by a later Turn", async () => {
+  it("passes request identity to the owner without writing a second steering path", async () => {
     const attempts = ["attempt-first", "attempt-second"];
     const steerProviderTurn = vi.fn(async () => ({
       status: "steer-accepted" as const,
@@ -61,12 +60,9 @@ describe("conversation interrupt handler", () => {
     await steerConversation(project(), "change-1", "conversation-1", "first", "reused-request", undefined, deps);
     await steerConversation(project(), "change-1", "conversation-1", "second", "reused-request", undefined, deps);
 
-    expect(mocks.upsert.mock.calls.map(([message]) => message.id)).toEqual([
-      "steer:attempt-first:reused-request:user",
-      "steer:attempt-first:reused-request:ack",
-      "steer:attempt-second:reused-request:user",
-      "steer:attempt-second:reused-request:ack",
-    ]);
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(steerProviderTurn).toHaveBeenNthCalledWith(1, project(), "conversation-1", "reused-request", "first");
+    expect(steerProviderTurn).toHaveBeenNthCalledWith(2, project(), "conversation-1", "reused-request", "second");
   });
 
   it("rejects Harness steering without an owned Provider Turn and writes no pending feedback", async () => {

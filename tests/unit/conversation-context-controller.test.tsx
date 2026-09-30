@@ -38,6 +38,35 @@ describe("shared conversation context UI", () => {
     expect((screen.getByRole("button", { name: "压缩上下文" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("dismisses on outside pointer, focus and Escape while internal actions remain usable", () => {
+    const outside = vi.fn(); const compact = vi.fn();
+    render(<><ConversationContextIndicator snapshot={snapshot()} submitting={false} onCompact={compact} scopeKey="a" /><button onClick={outside}>outside</button></>);
+    const trigger = screen.getByRole("button", { name: "上下文已使用 10%" });
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(screen.getByRole("dialog"));
+    fireEvent.click(screen.getByRole("button", { name: "压缩上下文" }));
+    expect(compact).toHaveBeenCalledOnce(); expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "outside" }), { pointerType: "touch" });
+    fireEvent.click(screen.getByRole("button", { name: "outside" }));
+    expect(outside).toHaveBeenCalledOnce(); expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(trigger); fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull(); expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger); fireEvent.focusIn(screen.getByRole("button", { name: "outside" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("closes on scope and floating-panel changes, and refresh cannot reopen it", () => {
+    const view = render(<ConversationContextIndicator snapshot={snapshot()} submitting={false} scopeKey="a" />);
+    fireEvent.click(screen.getByRole("button", { name: "上下文已使用 10%" }));
+    view.rerender(<ConversationContextIndicator snapshot={snapshot()} submitting={false} scopeKey="b" />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "上下文已使用 10%" }));
+    view.rerender(<ConversationContextIndicator snapshot={snapshot()} submitting={false} scopeKey="b" dismiss />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.rerender(<ConversationContextIndicator snapshot={snapshot({ lifecycle: "completed" })} submitting={false} scopeKey="b" dismiss />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("fences stale settlement after project and conversation selection changes", async () => {
     let resolveRequest!: (value: Response) => void;
     const fetch = vi.fn(() => new Promise<Response>((resolve) => { resolveRequest = resolve; }));

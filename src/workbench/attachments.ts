@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, rm, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
@@ -343,4 +343,16 @@ async function resolveAttachmentWorkbenchRoot(project: ManagedProject, unavailab
   });
   if (runtime.state !== "ready") throw badRequest(unavailableMessage);
   return runtime.resolution.paths.workbenchRoot;
+}
+
+/** Bounded raster preview; executable SVG and arbitrary paths are never served. */
+export async function readTopicAttachmentPreview(project: ManagedProject, attachmentId: string, options: TopicAttachmentStorageOptions): Promise<{ data: Buffer; mediaType: string }> {
+  const [attachment] = await resolveTopicAttachments(project, [attachmentId], options);
+  if (!attachment || attachment.kind !== "image" || !["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"].includes(attachment.mediaType)) throw badRequest("Attachment has no raster preview.");
+  const previewPath = resolveAttachmentAbsolutePath(options.workbenchRoot!, attachment);
+  const info = await stat(previewPath);
+  if (!info.isFile() || info.size > MAX_IMAGE_BYTES || info.size !== attachment.size) throw badRequest("Attachment preview size does not match metadata.");
+  const content = await readFile(previewPath);
+  if (content.length > MAX_IMAGE_BYTES || content.length !== attachment.size || createHash("sha256").update(content).digest("hex") !== attachment.hash) throw badRequest("Attachment preview content does not match metadata.");
+  return { data: content, mediaType: attachment.mediaType };
 }

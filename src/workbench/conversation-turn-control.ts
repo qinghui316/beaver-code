@@ -56,6 +56,7 @@ export interface ConversationTurnRegistration extends ConversationTurnInterruptR
   runId: string;
   roleId: "main-agent";
   canSteer: boolean;
+  onInputAccepted?: (clientRequestId: string, userMessageId: string) => void;
 }
 
 type SteerEntry = {
@@ -196,7 +197,9 @@ export class ConversationTurnControlOwner {
     return this.submitInterrupt(entry, active, "User requested interrupt from the owning Conversation.");
   }
 
-  async steer(project: ManagedProject, request: ConversationTurnSteerRequest): Promise<ConversationTurnSteerReceipt> {
+  async steer(project: ManagedProject, request: ConversationTurnSteerRequest, onAccepted?: (receipt: Extract<ConversationTurnSteerReceipt, { status: "steer-accepted" }>) => void): Promise<ConversationTurnSteerReceipt> {
+    let invoked = false;
+    try {
     const text = request.text.trim();
     const clientRequestId = request.clientRequestId.trim();
     if (!clientRequestId || clientRequestId.length > MAX_STEER_CLIENT_REQUEST_ID_LENGTH || !text) {
@@ -231,7 +234,28 @@ export class ConversationTurnControlOwner {
     if (!active) throw conflict("The requested Attempt is not backed by an active Provider Turn.");
     const steer: SteerEntry = existing ?? { textHash, phase: "submitting", receipt: null, submission: null };
     entry.steers.set(normalized.clientRequestId, steer);
-    return this.submitSteer(entry, normalized.clientRequestId, steer, active, text);
+    invoked = true;
+    return this.submitSteer(entry, normalized.clientRequestId, steer, active, text, onAccepted);
+    } catch (cause) {
+      if (!invoked && cause instanceof Error) Object.assign(cause, { inputNotInvoked: true });
+      throw cause;
+    }
+  }
+
+  async settlePendingInputs(registration: ConversationTurnRegistration): Promise<void> {
+    const entry = this.entries.get(controlKey(registration.projectId, registration.conversationId));
+    if (!entry || !sameRegistration(entry.registration, registration)) return;
+    await Promise.allSettled([...entry.steers.values()].flatMap((steer) => steer.submission ? [steer.submission] : []));
+  }
+
+  async waitForTerminal(project: ManagedProject, request: ConversationTurnInterruptRequest): Promise<void> {
+    // Interrupt acknowledgement is transport evidence. Only the persisted
+    // Attempt terminal (including its commit) authorizes a subsequent turn.
+    for (;;) {
+      const { attempt } = await this.validateCurrentTurn(project, request);
+      if (attempt.status !== "queued" && attempt.status !== "running") return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   private async validateCurrentTurn(
@@ -324,20 +348,13 @@ export class ConversationTurnControlOwner {
     steer: SteerEntry,
     active: ActiveProviderTurn,
     text: string,
+    onAccepted?: (receipt: Extract<ConversationTurnSteerReceipt, { status: "steer-accepted" }>) => void,
   ): Promise<ConversationTurnSteerReceipt> {
     if (steer.submission) return steer.submission;
     steer.phase = "submitting";
     this.invalidate(entry.registration);
     steer.submission = active.steer(text)
       .then(() => {
-        const current = this.entries.get(controlKey(entry.registration.projectId, entry.registration.conversationId));
-        if (current !== entry) {
-          return {
-            status: "already-terminal" as const,
-            attemptId: entry.registration.expectedAttemptId,
-            runId: entry.registration.runId,
-          };
-        }
         const receipt = {
           status: "steer-accepted" as const,
           attemptId: entry.registration.expectedAttemptId,
@@ -346,11 +363,14 @@ export class ConversationTurnControlOwner {
         steer.phase = "accepted";
         steer.receipt = receipt;
         steer.submission = null;
+        onAccepted?.(receipt);
+        entry.registration.onInputAccepted?.(clientRequestId, conversationSteerTimelineIds(receipt.attemptId, clientRequestId).userId);
         this.invalidate(entry.registration);
         return receipt;
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "ProviderSteerRejected") {
+          Object.assign(error, { inputNotInvoked: true });
           entry.steers.delete(clientRequestId);
           this.invalidate(entry.registration);
         }

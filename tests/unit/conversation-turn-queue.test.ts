@@ -7,8 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createTopicAttachment } from "../../src/workbench/attachments.js";
+import { ConversationInputDeliveryService, ConversationInputRejected } from "../../src/workbench/conversation-input-delivery.js";
+import type { ConversationQueuedReviewDispatchPort } from "../../src/workbench/conversation-queued-review-dispatch.js";
+import type { postConversationMessage as PostConversationMessage } from "../../src/workbench/conversation-service.js";
 import { ConversationTurnQueueOwner } from "../../src/workbench/conversation-turn-queue.js";
 import {
+  defaultProviderRegistry,
+  defaultExecutionContractRegistry,
   EXECUTION_CONTRACT_FAMILIES,
   ExecutionContractRegistry,
   resolveStoredExecutionContract,
@@ -18,6 +23,7 @@ import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persist
 import { WorkbenchUpdateRequestGate } from "../../src/server/workbench/update-request-gate.js";
 import { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import type { ConversationQueueGuideRequest } from "../../src/workbench/conversation-turn-queue-contract.js";
 
 const projectId = "conversation-turn-queue-project";
 const conversationId = "conversation-agent";
@@ -51,6 +57,137 @@ afterEach(async () => {
 });
 
 describe("ConversationTurnQueueOwner", () => {
+  it.each(["agent", "harness"] as const)("dispatches %s input through real admission and atomic message acceptance", async (productMode) => {
+    const targetId = productMode === "agent" ? conversationId : "harness-real-delivery";
+    if (productMode === "harness") await seedConversation(productMode, targetId);
+    const runtime = productMode === "agent" ? { state: "onboarding", paths } as const
+      : { state: "ready", resolution: { paths, projectRoot: project.path, harness: { projectId, skillRoot: root } } } as const;
+    const admit = vi.fn(async (input) => ({ ...input, runtimeState: runtime }));
+    const route = vi.fn(async (input) => ({ user: { id: input.committedMessage.id, text: input.committedMessage.text }, assistant: {} }));
+    const turnRouter = { resolveProviderId: () => "codex", resolveRuntimeState: async () => runtime, assertRequestedMode: () => undefined,
+      switchProviderAtSafePoint: async () => ({ selectedProviderId: "codex" }),
+      resolveAttachments: async () => [], admit, route } as never;
+    const coordinator = { resolve: async () => runtime } as never;
+    const owner = new ConversationTurnQueueOwner({ projectRuntimeCoordinator: coordinator,
+      providerRegistry: defaultProviderRegistry, executionContractRegistry: defaultExecutionContractRegistry,
+      delivery: new ConversationInputDeliveryService({ projectRuntimeCoordinator: coordinator, turnRouter,
+        turnControl: {} as never, reviewDispatch: {} as never }) });
+    const draftDb = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const draft = draftDb.drafts.readDraft(projectId, productMode)!;
+      draftDb.drafts.upsertDraft({ ...draft, contextRefsJson: "[]", attachmentIdsJson: "[]", skillOverridesJson: "{}" }, draft.updatedAt);
+    } finally { draftDb.close(); }
+    const initial = await owner.read(project, productMode, targetId);
+    const queued = await owner.enqueue(project, { ...queueRequest(initial.revision, initial.executionRevision!),
+      productMode, conversationId: targetId, clientRequestId: `${productMode}-real-queue`,
+      contextRefs: [], attachmentIds: [], skillOverrides: {},
+      agentTurnMode: productMode === "agent" ? "plan" : null });
+    const result = await owner.dispatchNext(project, productMode, targetId, queued.revision);
+    expect(result.items).toEqual([]);
+    expect(admit).toHaveBeenCalledWith(expect.objectContaining({ productMode, conversationId: targetId }));
+    expect(route).toHaveBeenCalledOnce();
+    const db = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(db.timeline.listConversationMessages(projectId, targetId).filter((row) => row.type === "user.message")).toHaveLength(1);
+      expect(db.conversationTurnQueues.listDeliveries(projectId, targetId)[0]?.phase).toBe("completed");
+    } finally { db.close(); }
+  });
+  it("claims a selected non-head input once, retains FIFO order and commits accepted steering", async () => {
+    await insertRunningAttempt("guide-attempt", true);
+    let accept!: () => void;
+    const held = new Promise<void>((resolve) => { accept = resolve; });
+    const steer = vi.fn(async (_project, _request, onAccepted) => {
+      await held;
+      onAccepted({ status: "steer-accepted", attemptId: "guide-attempt", runId: "guide-run" });
+      return { status: "steer-accepted", attemptId: "guide-attempt", runId: "guide-run" } as const;
+    });
+    const owner = createGuideOwner({ steer } as never);
+    const queued = await enqueueGuideInputs(owner, false);
+    expect(queued.items.map((item) => item.guideMode)).toEqual(["steer", "steer"]);
+    const request = guideRequest(queued);
+    const pending = owner.guide(project, request);
+    await vi.waitFor(() => expect(steer).toHaveBeenCalledTimes(1));
+    await owner.guide(project, request);
+    await expect(owner.remove(project, "agent", conversationId, request.queueItemId, queued.revision)).rejects.toThrow();
+    const waiting = await owner.read(project, "agent", conversationId);
+    expect(waiting.canDispatch).toBe(false);
+    expect(waiting.items[0]?.status).toBe("queued");
+    expect(waiting.items[1]).toMatchObject({ status: "dispatching", guideMode: "unavailable" });
+    accept();
+    const result = await pending;
+    expect(result.items.map((item) => item.text)).toEqual(["first"]);
+    const db = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(db.timeline.listConversationMessages(projectId, conversationId).filter((row) => row.type === "user.message")).toEqual([expect.objectContaining({ text: "second" })]);
+      expect(db.conversationTurnQueues.readDelivery(projectId, conversationId, request.clientRequestId)?.phase).toBe("completed");
+    } finally { db.close(); }
+    await owner.guide(project, request);
+    expect(steer).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unknown steering held through recovery and never falls back to another turn", async () => {
+    await insertRunningAttempt("guide-attempt", true);
+    const steer = vi.fn(async () => { throw new Error("connection closed after invocation"); });
+    const interrupt = vi.fn();
+    const owner = createGuideOwner({ steer, interrupt } as never);
+    const queued = await enqueueGuideInputs(owner, false);
+    const request = guideRequest(queued);
+    await expect(owner.guide(project, request)).rejects.toThrow();
+    const snapshot = await owner.read(project, "agent", conversationId);
+    expect(snapshot.items[1]).toMatchObject({ status: "dispatching", deliveryUncertain: true });
+    await owner.reconcileProject(paths);
+    await owner.guide(project, request);
+    expect((await owner.read(project, "agent", conversationId)).canDispatch).toBe(false);
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(interrupt).not.toHaveBeenCalled();
+  });
+
+  it("waits for durable termination before cutover and releases UI waiting on user-message acceptance", async () => {
+    await insertRunningAttempt("guide-attempt", true);
+    let terminal!: () => void;
+    let finish!: () => void;
+    const terminated = new Promise<void>((resolve) => { terminal = resolve; });
+    const finished = new Promise<void>((resolve) => { finish = resolve; });
+    const interrupt = vi.fn(async () => ({ status: "interrupt-requested", attemptId: "guide-attempt", runId: "guide-run" }));
+    const post = vi.fn(async (_project, _conversation, input) => {
+      const db = await openProjectRuntimeWorkbenchDatabase(paths);
+      try {
+        db.unitOfWork.assertConversationQueueAdmission(projectId, conversationId, input.queuedTurnDispatch, false);
+        const message = db.timeline.appendMessage({ ...canonicalQueueMessage(input.clientRequestId, input.queuedTurnDispatch.requestHash), text: input.message });
+        db.unitOfWork.acceptQueuedInput(projectId, conversationId, input.queuedTurnDispatch, message.id);
+      } finally { db.close(); }
+      await finished;
+      return {} as never;
+    });
+    const owner = createGuideOwner({ interrupt, waitForTerminal: async () => { await terminated; } } as never, post as never);
+    const queued = await enqueueGuideInputs(owner, true);
+    expect(queued.items[1]?.guideMode).toBe("cutover");
+    const pending = owner.guide(project, guideRequest(queued));
+    await vi.waitFor(() => expect(interrupt).toHaveBeenCalledTimes(1));
+    expect(post).not.toHaveBeenCalled();
+    const db = await openProjectRuntimeWorkbenchDatabase(paths);
+    try { db.providerAttempts.completeProviderAttempt(projectId, "guide-attempt", "completed", null, now); }
+    finally { db.close(); }
+    terminal();
+    const accepted = await pending;
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(accepted.items.map((item) => item.text)).toEqual(["first"]);
+    expect(accepted.canDispatch).toBe(false);
+    const args = post.mock.calls[0]![2];
+    expect(args).toMatchObject({ message: "second", contextRefs: [{ relativePath: "src/app.ts", name: "app.ts", kind: "file", source: "composer" }], agentTurnMode: "plan", modelId: "gpt-test", reasoningEffort: "high" });
+    finish();
+    await vi.waitFor(async () => expect((await owner.read(project, "agent", conversationId)).canDispatch).toBe(true));
+  });
+
+  it("restores a definitively rejected cutover at its original position", async () => {
+    await insertRunningAttempt("guide-attempt", true);
+    const owner = createGuideOwner({ interrupt: async () => { throw new Error("stop explicitly rejected"); } } as never);
+    const queued = await enqueueGuideInputs(owner, true);
+    const result = await owner.guide(project, guideRequest(queued));
+    expect(result.items.map((item) => [item.text, item.position, item.status])).toEqual([["first", 1, "queued"], ["second", 2, "blocked"]]);
+    expect(result.items[1]?.deliveryUncertain).toBe(false);
+  });
+
   it("captures access independently of subsequent Composer selection and preserves enqueue identity", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
@@ -368,8 +505,8 @@ describe("ConversationTurnQueueOwner", () => {
 
   it("retries a queued Review once only when admission proves zero side effects", async () => {
     const reviewStart = vi.fn()
-      .mockRejectedValueOnce(namedError("Conflict", "first Review admission rejection"))
-      .mockRejectedValueOnce(namedError("BadRequest", "second Review admission rejection"));
+      .mockRejectedValueOnce(new ConversationInputRejected(namedError("Conflict", "first Review admission rejection")))
+      .mockRejectedValueOnce(new ConversationInputRejected(namedError("BadRequest", "second Review admission rejection")));
     const owner = createOwner(undefined, { dispatchQueuedReview: reviewStart });
     const initial = await owner.read(project, "agent", conversationId);
     const queued = await owner.enqueue(project, {
@@ -690,19 +827,18 @@ describe("ConversationTurnQueueOwner", () => {
   });
 
   it("retries one explicit zero-side-effect dispatch failure and blocks the FIFO head after the second", async () => {
-    const post = vi.fn()
+    const prepare = vi.fn()
       .mockRejectedValueOnce(namedError("Conflict", "first admission rejection"))
       .mockRejectedValueOnce(namedError("BadRequest", "second admission rejection"));
-    const owner = createOwner(post);
+    const post = vi.fn();
+    const owner = createOwner(post, undefined, undefined, prepare);
     const initial = await owner.read(project, "agent", conversationId);
     const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
 
     const settled = await owner.dispatchNext(project, "agent", conversationId, queued.revision);
 
-    expect(post).toHaveBeenCalledTimes(2);
-    expect(post).toHaveBeenNthCalledWith(1, project, conversationId, expect.objectContaining({
-      skillOverrides: [{ skillId: "reviewer", enabled: true }],
-    }), undefined, expect.any(Object));
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(post).not.toHaveBeenCalled();
     expect(settled.items[0]).toMatchObject({ status: "blocked", retryCount: 1 });
     expect(settled.canDispatch).toBe(false);
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
@@ -849,7 +985,7 @@ describe("ConversationTurnQueueOwner", () => {
     }
   });
 
-  it("restores a restart-time dispatch when no canonical dispatch evidence exists", async () => {
+  it("holds legacy restart-time dispatch for confirmation when invocation cannot be disproved", async () => {
     const owner = createOwner();
     const initial = await owner.read(project, "agent", conversationId);
     const queued = await owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!));
@@ -872,7 +1008,7 @@ describe("ConversationTurnQueueOwner", () => {
     const verified = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       expect(verified.conversationTurnQueues.readItem(projectId, conversationId, queueItemId))
-        .toMatchObject({ status: "queued", retryCount: 0 });
+        .toMatchObject({ status: "dispatching", retryCount: 0 });
     } finally {
       verified.close();
     }
@@ -909,6 +1045,9 @@ describe("ConversationTurnQueueOwner", () => {
         });
         database.conversationTurnQueues.advanceRevision(projectId, conversationId, queue.revision, now);
       });
+      database.conversationTurnQueues.insertDelivery({ projectId, conversationId, productMode: "agent", clientRequestId: item.dispatchRequestId,
+        queueItemId: item.queueItemId, requestHash: item.requestHash, mode: "next-turn", providerId: "codex", attemptId: null,
+        executionRevision: queued.executionRevision!, phase: "invoking", messageId: null, diagnostic: null, createdAt: now, updatedAt: now });
       expect(() => database.unitOfWork.commitAgentConversationMessage({
         projectId,
         conversationId,
@@ -1054,7 +1193,7 @@ describe("ConversationTurnQueueOwner", () => {
       projectRuntimeCoordinator: {
         resolve: async () => ({ state: "onboarding", paths: { ...paths, projectId: "other-project" } }),
       } as never,
-      turnRouter: {} as never,
+      delivery: {} as never, providerRegistry: defaultProviderRegistry, executionContractRegistry: defaultExecutionContractRegistry,
     });
 
     await expect(owner.read(project, "agent", conversationId)).rejects.toMatchObject({ name: "Conflict" });
@@ -1063,18 +1202,58 @@ describe("ConversationTurnQueueOwner", () => {
 
 type QueueOwnerOptions = ConstructorParameters<typeof ConversationTurnQueueOwner>[0];
 
-function createOwner(
-  postConversationMessage?: QueueOwnerOptions["postConversationMessage"],
-  reviewDispatch?: QueueOwnerOptions["reviewDispatch"],
-  executionContractRegistry?: QueueOwnerOptions["executionContractRegistry"],
+function createGuideOwner(
+  control: ConstructorParameters<typeof ConversationInputDeliveryService>[0]["turnControl"],
+  post?: typeof PostConversationMessage,
 ): ConversationTurnQueueOwner {
+  const projectRuntimeCoordinator = { resolve: async () => ({ state: "onboarding", paths }) } as never;
   return new ConversationTurnQueueOwner({
-    projectRuntimeCoordinator: { resolve: async () => ({ state: "onboarding", paths }) } as never,
-    turnRouter: {} as never,
-    prepareConversationMessage: async () => ({}) as never,
-    ...(postConversationMessage ? { postConversationMessage } : {}),
-    ...(reviewDispatch ? { reviewDispatch } : {}),
-    ...(executionContractRegistry ? { executionContractRegistry } : {}),
+    projectRuntimeCoordinator, providerRegistry: defaultProviderRegistry, executionContractRegistry: defaultExecutionContractRegistry,
+    turnControl: { state: () => ({ state: "running", attemptId: "guide-attempt", providerId: "codex", canSteer: true, canInterrupt: true, steerState: "idle" }) } as never,
+    delivery: new ConversationInputDeliveryService({ projectRuntimeCoordinator, turnRouter: {} as never, turnControl: control,
+      reviewDispatch: {} as never, prepare: async () => ({}) as never, ...(post ? { post } : {}) }),
+  });
+}
+
+async function enqueueGuideInputs(owner: ConversationTurnQueueOwner, secondHasReference: boolean) {
+  let snapshot = await owner.read(project, "agent", conversationId);
+  for (const [index, text] of ["first", "second"].entries()) {
+    const db = await openProjectRuntimeWorkbenchDatabase(paths);
+    const updatedAt = `2026-08-28T00:00:0${index + 1}.000Z`;
+    const contextRefs = index === 1 && secondHasReference ? queueRequest("", "").contextRefs : [];
+    try {
+      const draft = db.drafts.readDraft(projectId, "agent")!;
+      db.drafts.upsertDraft({ ...draft, text, contextRefsJson: JSON.stringify(contextRefs), attachmentIdsJson: "[]", skillOverridesJson: "{}", updatedAt }, draft.updatedAt);
+    } finally { db.close(); }
+    snapshot = await owner.enqueue(project, { ...queueRequest(snapshot.revision, snapshot.executionRevision!), clientRequestId: `queued-${index}`, text,
+      contextRefs, attachmentIds: [], skillOverrides: {}, expectedDraftUpdatedAt: updatedAt });
+  }
+  return snapshot;
+}
+
+function guideRequest(snapshot: Awaited<ReturnType<ConversationTurnQueueOwner["read"]>>): ConversationQueueGuideRequest {
+  return { projectId, productMode: "agent", conversationId, queueItemId: snapshot.items[1]!.queueItemId,
+    providerId: "codex", expectedAttemptId: "guide-attempt", clientRequestId: "selected-guide", expectedRevision: snapshot.revision,
+    expectedExecutionRevision: snapshot.executionRevision! };
+}
+
+function createOwner(
+  postConversationMessage?: typeof PostConversationMessage,
+  reviewDispatch?: ConversationQueuedReviewDispatchPort,
+  executionContractRegistry?: QueueOwnerOptions["executionContractRegistry"],
+  prepare?: ConstructorParameters<typeof ConversationInputDeliveryService>[0]["prepare"],
+): ConversationTurnQueueOwner {
+  const projectRuntimeCoordinator = { resolve: async () => ({ state: "onboarding", paths }) } as never;
+  return new ConversationTurnQueueOwner({
+    projectRuntimeCoordinator,
+    providerRegistry: defaultProviderRegistry,
+    executionContractRegistry: executionContractRegistry ?? defaultExecutionContractRegistry,
+    delivery: new ConversationInputDeliveryService({
+      projectRuntimeCoordinator, turnRouter: {} as never, turnControl: {} as never,
+      reviewDispatch: reviewDispatch ?? {} as never,
+      prepare: prepare ?? (async () => ({}) as never),
+      ...(postConversationMessage ? { post: postConversationMessage } : {}),
+    }),
   });
 }
 
@@ -1137,7 +1316,7 @@ function queueRequest(expectedRevision: string, expectedExecutionRevision: strin
   };
 }
 
-async function insertRunningAttempt(attemptId: string): Promise<void> {
+async function insertRunningAttempt(attemptId: string, guideCompatible = false): Promise<void> {
   const database = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     database.providerAttempts.createProviderAttempt({
@@ -1159,7 +1338,9 @@ async function insertRunningAttempt(attemptId: string): Promise<void> {
         providerAdapterVersion: "test-adapter-v1",
       }),
       nativeSessionId: null,
-      model: null,
+      agentTurnMode: guideCompatible ? "plan" : null,
+      reasoningEffort: guideCompatible ? "high" : null,
+      model: guideCompatible ? { providerId: "codex", modelId: "gpt-test" } : null,
       capabilitySnapshot: { providerId: "codex", effectiveModel: null } as never,
       effectiveSkillInputs: [],
       handoffHash: `handoff-${attemptId}`,

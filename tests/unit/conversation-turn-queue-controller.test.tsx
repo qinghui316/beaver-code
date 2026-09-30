@@ -12,6 +12,57 @@ afterEach(() => {
 });
 
 describe("Conversation Turn queue controller", () => {
+  it("retains uncertain enqueue identity across scope changes and newer draft revisions", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        bodies.push(JSON.parse(String(init.body)));
+        if (fail) { fail = false; throw new Error("lost confirmation"); }
+      }
+      return jsonResponse(snapshot(url.includes("conversation-b") ? "conversation-b" : "conversation-a", "queue:2"));
+    }));
+    const { result, rerender } = renderHook(({ conversationId }) => useConversationTurnQueueController({
+      projectId: "project-1", productMode: "agent", conversationId, onError: vi.fn(),
+    }), { initialProps: { conversationId: "conversation-a" } });
+    await waitFor(() => expect(result.current.snapshot).not.toBeNull());
+    const captured = { text: "same request", contextRefs: [], attachmentIds: [], skillOverrides: {}, providerId: "codex",
+      agentTurnMode: "default" as const, modelId: null, reasoningEffort: null, expectedDraftUpdatedAt: "draft-1" };
+    await act(async () => { await expect(result.current.enqueue(captured)).rejects.toThrow(); });
+    rerender({ conversationId: "conversation-b" });
+    await waitFor(() => expect(result.current.snapshot?.conversationId).toBe("conversation-b"));
+    rerender({ conversationId: "conversation-a" });
+    await waitFor(() => expect(result.current.snapshot?.conversationId).toBe("conversation-a"));
+    await act(async () => { await result.current.enqueue({ ...captured, expectedDraftUpdatedAt: "draft-2" }); });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
+
+  it("guides persisted content with exact target identity and keeps background calibration usable", async () => {
+    const held = deferred<Response>();
+    let reads = 0;
+    const initial = { ...queuedSnapshot(false), guideTarget: { providerId: "codex", attemptId: "attempt-1" } };
+    initial.items[0] = { ...initial.items[0]!, guideMode: "steer" } as typeof initial.items[0];
+    const fetchMock = vi.fn(async (_url, init?: RequestInit) => {
+      if (init?.method === "POST") return jsonResponse({ ...initial, items: [] });
+      if (++reads === 2) return held.promise;
+      return jsonResponse(initial);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useConversationTurnQueueController({ projectId: "project-1", productMode: "agent", conversationId: "conversation-a", onError: vi.fn() }));
+    await waitFor(() => expect(result.current.snapshot).not.toBeNull());
+    let refresh!: Promise<unknown>;
+    act(() => { refresh = result.current.load(); });
+    expect(result.current.loading).toBe(false);
+    await act(async () => { await result.current.guide("item-1"); });
+    const mutation = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(String(mutation[0])).toContain("/item-1/guide");
+    expect(JSON.parse(String(mutation[1]?.body))).toEqual({ productMode: "agent", expectedRevision: initial.revision,
+      expectedExecutionRevision: initial.executionRevision, providerId: "codex", expectedAttemptId: "attempt-1", clientRequestId: expect.any(String) });
+    held.resolve(jsonResponse(initial));
+    await act(async () => { await refresh; });
+    expect(result.current.snapshot?.items).toEqual([]);
+  });
   it("does not request queue state for a Renderer-only pending Conversation scope", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

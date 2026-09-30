@@ -1,11 +1,54 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 21;
+export const WORKBENCH_SCHEMA_VERSION = 22;
 
 export function applyCurrentWorkbenchSchema(db: Database.Database): void {
   applyWorkbenchSchema20(db);
   applyWorkbenchAccessSchema21(db);
+  applyWorkbenchDeliverySchema22(db);
+}
+
+/** Additive delivery evidence; queued items and canonical messages retain their identities. */
+export function applyWorkbenchDeliverySchema22(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_input_deliveries (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      product_mode TEXT NOT NULL CHECK(product_mode IN ('agent', 'harness')),
+      client_request_id TEXT NOT NULL,
+      queue_item_id TEXT,
+      request_hash TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK(mode IN ('next-turn', 'steer', 'cutover')),
+      provider_id TEXT NOT NULL,
+      attempt_id TEXT,
+      execution_revision TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK(phase IN ('claimed', 'invoking', 'waiting-terminal', 'accepted', 'rejected', 'uncertain', 'completed')),
+      message_id TEXT,
+      diagnostic TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, conversation_id, client_request_id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_unsettled_conversation
+      ON conversation_input_deliveries(project_id, conversation_id)
+      WHERE phase IN ('claimed', 'invoking', 'waiting-terminal', 'accepted', 'uncertain');
+    CREATE INDEX IF NOT EXISTS idx_delivery_queue_item
+      ON conversation_input_deliveries(project_id, conversation_id, queue_item_id, created_at);
+    CREATE TRIGGER IF NOT EXISTS trg_delivery_identity_insert
+      BEFORE INSERT ON conversation_input_deliveries
+      WHEN NOT EXISTS (SELECT 1 FROM conversations WHERE project_id = NEW.project_id
+        AND conversation_id = NEW.conversation_id AND product_mode = NEW.product_mode)
+      BEGIN SELECT RAISE(ABORT, 'Input delivery must match its Conversation'); END;
+    CREATE TRIGGER IF NOT EXISTS trg_delivery_identity_update
+      BEFORE UPDATE OF project_id, conversation_id, product_mode, client_request_id, queue_item_id, request_hash, mode, provider_id, attempt_id, execution_revision ON conversation_input_deliveries
+      WHEN NEW.project_id <> OLD.project_id OR NEW.conversation_id <> OLD.conversation_id
+        OR NEW.product_mode <> OLD.product_mode OR NEW.client_request_id <> OLD.client_request_id
+        OR NEW.queue_item_id IS NOT OLD.queue_item_id OR NEW.request_hash <> OLD.request_hash
+        OR NEW.mode <> OLD.mode OR NEW.provider_id <> OLD.provider_id OR NEW.attempt_id IS NOT OLD.attempt_id
+        OR NEW.execution_revision <> OLD.execution_revision
+      BEGIN SELECT RAISE(ABORT, 'Input delivery identity is immutable'); END;
+  `);
 }
 
 /** Fixed additive contract used by the 20 -> 21 migration and new databases. */

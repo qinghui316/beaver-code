@@ -102,7 +102,6 @@ export function createConversationComposerPortViews(ports: ConversationComposerP
     operation: operation(),
     ids,
     actions: Object.freeze({
-      steer: (request: Parameters<typeof ports.actions.steer>[0]) => ports.actions.steer(request),
       stop: (request: Parameters<typeof ports.actions.stop>[0]) => ports.actions.stop(request),
     }),
     timeline: Object.freeze({

@@ -9,6 +9,7 @@ import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
 import type { ConversationTurnRoutingPort } from "../../workbench/conversation-turn-contract.js";
 import type { ConversationTurnControlOwner } from "../../workbench/conversation-turn-control.js";
+import type { ConversationInputDeliveryService } from "../../workbench/conversation-input-delivery.js";
 import type { ConversationTurnRetryOwner } from "../../workbench/conversation-turn-retry.js";
 import type { ComposerDraftRecoveryService } from "../../workbench/composer-draft-recovery.js";
 import type { ProductModeActivityProjectionOwner } from "../../workbench/product-mode-activity.js";
@@ -84,6 +85,7 @@ export interface WorkbenchServerContext {
   terminalRuntime: TerminalRuntime;
   turnRouter: ConversationTurnRoutingPort;
   turnControl: ConversationTurnControlOwner;
+  inputDelivery: ConversationInputDeliveryService;
   turnRetry: ConversationTurnRetryOwner;
   composerDraftRecovery: ComposerDraftRecoveryService;
   productModeActivity: ProductModeActivityProjectionOwner;

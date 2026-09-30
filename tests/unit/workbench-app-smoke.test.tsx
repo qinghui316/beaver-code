@@ -661,6 +661,11 @@ function installApiFixture(snapshot: Snapshot, options: {
       agent: { productMode: "agent", state: "running", updatedAt: "2026-08-23T00:00:00.000Z" },
       harness: { productMode: "harness", state: "attention", updatedAt: "2026-08-23T00:00:00.000Z" },
     });
+    if (url.includes("/turn-queue")) return json({
+      projectId: "repo", productMode: requestedProductMode,
+      conversationId: parsed.pathname.split("/conversations/")[1]?.split("/")[0] ?? "conv-1",
+      revision: "queue:0", executionRevision: "execution:idle", items: [], canEnqueue: true, canDispatch: false,
+    });
     if (url.includes("/workbench/composer-draft")) {
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;

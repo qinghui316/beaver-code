@@ -80,6 +80,7 @@ export interface ProjectReadinessComposerActions extends ComposerConfigurationAc
 }
 
 export interface TopicComposerViewModel extends ComposerConfigurationViewModel {
+  conversationId?: string | null;
   value: string;
   enabledSkillCount?: number;
   projectId: string | null;
@@ -112,7 +113,7 @@ export interface TopicComposerActions extends ComposerConfigurationActions {
   onSend: () => Promise<void>;
   onStopAndContinue?: () => Promise<void>;
   onCompactContext?: () => void | Promise<void>;
-  onEnqueue?: () => void | Promise<void>;
+  onGuideQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onReclaimQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRemoveQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRetryQueuedTurn?: (queueItemId: string) => void | Promise<void>;

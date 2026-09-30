@@ -86,6 +86,8 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
   }
 
   async start(project: ManagedProject, rawRequest: ConversationReviewRequest): Promise<ConversationReviewSnapshot> {
+    let mayHaveEffects = false;
+    try {
     const request = normalizeRequest(rawRequest);
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
@@ -93,6 +95,7 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
     const requestHash = requestDigest(project.id, request);
     const replay = await this.readReplay(paths, request.clientRequestId, requestHash);
     if (replay) {
+      mayHaveEffects = true;
       const repairKey = `${paths.projectId}\0${request.clientRequestId}`;
       const repair = this.settlementRepairs.get(repairKey);
       if (repair) {
@@ -138,12 +141,17 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
       createdAt: now,
       updatedAt: now,
     };
+    mayHaveEffects = true;
     await this.persistAdmission(paths, request, requestHash, prepared, modelAdmission, capabilitySnapshot, gitAdmission, operation, runId, now);
     await mkdir(runRoot, { recursive: true });
     if (prepared.createConversation) publishCreatedConversation(paths.projectId, prepared.conversationId, request, prepared);
     publishConversationReviewInvalidated(paths.projectId, { conversationId: prepared.conversationId });
     await this.execute(project, paths, operation, gitAdmission, capabilitySnapshot, prepared, modelAdmission, runId, runRoot);
     return (await this.readReplay(paths, request.clientRequestId, requestHash))!;
+    } catch (cause) {
+      if (!mayHaveEffects && cause instanceof Error) Object.assign(cause, { inputNotInvoked: true });
+      throw cause;
+    }
   }
 
   async reconcileProject(paths: ProjectRuntimePaths): Promise<number> {
@@ -337,6 +345,10 @@ export class ConversationReviewLifecycleOwner implements ConversationQueuedRevie
           updatedAt: now,
         });
         database.conversationReviews.create(operation);
+        if (request.source === "queue") {
+          const item = database.conversationTurnQueues.listItems(paths.projectId, prepared.conversationId).find((candidate) => candidate.dispatchRequestId === request.clientRequestId)!;
+          database.unitOfWork.acceptQueuedInput(paths.projectId, prepared.conversationId, { queueItemId: item.queueItemId, dispatchRequestId: item.dispatchRequestId, requestHash: item.requestHash }, `review:${operation.attemptId}`);
+        }
         database.timeline.appendMessage(reviewTimeline({
           operation,
           gitAdmission,
@@ -754,11 +766,9 @@ function assertReviewAdmissionIdle(
   const queueItems = database.conversationTurnQueues.listItems(projectId, conversationId)
     .filter((item) => item.status === "queued" || item.status === "dispatching" || item.status === "blocked");
   if (request.source === "queue") {
-    const head = queueItems[0];
-    if (!head || head.itemKind !== "review" || head.status !== "dispatching"
-      || head.dispatchRequestId !== request.clientRequestId) {
-      throw conflict("Queued Review no longer owns the FIFO head.");
-    }
+    const selected = queueItems.find((item) => item.dispatchRequestId === request.clientRequestId);
+    if (!selected || selected.itemKind !== "review" || selected.status !== "dispatching") throw conflict("Queued Review no longer owns its admitted item.");
+    database.unitOfWork.assertConversationQueueAdmission(projectId, conversationId, { queueItemId: selected.queueItemId, dispatchRequestId: selected.dispatchRequestId, requestHash: selected.requestHash }, false);
   } else if (queueItems.length > 0) {
     throw conflict("Review cannot bypass the existing Conversation Turn queue.");
   }

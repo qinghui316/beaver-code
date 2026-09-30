@@ -193,6 +193,7 @@ export function App(): ReactElement {
   const session = useProjectConversationSession({
     productMode: appMode.productMode,
     timeline: {
+      cacheEvent: timeline.ingestScopedEvent,
       invalidateProjection: invalidateProjectionCache,
       clearProject: timeline.clearProject,
       clearConversation: timeline.clearConversation,
@@ -501,71 +502,13 @@ export function App(): ReactElement {
     await conversationActions.settleInteraction(interactionId, settlement);
   }
 
-  async function runComposerActionRequest(actionType: "conversation.steer" | "conversation.interrupt", request: ComposerActionRequest): Promise<void> {
-    await conversationActions.runWorkflowAction(actionType, {
-      prompt: request.prompt,
-      clientRequestId: request.clientRequestId,
-    });
-  }
-
-  async function runComposerSteerRequest(request: ComposerActionRequest) {
-    if (!request.clientRequestId || !request.prompt) throw new Error("无法确认要补充的内容，请重试。");
-    const timelineScope = {
-      projectId: request.projectId,
-      productMode: request.productMode,
-      conversationId: request.conversationId,
-      agentSurfaceId: "main-agent",
-    } as const;
-    timeline.showOptimisticSteer(timelineScope, request.clientRequestId, request.prompt);
-    try {
-      if (request.productMode !== "agent") {
-        const outcome = await conversationActions.steerHarnessTurn({
-          projectId: request.projectId,
-          conversationId: request.conversationId,
-          clientRequestId: request.clientRequestId,
-          text: request.prompt,
-        });
-        await timeline.loadLatest(timelineScope);
-        timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
-        return outcome;
-      } else {
-        if (!request.providerId || !request.expectedAttemptId) {
-          throw new Error("当前 Agent 状态已经变化，请刷新后重试。");
-        }
-        const outcome = await conversationActions.steerAgentTurn({
-          projectId: request.projectId,
-          conversationId: request.conversationId,
-          providerId: request.providerId,
-          expectedAttemptId: request.expectedAttemptId,
-          clientRequestId: request.clientRequestId,
-          text: request.prompt,
-        });
-        await timeline.loadLatest(timelineScope);
-        timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
-        return outcome;
-      }
-    } catch (error) {
-      timeline.discardOptimisticSteer(timelineScope, request.clientRequestId);
-      throw error;
-    }
-  }
-
   async function runComposerStopRequest(request: ComposerActionRequest): Promise<void> {
-    if (request.productMode !== "agent") {
-      await runComposerActionRequest("conversation.interrupt", request);
-      return;
-    }
-    if (!request.providerId || !request.expectedAttemptId) {
-      throw new Error("当前 Agent 状态已经变化，请刷新后重试。");
-    }
-    await conversationActions.interruptAgentTurn({
-      projectId: request.projectId,
-      conversationId: request.conversationId,
-      providerId: request.providerId,
-      expectedAttemptId: request.expectedAttemptId,
+    if (!request.providerId || !request.expectedAttemptId) throw new Error("当前执行状态已经变化，请刷新后重试。");
+    await conversationActions.interruptTurn({
+      projectId: request.projectId, conversationId: request.conversationId, productMode: request.productMode,
+      providerId: request.providerId, expectedAttemptId: request.expectedAttemptId,
     });
   }
-
 
   function openChildAgentWorkspace(agentSurfaceId: string): void {
     if (!agentSurfaceId || agentSurfaceId === "main-agent") return;
@@ -737,7 +680,6 @@ export function App(): ReactElement {
       selectProvider: providerConfiguration.selectProvider,
     },
     actions: {
-      steer: runComposerSteerRequest,
       stop: runComposerStopRequest,
     },
     projection: {
@@ -1255,6 +1197,7 @@ export function App(): ReactElement {
         modelLabel: providerModelLabel,
         enabledSkillCount,
         projectId: selectedProjectId,
+        conversationId: activeTopic.id,
         skills: skillItems,
         activeSkillIds: selectedComposerSkillIds,
         selectedFileRefs: composerFileRefs,
@@ -1301,7 +1244,7 @@ export function App(): ReactElement {
         onSend: sendTopicMessage,
         onStopAndContinue: stopAndContinueCurrentRun,
         onCompactContext: conversationContext.compact,
-        onEnqueue: composer.enqueue,
+        onGuideQueuedTurn: async (queueItemId) => { await conversationTurnQueue.guide(queueItemId); },
         onReclaimQueuedTurn: composer.reclaimQueuedTurn,
         onRemoveQueuedTurn: (queueItemId) => { void conversationTurnQueue.remove(queueItemId); },
         onRetryQueuedTurn: (queueItemId) => { void conversationTurnQueue.retry(queueItemId); },

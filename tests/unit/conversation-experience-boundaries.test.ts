@@ -63,7 +63,10 @@ describe("Conversation experience boundaries", () => {
     const review = read("src/workbench/conversation-review-lifecycle.ts");
     expect(queue).not.toContain('from "./conversation-review-lifecycle.js"');
     expect(review).not.toContain('from "./conversation-turn-queue.js"');
-    expect(queue).toContain('from "./conversation-queued-review-dispatch.js"');
+    expect(queue).toContain('from "./conversation-input-delivery.js"');
+    const delivery = read("src/workbench/conversation-input-delivery.ts");
+    expect(delivery).toContain('from "./conversation-queued-review-dispatch.js"');
+    expect(delivery).not.toContain('from "./conversation-turn-queue.js"');
     expect(review).toContain("implements ConversationQueuedReviewDispatchPort");
   });
 

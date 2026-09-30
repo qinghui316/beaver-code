@@ -41,6 +41,7 @@ import { CanonicalTimelineDelivery, publishCanonicalTimelineEnvelope, publishCom
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import {
   buildCanonicalCaptureWrites as buildCaptureWrites,
+  applyFinalCaptureFallback,
   childCaptureTimelineStatus as captureChildStatus,
   childProcessMessage as buildChildProcessMessage,
 } from "./provider-capture-persistence.js";
@@ -141,8 +142,9 @@ async function runProjectScopedMainAgentTurnActivity(
   const terminalCommittedRows: StoredTopicMessage[] = [];
   const publishTerminalRows = (): number => {
     const count = terminalCommittedRows.length;
+    const sources = new Map(terminalCommittedRows.map((row) => [row.id, row]));
     for (const row of terminalCommittedRows.splice(0)) {
-      publishCommittedCanonicalTimelineRow(live, row, "harness");
+      publishCommittedCanonicalTimelineRow(live, row, "harness", (id) => sources.get(id) ?? canonicalStore?.timeline.readMessage(projectId, conversationId, id) ?? null);
     }
     return count;
   };
@@ -457,7 +459,7 @@ async function runProjectScopedMainAgentTurnActivity(
       await active?.interrupt("provider-approval-forbidden-in-harness");
     },
   });
-  options.turnControl?.registerAttempt(turnRegistration);
+  options.turnControl?.registerAttempt({ ...turnRegistration, onInputAccepted: capture.acceptInput });
   try {
     try {
       result = await provider.conversation.runTurn({
@@ -712,8 +714,10 @@ async function runProjectScopedMainAgentTurnActivity(
     model: options.model,
     reasoningEffort: options.reasoningEffort,
       });
+      await options.turnControl?.settlePendingInputs(turnRegistration);
       await providerInputLifecycle.terminalize();
     } catch (error) {
+      await options.turnControl?.settlePendingInputs(turnRegistration);
       canonicalStore?.close();
       canonicalStore = null;
       canonicalDelivery = null;
@@ -762,6 +766,7 @@ async function runProjectScopedMainAgentTurnActivity(
     || stripProjectScopedPromptEcho(result.lastMessage, userMessage).trim()
     || result.error
     || "";
+  applyFinalCaptureFallback(capture, rawParentText);
   const assistantText = capture.text.trim();
   const latestMainCapture = [...capture.mainCaptures.values()].at(-1);
   if (latestMainCapture) {

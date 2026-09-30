@@ -36,6 +36,7 @@ export interface ParentAgentTranscriptPaging {
 }
 
 interface TranscriptThreadItemInput {
+  transcriptReading?: import("./types.js").AssistantTranscriptReading;
   id: string;
   kind: string;
   label: string;
@@ -70,6 +71,12 @@ export function canonicalTranscriptCellsFromThreadItem(
   item: TranscriptThreadItemInput,
   options: { forceAgentRoleId?: string; parentVisible?: boolean } = {},
 ): ParentAgentTranscriptCell[] {
+  if (item.transcriptReading) {
+    const reading = item.transcriptReading;
+    item = { ...item, body: reading.text, label: reading.text, blocks: reading.blocks,
+      activity: reading.final ? item.activity : [],
+      retryTarget: reading.final ? item.retryTarget : undefined, forkTarget: reading.final ? item.forkTarget : undefined };
+  }
   const agentRoleId = options.forceAgentRoleId ?? item.agentRoleId;
   if (item.kind === "user-message") {
     const text = canonicalMessageText(item.body ?? item.label);
@@ -146,6 +153,8 @@ export function canonicalTranscriptCellsFromThreadItem(
     if (cell) {
       cells.push({
         ...cell,
+        id: cell.kind === "assistant-message" && item.transcriptReading?.segmentIndex
+          ? `${cell.id}:segment:${item.id}` : cell.id,
         agentRoleId,
         agentTaskId: item.agentTaskId,
         runId: cell.runId ?? item.runId,

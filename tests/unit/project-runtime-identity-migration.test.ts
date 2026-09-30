@@ -10,7 +10,7 @@ import {
   type MigrateProjectIdentityOptions,
   type ProjectIdentityMigrationStage,
 } from "../../src/project-runtime/identity-migration.js";
-import { WORKBENCH_PROJECT_IDENTITY_COLUMNS } from "../../src/project-runtime/identity-migration-sqlite.js";
+import { WORKBENCH_PROJECT_IDENTITY_COLUMNS, migrateSqliteProjectIdentity } from "../../src/project-runtime/identity-migration-sqlite.js";
 import { initializeCurrentWorkbenchSchema, materializeWorkbenchSchemaContract, prepareStagedWorkbenchSchema } from "../../src/workbench/persistence/schema-migrations.js";
 import { WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
 
@@ -23,6 +23,23 @@ afterEach(async () => {
 });
 
 describe("staged canonical project identity migration", () => {
+  it("migrates an unsettled delivery with its conversation and restores the immutable identity guard", async () => {
+    const root = await mkdtemp(join(tmpdir(), "aho-delivery-identity-")); cleanup.push(root);
+    const path = join(root, "workbench.sqlite");
+    const db = new Database(path);
+    try {
+      initializeCurrentWorkbenchSchema(db);
+      db.exec(`INSERT INTO conversations(project_id,conversation_id,product_mode,agent_turn_mode,selected_provider_id,title,created_at,updated_at) VALUES('source','c','agent','default','codex','kept','t','t');
+        INSERT INTO conversation_input_deliveries(project_id,conversation_id,product_mode,client_request_id,request_hash,mode,provider_id,execution_revision,phase,created_at,updated_at)
+        VALUES('source','c','agent','request','hash','steer','codex','revision','uncertain','t','t')`);
+    } finally { db.close(); }
+    migrateSqliteProjectIdentity(path, "workbench.sqlite", "source", "target", WORKBENCH_PROJECT_IDENTITY_COLUMNS);
+    const verified = new Database(path);
+    try {
+      expect(verified.prepare("SELECT project_id,phase FROM conversation_input_deliveries").get()).toEqual({ project_id: "target", phase: "uncertain" });
+      expect(() => verified.exec("UPDATE conversation_input_deliveries SET project_id='other'")).toThrow(/immutable/);
+    } finally { verified.close(); }
+  });
   it("keeps the identity allowlist exactly aligned with the current Workbench schema", () => {
     const database = new Database(":memory:");
     try {
@@ -38,7 +55,7 @@ describe("staged canonical project identity migration", () => {
         .sort();
 
       expect(actual).toEqual(expected);
-      expect(expected).toHaveLength(21);
+      expect(expected).toHaveLength(22);
     } finally {
       database.close();
     }

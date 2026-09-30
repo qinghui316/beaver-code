@@ -12,7 +12,8 @@ import { handleApi } from "./workbench/api-router.js";
 import { restoreDirectProjectInput } from "./workbench/direct-project.js";
 import { assertDesktopSession, sendJson, statusForError } from "./workbench/http.js";
 import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
-import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { defaultProviderRegistry, defaultExecutionContractRegistry } from "../provider-runtime/index.js";
+import { ConversationInputDeliveryService } from "../workbench/conversation-input-delivery.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
 import {
@@ -102,11 +103,13 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     turnControl,
     contextLifecycle: conversationContext,
   });
+  const inputDelivery = new ConversationInputDeliveryService({ projectRuntimeCoordinator, turnRouter, turnControl, reviewDispatch: conversationReview });
   const conversationTurnQueue = options.conversationTurnQueue ?? new ConversationTurnQueueOwner({
     projectRuntimeCoordinator,
-    turnRouter,
-    reviewDispatch: conversationReview,
+    delivery: inputDelivery,
+    turnControl,
     providerRegistry,
+    executionContractRegistry: defaultExecutionContractRegistry,
   });
   const conversationLifecycle = options.conversationLifecycle ?? new ConversationLifecycleOwner({
     providerRegistry,
@@ -205,6 +208,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     turnRouter,
     turnControl,
     turnRetry,
+    inputDelivery,
     composerDraftRecovery,
     productModeActivity,
     conversationContext,

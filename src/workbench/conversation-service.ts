@@ -1089,9 +1089,8 @@ export async function prepareConversationMessage(
   const identity = await resolveStoredConversationIdentity(project, conversationId, options.runtimeStateResolver ?? turnRouter.resolveRuntimeState);
   const requestedMode = typeof input === "string" ? undefined : input.productMode;
   turnRouter.assertRequestedMode(identity.conversation, requestedMode);
-  if (identity.conversation.productMode !== "agent") throw conflict("Prepared message admission is only used by Direct Agent turns.");
   const parsed = await normalizeTopicMessageInput(project, input, turnRouter.resolveAttachments);
-  if (parsed.planHandoffIntent) throw conflict("Agent mode does not accept AHO child feedback or planning handoffs.");
+  if (parsed.planHandoffIntent) throw conflict("Prepared top-level messages cannot carry planning handoffs.");
   if (parsed.agentSurfaceId) {
     if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.providerId) {
       const error = new Error("Native child follow-up supports plain text only and cannot switch Providers or carry Main context.");
@@ -1101,10 +1100,10 @@ export async function prepareConversationMessage(
     throw conflict("Native child follow-up does not use top-level prepared Turn admission.");
   }
   if (parsed.providerId && parsed.providerId !== identity.conversation.selectedProviderId) {
-    throw conflict("Direct Agent provider switching is not supported in this increment.");
+    throw conflict("Prepared messages must use the current Conversation Provider.");
   }
   const agentTurnMode = normalizeRequestedAgentTurnMode(
-    "agent",
+    identity.conversation.productMode,
     parsed.agentTurnMode ?? identity.conversation.agentTurnMode ?? undefined,
   );
   const modelId = parsed.modelId === undefined ? identity.conversation.agentModelId : parsed.modelId;
@@ -1120,7 +1119,7 @@ export async function prepareConversationMessage(
     }
     const admission = replay ? null : await turnRouter.admit({
       project,
-      productMode: "agent",
+      productMode: identity.conversation.productMode,
       conversationId: identity.conversationId,
       providerId: identity.conversation.selectedProviderId,
       agentTurnMode,
@@ -1559,16 +1558,14 @@ async function assertConversationQueueAdmission(
       return;
     }
     if (parsed.queuedTurnDispatch) {
-      if (parsed.planHandoffIntent || head.status !== "dispatching"
-        || head.providerId !== (parsed.providerId ?? identity.conversation.selectedProviderId)
-        || (head.agentAccessMode ?? "default") !== parseAgentAccessMode(parsed.agentAccessMode)
-        || head.queueItemId !== parsed.queuedTurnDispatch.queueItemId
-        || head.dispatchRequestId !== parsed.queuedTurnDispatch.dispatchRequestId
-        || head.requestHash !== parsed.queuedTurnDispatch.requestHash) {
-        throw conflict("Queued Turn dispatch does not match the exact dispatching FIFO head.");
-      }
+      const selected = database.conversationTurnQueues.readItem(identity.conversation.projectId, identity.conversationId, parsed.queuedTurnDispatch.queueItemId);
+      if (parsed.planHandoffIntent || !selected
+        || selected.providerId !== (parsed.providerId ?? identity.conversation.selectedProviderId)
+        || (selected.agentAccessMode ?? "default") !== parseAgentAccessMode(parsed.agentAccessMode)) throw conflict("Queued Turn capture does not match its admitted Provider and access.");
+      database.unitOfWork.assertConversationQueueAdmission(identity.conversation.projectId, identity.conversationId, parsed.queuedTurnDispatch, false);
       return;
     }
+
     if (identity.conversation.productMode === "harness" && parsed.planHandoffIntent && !parsed.providerId) {
       validatePlanHandoffIntent(
         database.timeline.listConversationMessages(identity.conversation.projectId, identity.conversationId)

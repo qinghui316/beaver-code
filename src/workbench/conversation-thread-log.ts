@@ -63,6 +63,8 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
   const raw = parseStoredRawJson(row.rawJson);
   return {
     id: row.id,
+    sourceMessageId: typeof raw.sourceMessageId === "string" ? raw.sourceMessageId : undefined,
+    transcriptReading: isAssistantTranscriptReading(raw.transcriptReading) ? raw.transcriptReading : undefined,
     clientRequestId: typeof raw.clientRequestId === "string" ? raw.clientRequestId : undefined,
     requestHash: typeof raw.requestHash === "string" ? raw.requestHash : undefined,
     type: row.type as TopicThreadEventType,
@@ -110,6 +112,13 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     position: row.position,
     completedTurnSequence: typeof raw.completedTurnSequence === "number" ? raw.completedTurnSequence : undefined,
   };
+}
+
+function isAssistantTranscriptReading(value: unknown): value is import("./types.js").AssistantTranscriptReading {
+  if (!isRecord(value)) return false;
+  return typeof value.sourceMessageId === "string" && Number.isSafeInteger(value.segmentIndex) && Number(value.segmentIndex) >= 0
+    && typeof value.final === "boolean" && typeof value.text === "string"
+    && Array.isArray(value.blocks) && value.blocks.every(isAssistantTurnBlock);
 }
 
 function isConversationReviewEvidence(value: unknown): value is import("./types.js").ConversationReviewEvidence {

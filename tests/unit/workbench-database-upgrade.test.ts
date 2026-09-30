@@ -11,7 +11,7 @@ import {
   inspectWorkbenchDatabaseUpgradeState,
 } from "../../src/workbench/persistence/database-upgrade.js";
 import { applyCurrentWorkbenchSchema, WORKBENCH_SCHEMA_VERSION } from "../../src/workbench/persistence/schema.js";
-import { materializeWorkbenchSchemaContract } from "../../src/workbench/persistence/schema-migrations.js";
+import { materializeWorkbenchSchemaContract, WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION } from "../../src/workbench/persistence/schema-migrations.js";
 
 let root: string;
 
@@ -24,6 +24,23 @@ afterEach(async () => {
 });
 
 describe("Workbench database upgrade safety", () => {
+  it("migrates Schema 21 additively and preserves conversation identity", async () => {
+    const paths = resolveProjectRuntimePaths("schema-21", root);
+    await mkdir(dirname(paths.workbenchDbPath), { recursive: true });
+    const old = new Database(paths.workbenchDbPath);
+    applyCurrentWorkbenchSchema(old);
+    materializeWorkbenchSchemaContract(old, 21);
+    old.close();
+    const db = await WorkbenchDatabase.open(paths, noActiveWorkGuard());
+    db.close();
+    const raw = new Database(paths.workbenchDbPath, { readonly: true });
+    expect(raw.pragma("user_version", { simple: true })).toBe(22);
+    expect(raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_input_deliveries'").get()).toBeTruthy();
+    expect(raw.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'trg_delivery_identity_%'").all()).toHaveLength(2);
+    raw.close();
+    const receipt = JSON.parse(await readFile(join(dirname(paths.workbenchDbPath), "schema-upgrades", "previous", "receipt.json"), "utf8"));
+    expect(receipt.appliedVersions).toEqual([22]);
+  });
   it("preflights new, upgradeable, current, legacy, and future databases without mutating them", async () => {
     const emptyPaths = resolveProjectRuntimePaths("empty", root);
     await expect(inspectWorkbenchDatabaseUpgradeState(emptyPaths)).resolves.toEqual({ state: "ready", schemaVersion: WORKBENCH_SCHEMA_VERSION });
@@ -71,7 +88,7 @@ describe("Workbench database upgrade safety", () => {
     const previousDir = join(dirname(paths.workbenchDbPath), "schema-upgrades", "previous");
     const receipt = JSON.parse(await readFile(join(previousDir, "receipt.json"), "utf8")) as Record<string, unknown>;
     expect(receipt).toMatchObject({ fromSchema: revision, toSchema: WORKBENCH_SCHEMA_VERSION, result: "completed" });
-    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19, 20, 21] : [18, 19, 20, 21]);
+    expect(receipt.appliedVersions).toEqual(revision === 16 ? [17, 18, 19, 20, 21, 22] : [18, 19, 20, 21, 22]);
     expect(receipt.preservedRecordCounts).toMatchObject({ canonical_timeline_items: 1 });
     expect(receipt.preservedIdentityDigest).toMatch(/^[a-f0-9]{64}$/);
     await expect(stat(join(previousDir, "workbench.sqlite"))).resolves.toBeTruthy();
@@ -441,8 +458,8 @@ describe("Workbench database upgrade safety", () => {
     })).rejects.toMatchObject({ code: "recovery-required" });
     const promotedReceipt = JSON.parse(await readFile(receiptPath, "utf8")) as { migrationImplementationVersion: number };
     const staleMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
-    expect(promotedReceipt.migrationImplementationVersion).toBe(3);
-    expect(staleMarker.migrationImplementationVersion).toBe(4);
+    expect(promotedReceipt.migrationImplementationVersion).toBe(WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION);
+    expect(staleMarker.migrationImplementationVersion).toBe(WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION + 1);
 
     let migrationRetried = false;
     await expect(WorkbenchDatabase.open(paths, noActiveWorkGuard(), undefined, {
@@ -450,7 +467,7 @@ describe("Workbench database upgrade safety", () => {
     })).rejects.toMatchObject({ code: "recovery-required" });
     expect(migrationRetried).toBe(false);
     const reconciledMarker = JSON.parse(await readFile(markerPath, "utf8")) as { migrationImplementationVersion: number };
-    expect(reconciledMarker.migrationImplementationVersion).toBe(3);
+    expect(reconciledMarker.migrationImplementationVersion).toBe(WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION);
   });
 
   it("retries after a recovered Schema 16 source receives a later durable write", async () => {

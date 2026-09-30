@@ -39,6 +39,33 @@ afterEach(async () => {
 });
 
 describe("ConversationForkLifecycleOwner", () => {
+  it("copies accepted inputs and reading segments while preserving the aggregate fork anchor", async () => {
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      database.timeline.appendMessage(message("guide-2", "user.message", "guided input", null, null,
+        { graphScopeId, attemptId: "attempt-2" }));
+      database.timeline.appendMessage({ ...message("segment-2", "assistant.transcript-segment", "after guide", sourceSessionId, "turn-2", {
+        graphScopeId, attemptId: "attempt-2", sourceMessageId: "assistant-2",
+        transcriptReading: { sourceMessageId: "assistant-2", segmentIndex: 1, final: true, text: "after guide", blocks: [] },
+      }), status: "completed", providerId: "codex" });
+    } finally { database.close(); }
+    const forkSession = vi.fn(async () => ({
+      session: { providerId: "codex", sessionId: "private-segment-child" },
+      inheritedThroughTurn: { providerId: "codex", sessionId: "private-segment-child", turnId: "turn-2" },
+    }));
+    const receipt = await createOwner(forkSession).fork(project, await forkRequest("assistant-2", 2, "segment-fork"));
+    const copied = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const rows = copied.timeline.listConversationMessages(projectId, receipt.targetConversationId);
+      expect(rows.slice(0, 6).map((row) => row.text)).toEqual(["first question", "first answer", "second question", "second answer", "guided input", "after guide"]);
+      const anchor = rows.find((row) => row.text === "second answer")!;
+      const segment = rows.find((row) => row.type === "assistant.transcript-segment")!;
+      expect(JSON.parse(segment.rawJson)).toMatchObject({ sourceMessageId: anchor.id,
+        transcriptReading: { sourceMessageId: anchor.id, segmentIndex: 1, final: true } });
+      expect(JSON.stringify(rows)).not.toContain("attempt-2");
+      expect(copied.conversationForks.readByTargetConversation(projectId, receipt.targetConversationId)?.sourceMessageId).toBe("assistant-2");
+    } finally { copied.close(); }
+  });
   it("forks through an older completed Main Turn and replays without another Provider call", async () => {
     const sourceDatabase = await openProjectRuntimeWorkbenchDatabase(paths);
     try {

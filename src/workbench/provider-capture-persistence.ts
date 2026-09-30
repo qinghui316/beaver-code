@@ -4,6 +4,21 @@ import type { AssistantTranscriptCapture, ChildTranscriptCapture, MainTranscript
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import type { TopicThreadEntry } from "./types.js";
 
+/** Add final-only prose to the aggregate before projecting input boundaries. */
+export function applyFinalCaptureFallback(snapshot: AssistantTranscriptCapture, text: string): void {
+  if (!text || snapshot.text.trim()) return;
+  const main = [...snapshot.mainCaptures.values()].at(-1);
+  if (!main) return;
+  const block = { id: `${main.canonicalId}:final-prose`, kind: "prose" as const, source: "provider" as const,
+    providerId: main.providerId, attemptId: main.attemptId, runId: main.runId, threadId: main.threadId,
+    turnId: main.turnId, itemId: `${main.canonicalId}:final-prose`, timestamp: new Date().toISOString(),
+    sequence: Math.max(0, ...main.blocks.map((item) => item.sequence)) + 1, text };
+  main.text = text;
+  main.blocks.push(block);
+  snapshot.text = text;
+  snapshot.blocks.push(block);
+}
+
 export function buildCanonicalCaptureWrites(input: {
   projectId: string;
   conversationId: string;
@@ -41,8 +56,10 @@ export function buildCanonicalCaptureWrites(input: {
     }
   } else {
     for (const main of input.snapshot.mainCaptures.values()) {
-      writes.push(toCanonicalTimelineMessage(input.projectId, input.conversationId, {
-        id: `assistant:${input.conversationId}:${input.providerId}:${input.runId}:${main.canonicalId}`,
+      const sourceMessageId = `assistant:${input.conversationId}:${input.providerId}:${input.runId}:${main.canonicalId}`;
+      const segments = readingSegments(main, sourceMessageId);
+      const aggregate: TopicThreadEntry = {
+        id: sourceMessageId,
         type: "assistant.message",
         timestamp: main.blocks[0]?.timestamp ?? main.activity[0]?.timestamp ?? new Date().toISOString(),
         conversationId: input.conversationId,
@@ -58,7 +75,16 @@ export function buildCanonicalCaptureWrites(input: {
         turnId: main.turnId,
         activity: main.activity,
         blocks: main.blocks,
-      }));
+        ...(segments.length ? { transcriptReading: segments[0]!.reading } : {}),
+      };
+      writes.push(toCanonicalTimelineMessage(input.projectId, input.conversationId, aggregate));
+      for (const segment of segments.slice(1)) {
+        writes.push(toCanonicalTimelineMessage(input.projectId, input.conversationId, {
+          ...aggregate, id: segment.id, type: "assistant.transcript-segment", sourceMessageId,
+          timestamp: segment.timestamp, text: segment.reading.text, blocks: segment.reading.blocks,
+          transcriptReading: segment.reading,
+        }));
+      }
     }
   }
   for (const child of input.snapshot.childCaptures.values()) {
@@ -81,6 +107,30 @@ export function buildCanonicalCaptureWrites(input: {
     writes.push(toCanonicalTimelineMessage(input.projectId, input.conversationId, entry));
   }
   return writes;
+}
+
+function readingSegments(main: MainTranscriptCapture, sourceMessageId: string): Array<{ id: string; timestamp: string; reading: NonNullable<TopicThreadEntry["transcriptReading"]> }> {
+  const boundaries = main.inputBoundaries ?? [];
+  if (!boundaries.length) return [];
+  return Array.from({ length: boundaries.length + 1 }, (_, index) => {
+    const start = index ? boundaries[index - 1]! : null;
+    const end = boundaries[index] ?? null;
+    const startBlocks = new Map((start?.blocks ?? []).map((block) => [block.id, block]));
+    const endBlocks = new Map((end?.blocks ?? main.blocks).map((block) => [block.id, block]));
+    const blocks = main.blocks.flatMap((block) => {
+      const previous = startBlocks.get(block.id);
+      const captured = endBlocks.get(block.id);
+      if (!captured) return [];
+      if (block.kind !== "prose") return previous ? [] : [{ ...block }];
+      const text = (captured.text ?? "").slice(previous?.text?.length ?? 0);
+      return text ? [{ ...block, text, ...(start ? { id: `${block.id}:segment:${start.clientRequestId}`, timestamp: start.timestamp } : {}) }] : [];
+    });
+    const id = start ? `${sourceMessageId}:segment:${start.clientRequestId}` : sourceMessageId;
+    return { id, timestamp: start?.timestamp ?? main.blocks[0]?.timestamp ?? new Date().toISOString(), reading: {
+      sourceMessageId, segmentIndex: index, final: index === boundaries.length,
+      text: main.text.slice(start?.textOffset ?? 0, end?.textOffset ?? main.text.length), blocks,
+    } };
+  });
 }
 
 export function childProcessMessage(input: {

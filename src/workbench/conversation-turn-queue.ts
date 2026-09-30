@@ -1,21 +1,18 @@
 import { createHash } from "node:crypto";
-import { parseAgentAccessMode, type AgentAccessMode } from "../provider-runtime/agent-access-policy.js";
+import { parseAgentAccessMode } from "../provider-runtime/agent-access-policy.js";
 import {
-  defaultExecutionContractRegistry,
-  defaultProviderRegistry,
-  type AgentTurnMode,
   type ExecutionContractIdentity,
   type ExecutionContractRegistry,
   type ProductMode,
-  type ProviderId,
   type ProviderRegistry,
   type ProviderReviewTarget,
 } from "../provider-runtime/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import type { ManagedProject } from "../types/index.js";
-import { postConversationMessage, prepareConversationMessage } from "./conversation-service.js";
-import type { ConversationTurnRoutingPort } from "./conversation-turn-contract.js";
+import type { ConversationInputDeliveryPort } from "./conversation-input-delivery.js";
+import type { ConversationTurnControlOwner } from "./conversation-turn-control.js";
+import type { ConversationQueueGuideRequest, ConversationDeliveryOperation } from "./conversation-turn-queue-contract.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type {
   StoredConversationQueuedTurn,
@@ -23,85 +20,12 @@ import type {
 } from "./persistence/contracts.js";
 import { ComposerDraftConflictError } from "./persistence/repositories/composer-draft-repository.js";
 import { publishConversationTurnQueueInvalidated } from "./project-live-events.js";
-import type { TopicFileReference, TopicMessageInput } from "./types.js";
-import { deleteUnreferencedTopicAttachments } from "./attachments.js";
+import type { TopicFileReference } from "./types.js";
+import { deleteUnreferencedTopicAttachments, resolveTopicAttachments } from "./attachments.js";
 import { createConversationExecutionRevision } from "./conversation-execution-revision.js";
-import type { ConversationQueuedReviewDispatchPort } from "./conversation-queued-review-dispatch.js";
 
-export interface ConversationQueuedTurnInput {
-  agentAccessMode?: AgentAccessMode | null;
-  itemKind?: "conversation-turn" | "review";
-  reviewTarget?: ProviderReviewTarget | null;
-  text: string;
-  contextRefs: TopicFileReference[];
-  attachmentIds: string[];
-  skillOverrides: Record<string, boolean>;
-  providerId: ProviderId;
-  agentTurnMode: AgentTurnMode | null;
-  modelId: string | null;
-  reasoningEffort: string | null;
-}
-
-export interface ConversationQueuedTurn extends ConversationQueuedTurnInput {
-  itemKind: "conversation-turn" | "review";
-  reviewTarget: ProviderReviewTarget | null;
-  queueItemId: string;
-  clientRequestId: string;
-  position: number;
-  status: StoredConversationQueuedTurn["status"];
-  retryCount: number;
-  diagnostic?: string;
-  createdAt: string;
-  updatedAt: string;
-  executionCompatibility: ConversationQueueExecutionCompatibility;
-}
-
-export interface ConversationQueueExecutionContractRef {
-  family: string;
-  epoch: number;
-}
-
-export type ConversationQueueExecutionCompatibility =
-  | { state: "compatible" }
-  | {
-      state: "confirmation-required" | "legacy-confirmation-required";
-      created: ConversationQueueExecutionContractRef;
-      target: ConversationQueueExecutionContractRef;
-      summary: string;
-    };
-
-export interface ConversationTurnQueueSnapshot {
-  projectId: string;
-  productMode: ProductMode;
-  conversationId: string;
-  revision: string;
-  executionRevision: string | null;
-  items: ConversationQueuedTurn[];
-  canEnqueue: boolean;
-  canDispatch: boolean;
-  disabledReason?: string;
-}
-
-export interface ConversationTurnEnqueueRequest extends ConversationQueuedTurnInput {
-  expectedAccessRevision?: number;
-  projectId: string;
-  productMode: ProductMode;
-  conversationId: string;
-  clientRequestId: string;
-  expectedRevision: string;
-  expectedExecutionRevision: string;
-  expectedDraftUpdatedAt: string | null;
-}
-
-export interface ConversationTurnQueueContractConfirmationRequest {
-  productMode: ProductMode;
-  conversationId: string;
-  queueItemId: string;
-  expectedRevision: string;
-  clientRequestId: string;
-  expectedCreatedContract: ConversationQueueExecutionContractRef;
-  expectedTargetContract: ConversationQueueExecutionContractRef;
-}
+import type { ConversationQueuedTurn, ConversationQueueExecutionContractRef, ConversationQueueExecutionCompatibility, ConversationTurnQueueSnapshot, ConversationTurnEnqueueRequest, ConversationTurnQueueContractConfirmationRequest } from "./conversation-turn-queue-contract.js";
+export type { ConversationQueuedTurnInput, ConversationQueuedTurn, ConversationQueueExecutionContractRef, ConversationQueueExecutionCompatibility, ConversationTurnQueueSnapshot, ConversationTurnEnqueueRequest, ConversationTurnQueueContractConfirmationRequest } from "./conversation-turn-queue-contract.js";
 
 export class ConversationTurnQueueOwner {
   private readonly dispatchPauses = new Set<symbol>();
@@ -113,12 +37,10 @@ export class ConversationTurnQueueOwner {
   }
   constructor(private readonly options: {
     projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve">;
-    turnRouter: ConversationTurnRoutingPort;
-    prepareConversationMessage?: typeof prepareConversationMessage;
-    postConversationMessage?: typeof postConversationMessage;
-    reviewDispatch?: ConversationQueuedReviewDispatchPort;
-    providerRegistry?: Pick<ProviderRegistry, "get">;
-    executionContractRegistry?: ExecutionContractRegistry;
+    delivery: ConversationInputDeliveryPort;
+    turnControl?: Pick<ConversationTurnControlOwner, "state">;
+    providerRegistry: Pick<ProviderRegistry, "get">;
+    executionContractRegistry: ExecutionContractRegistry;
   }) {}
 
   async read(project: ManagedProject, productMode: ProductMode, conversationId: string): Promise<ConversationTurnQueueSnapshot> {
@@ -144,10 +66,39 @@ export class ConversationTurnQueueOwner {
         && database.decisions.listDecisions(paths.projectId, conversation.boundChangeId ?? undefined)
           .some((decision) => decision.status === "pending" || decision.status === "requested-changes");
       const executionRevision = createConversationExecutionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, activeAttempts.map((item) => item.attemptId));
-      const publicItems = storedItems.map((item) => toPublicItem(
-        item,
-        this.executionCompatibility(database, item),
-      ));
+      const unsettled = database.conversationTurnQueues.unsettledDelivery(paths.projectId, conversationId);
+      const controls = this.options.turnControl?.state(paths.projectId, conversationId);
+      const target = activeAttempts.find((attempt) => attempt.roleId === "main-agent" && attempt.attemptId === controls?.attemptId);
+      const guideBlocked = Boolean(this.dispatchPauses.size || pendingInteraction || pendingFork || pendingCompaction || pendingGovernanceDecision || unsettled || storedItems.some((item) => item.status === "dispatching") || conversation.state !== "active");
+      const deliveries = database.conversationTurnQueues.listDeliveries(paths.projectId, conversationId);
+      const publicItems: ConversationQueuedTurn[] = storedItems.filter((item) => !deliveries.some((op) => op.queueItemId === item.queueItemId && op.phase === "accepted")).map((item) => {
+        const view = toPublicItem(item, this.executionCompatibility(database, item));
+        const operation = deliveries.filter((op) => op.queueItemId === item.queueItemId).at(-1);
+        const available = !guideBlocked && target && controls?.state === "running" && controls.steerState !== "submitting"
+          && view.status === "queued" && view.executionCompatibility.state === "compatible";
+        const compatibleText = target && item.itemKind !== "review" && item.text.trim() && item.contextRefsJson === "[]"
+          && item.attachmentIdsJson === "[]" && item.skillOverridesJson === "{}"
+          && item.providerId === target?.providerId && item.agentTurnMode === target.agentTurnMode
+          && (item.agentModelId ?? target.model?.modelId ?? null) === (target.model?.modelId ?? null)
+          && (item.agentReasoningEffort ?? target.reasoningEffort) === target.reasoningEffort
+          && (productMode !== "agent" || item.agentAccessMode === (target.accessPolicy?.requestedAccess ?? "default"));
+        return { ...view,
+          guideMode: available && compatibleText && controls.canSteer ? "steer" as const
+            : available && controls?.canInterrupt ? "cutover" as const : "unavailable" as const,
+          guideDisabledReason: available ? undefined : "当前执行或待处理请求暂不允许引导",
+          deliveryPhase: operation?.phase,
+          deliveryUncertain: operation?.phase === "uncertain" || (item.status === "dispatching" && !operation),
+        };
+      });
+      await Promise.all(publicItems.map(async (item) => {
+        item.attachments = await Promise.all(item.attachmentIds.map(async (id) => {
+          try {
+            const [attachment] = await resolveTopicAttachments(project, [id], { workbenchRoot: paths.workbenchRoot });
+            return { id, fileName: attachment!.fileName, ...(attachment!.kind === "image" && attachment!.mediaType !== "image/svg+xml"
+              ? { previewUrl: `/api/projects/${encodeURIComponent(project.id)}/attachments/${encodeURIComponent(id)}/preview` } : {}) };
+          } catch { return { id, fileName: "附件" }; }
+        }));
+      }));
       const head = publicItems[0];
       const busy = activeAttempts.length > 0 || pendingInteraction || pendingFork || pendingCompaction || pendingGovernanceDecision;
       const disabledReason = conversation.state !== "active"
@@ -163,7 +114,9 @@ export class ConversationTurnQueueOwner {
         executionRevision,
         items: publicItems,
         canEnqueue: !disabledReason,
-        canDispatch: Boolean(!this.dispatchPauses.size && head?.status === "queued" && head.executionCompatibility.state === "compatible" && !busy),
+        canDispatch: Boolean(!this.dispatchPauses.size && !unsettled && head?.status === "queued" && head.executionCompatibility.state === "compatible" && !busy),
+        guideMode: controls?.canSteer ? "steer" : controls?.canInterrupt ? "cutover" : "unavailable",
+        guideTarget: target ? { providerId: target.providerId, attemptId: target.attemptId } : undefined,
         ...(disabledReason ? { disabledReason } : {}),
       };
     } finally {
@@ -385,6 +338,105 @@ export class ConversationTurnQueueOwner {
     return this.read(project, productMode, conversationId);
   }
 
+  async guide(project: ManagedProject, request: ConversationQueueGuideRequest): Promise<ConversationTurnQueueSnapshot> {
+    if (!request.clientRequestId.trim() || request.clientRequestId.length > 200) throw badRequest("Guide requires a bounded request identity.");
+    const hash = createHash("sha256").update(JSON.stringify({ projectId: project.id, productMode: request.productMode, conversationId: request.conversationId, queueItemId: request.queueItemId, expectedRevision: request.expectedRevision, expectedExecutionRevision: request.expectedExecutionRevision, providerId: request.providerId, expectedAttemptId: request.expectedAttemptId, clientRequestId: request.clientRequestId })).digest("hex");
+    const paths = await this.resolvePaths(project);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    let claimed: StoredConversationQueuedTurn | null = null;
+    let operation: ConversationDeliveryOperation | null = null;
+    try {
+      const existing = database.conversationTurnQueues.readDelivery(project.id, request.conversationId, request.clientRequestId);
+      if (existing) {
+        if (existing.requestHash !== hash) throw conflict("Guide request identity is bound to another input or execution.");
+      } else {
+        const snapshot = await this.read(project, request.productMode, request.conversationId);
+        const selected = snapshot.items.find((item) => item.queueItemId === request.queueItemId);
+        if (snapshot.revision !== request.expectedRevision || snapshot.executionRevision !== request.expectedExecutionRevision
+          || snapshot.guideTarget?.attemptId !== request.expectedAttemptId || snapshot.guideTarget.providerId !== request.providerId
+          || !selected || !selected.guideMode || selected.guideMode === "unavailable") throw conflict("Guide target or queue changed before acceptance.");
+        database.immediateTransaction(() => {
+          const conversation = database.conversations.readConversation(project.id, request.conversationId);
+          const queue = database.conversationTurnQueues.readQueue(project.id, request.conversationId);
+          const item = database.conversationTurnQueues.readItem(project.id, request.conversationId, request.queueItemId);
+          const attempts = database.providerAttempts.listProviderAttempts(project.id, request.conversationId).filter((attempt) =>
+            attempt.graphScopeId === conversation?.currentGraphScopeId && (attempt.status === "queued" || attempt.status === "running"));
+          const control = this.options.turnControl?.state(project.id, request.conversationId);
+          if (this.dispatchPauses.size || !conversation || conversation.deletedAt || conversation.state !== "active"
+            || conversation.productMode !== request.productMode || queue?.revision !== decodeRevision(request.expectedRevision)
+            || createConversationExecutionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, attempts.map((attempt) => attempt.attemptId)) !== request.expectedExecutionRevision
+            || control?.attemptId !== request.expectedAttemptId || control.state !== "running" || control.steerState === "submitting"
+            || (selected.guideMode === "steer" ? !control.canSteer : !control.canInterrupt)
+            || !item || item.status !== "queued" || this.executionCompatibility(database, item).state !== "compatible"
+            || database.conversationTurnQueues.unsettledDelivery(project.id, request.conversationId)
+            || hasGuidanceBlockers(database, conversation)) throw conflict("Guide admission no longer matches the selected execution.");
+          const now = new Date().toISOString();
+          const deliveryOperation: ConversationDeliveryOperation = { projectId: project.id, conversationId: request.conversationId, productMode: request.productMode,
+            clientRequestId: request.clientRequestId, queueItemId: request.queueItemId, requestHash: hash,
+            mode: selected.guideMode === "steer" ? "steer" : "cutover", providerId: request.providerId, attemptId: request.expectedAttemptId,
+            executionRevision: request.expectedExecutionRevision, phase: "claimed", messageId: null, diagnostic: null, createdAt: now, updatedAt: now };
+          operation = deliveryOperation;
+          database.conversationTurnQueues.insertDelivery(deliveryOperation);
+          claimed = database.conversationTurnQueues.transitionItem({ projectId: project.id, conversationId: request.conversationId,
+            queueItemId: request.queueItemId, expectedStatus: "queued", status: "dispatching", updatedAt: now });
+          database.conversationTurnQueues.advanceRevision(project.id, request.conversationId, queue.revision, now);
+        });
+      }
+    } finally { database.close(); }
+    if (!claimed || !operation) return this.read(project, request.productMode, request.conversationId);
+    const item: StoredConversationQueuedTurn = claimed;
+    const claimedOperation: ConversationDeliveryOperation = operation;
+    publishConversationTurnQueueInvalidated(project.id, { conversationId: request.conversationId });
+    let failure: unknown;
+    let finished = false;
+    // The HTTP action settles on acceptance. The admitted turn continues under
+    // the same Owner and durable operation until its normal execution terminal.
+    const completion = (async () => {
+      try {
+        await this.options.delivery.guide(project, item, claimedOperation, (phase) => this.updateDelivery(project, claimedOperation, phase));
+        await this.settleDispatch(project, item, "dispatched");
+      } catch (cause) {
+        if (await this.hasDispatchEvidence(project, item)) await this.settleDispatch(project, item, "dispatched");
+        else if (isDefiniteRejection(cause)) await this.settleDispatch(project, item, "blocked", item.retryCount, boundedDiagnostic(cause));
+        else { await this.updateDelivery(project, claimedOperation, "uncertain"); failure = uncertainDispatch(cause); }
+      } finally {
+        finished = true;
+        publishConversationTurnQueueInvalidated(project.id, { conversationId: request.conversationId });
+      }
+    })().catch((cause) => { failure = cause; finished = true; });
+    while (!finished) {
+      const db = await openProjectRuntimeWorkbenchDatabase(paths);
+      let phase: ConversationDeliveryOperation["phase"] | undefined;
+      try { phase = db.conversationTurnQueues.readDelivery(project.id, request.conversationId, request.clientRequestId)?.phase; }
+      finally { db.close(); }
+      if (phase === "accepted") return this.read(project, request.productMode, request.conversationId);
+      await Promise.race([completion, new Promise<void>((resolve) => setTimeout(resolve, 50))]);
+    }
+    if (failure) throw failure;
+    return this.read(project, request.productMode, request.conversationId);
+  }
+
+  private async deliverClaimed(project: ManagedProject, item: StoredConversationQueuedTurn): Promise<void> {
+    const database = await openProjectRuntimeWorkbenchDatabase(await this.resolvePaths(project));
+    let operation: ConversationDeliveryOperation;
+    let timelineRevision: number;
+    try {
+      operation = database.conversationTurnQueues.unsettledDelivery(project.id, item.conversationId)!;
+      timelineRevision = database.conversations.readConversation(project.id, item.conversationId)?.timelineRevision ?? -1;
+    } finally { database.close(); }
+    await this.options.delivery.dispatch(project, item, { timelineRevision, executionRevision: operation.executionRevision }, () => this.updateDelivery(project, operation, "invoking"));
+  }
+
+  private async updateDelivery(project: ManagedProject, operation: ConversationDeliveryOperation, phase: ConversationDeliveryOperation["phase"]): Promise<void> {
+    const database = await openProjectRuntimeWorkbenchDatabase(await this.resolvePaths(project));
+    try {
+      const current = database.conversationTurnQueues.readDelivery(project.id, operation.conversationId, operation.clientRequestId);
+      if (!current || current.requestHash !== operation.requestHash) throw conflict("Delivery identity changed.");
+      database.conversationTurnQueues.transitionDelivery(current, phase);
+    } finally { database.close(); }
+    publishConversationTurnQueueInvalidated(project.id, { conversationId: operation.conversationId });
+  }
+
   async reconcileProject(paths: ProjectRuntimePaths): Promise<number> {
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     const invalidated = new Set<string>();
@@ -402,15 +454,18 @@ export class ConversationTurnQueueOwner {
           const queue = database.conversationTurnQueues.readQueue(paths.projectId, item.conversationId);
           if (!current || current.status !== "dispatching" || !queue) return;
           const now = new Date().toISOString();
-          const currentContract = this.resolveQueueExecutionContract(current);
-          const compatible = this.executionCompatibility(database, current, currentContract).state === "compatible";
+          const operation = database.conversationTurnQueues.listDeliveries(paths.projectId, item.conversationId).filter((candidate) => candidate.queueItemId === item.queueItemId).at(-1);
+          const neverInvoked = operation?.phase === "claimed" || (operation?.mode === "cutover" && operation.phase === "waiting-terminal");
+          if (operation && operation.phase !== "completed" && operation.phase !== "rejected") {
+            database.conversationTurnQueues.transitionDelivery(operation, hasEvidence ? "completed" : neverInvoked ? "rejected" : "uncertain");
+          }
           database.conversationTurnQueues.transitionItem({
             projectId: paths.projectId,
             conversationId: item.conversationId,
             queueItemId: item.queueItemId,
             expectedStatus: "dispatching",
-            status: hasEvidence ? "dispatched" : compatible ? "queued" : "blocked",
-            diagnostic: hasEvidence || compatible ? null : "Queued execution requires confirmation.",
+            status: hasEvidence ? "dispatched" : neverInvoked ? "queued" : "dispatching",
+            diagnostic: hasEvidence || neverInvoked ? null : "Delivery outcome needs confirmation; automatic replay is disabled.",
             updatedAt: now,
             dispatchedAt: hasEvidence ? now : null,
           });
@@ -433,59 +488,25 @@ export class ConversationTurnQueueOwner {
     if (!item) return;
     publishConversationTurnQueueInvalidated(project.id, { conversationId });
     try {
-      if (item.itemKind === "review") {
-        if (!this.options.reviewDispatch) throw conflict("Conversation Review queue dispatch is not composed.");
-        const current = await this.read(project, productMode, conversationId);
-        const database = await openProjectRuntimeWorkbenchDatabase(await this.resolvePaths(project));
-        let timelineRevision: number;
-        try {
-          timelineRevision = database.conversations.readConversation(project.id, conversationId)?.timelineRevision ?? -1;
-        } finally { database.close(); }
-        await this.options.reviewDispatch.dispatchQueuedReview(project, {
-          conversationId,
-          providerId: item.providerId,
-          target: parseReviewTarget(item.reviewTargetJson),
-          expectedTimelineRevision: timelineRevision,
-          expectedExecutionRevision: current.executionRevision,
-          clientRequestId: item.dispatchRequestId,
-        });
-        await this.settleDispatch(project, item, "dispatched");
-        return;
-      }
-      const message: TopicMessageInput = {
-        message: item.text,
-        contextRefs: parseArray<TopicFileReference>(item.contextRefsJson),
-        attachmentIds: parseArray<string>(item.attachmentIdsJson),
-        skillOverrides: Object.entries(parseRecord(item.skillOverridesJson))
-          .map(([skillId, enabled]) => ({ skillId, enabled })),
-        providerId: item.providerId,
-        productMode: item.productMode,
-        ...(item.productMode === "agent" ? { agentTurnMode: item.agentTurnMode ?? "default", agentAccessMode: item.agentAccessMode ?? "default" } : {}),
-        modelId: item.agentModelId,
-        reasoningEffort: item.agentReasoningEffort,
-        queuedTurnDispatch: {
-          queueItemId: item.queueItemId,
-          dispatchRequestId: item.dispatchRequestId,
-          requestHash: item.requestHash,
-        },
-      };
-      const prepare = this.options.prepareConversationMessage ?? prepareConversationMessage;
-      const post = this.options.postConversationMessage ?? postConversationMessage;
-      const prepared = await prepare(project, conversationId, message, { turnRouter: this.options.turnRouter });
-      await post(project, conversationId, message, undefined, { turnRouter: this.options.turnRouter, prepared });
+      await this.deliverClaimed(project, item);
       await this.settleDispatch(project, item, "dispatched");
     } catch (cause) {
       if (await this.hasDispatchEvidence(project, item)) {
         await this.settleDispatch(project, item, "dispatched");
-      } else if (isExplicitZeroSideEffectFailure(cause) && item.retryCount === 0) {
+      } else if (isDefiniteRejection(cause) && item.retryCount === 0) {
         const revision = await this.settleDispatch(project, item, "queued", 1, boundedDiagnostic(cause));
         const refreshed = await this.read(project, productMode, conversationId);
         if (refreshed.canDispatch && refreshed.items[0]?.queueItemId === item.queueItemId) {
           await this.dispatchHead(project, productMode, conversationId, item.queueItemId, revision);
         }
-      } else if (isExplicitZeroSideEffectFailure(cause)) {
+      } else if (isDefiniteRejection(cause)) {
         await this.settleDispatch(project, item, "blocked", 1, boundedDiagnostic(cause));
       } else {
+        const db = await openProjectRuntimeWorkbenchDatabase(await this.resolvePaths(project));
+        try {
+          const op = db.conversationTurnQueues.unsettledDelivery(project.id, conversationId);
+          if (op) db.conversationTurnQueues.transitionDelivery(op, "uncertain", null, boundedDiagnostic(cause));
+        } finally { db.close(); }
         throw uncertainDispatch(cause);
       }
     } finally {
@@ -499,7 +520,7 @@ export class ConversationTurnQueueOwner {
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       return database.immediateTransaction(() => {
-        if (this.dispatchPauses.size) return null;
+        if (this.dispatchPauses.size || database.conversationTurnQueues.unsettledDelivery(paths.projectId, conversationId)) return null;
         const conversation = database.conversations.readConversation(paths.projectId, conversationId);
         const queue = database.conversationTurnQueues.readQueue(paths.projectId, conversationId);
         const head = database.conversationTurnQueues.listItems(paths.projectId, conversationId)[0];
@@ -538,6 +559,14 @@ export class ConversationTurnQueueOwner {
           projectId: paths.projectId, conversationId, queueItemId,
           expectedStatus: "queued", status: "dispatching", updatedAt: new Date().toISOString(),
         });
+        const previous = database.conversationTurnQueues.readDelivery(paths.projectId, conversationId, claimed.dispatchRequestId);
+        if (previous?.phase === "rejected") database.conversationTurnQueues.transitionDelivery(previous, "claimed");
+        else database.conversationTurnQueues.insertDelivery({
+          projectId: paths.projectId, productMode, conversationId, clientRequestId: claimed.dispatchRequestId,
+          queueItemId, requestHash: claimed.requestHash, mode: "next-turn", providerId: claimed.providerId,
+          attemptId: null, executionRevision: createConversationExecutionRevision(conversation.currentGraphScopeId, conversation.completedTurnSequence, []),
+          phase: "claimed", messageId: null, diagnostic: null, createdAt: claimed.updatedAt, updatedAt: claimed.updatedAt,
+        });
         database.conversationTurnQueues.advanceRevision(paths.projectId, conversationId, queue.revision, claimed.updatedAt);
         return claimed;
       });
@@ -553,6 +582,8 @@ export class ConversationTurnQueueOwner {
     try {
       return database.transaction(() => {
         const queue = database.conversationTurnQueues.readQueue(paths.projectId, item.conversationId)!;
+        const operation = database.conversationTurnQueues.unsettledDelivery(paths.projectId, item.conversationId);
+        if (operation?.queueItemId === item.queueItemId) database.conversationTurnQueues.transitionDelivery(operation, status === "dispatched" ? "completed" : "rejected");
         const settled = database.conversationTurnQueues.transitionItem({
           projectId: paths.projectId, conversationId: item.conversationId, queueItemId: item.queueItemId,
           expectedStatus: "dispatching", status, retryCount, diagnostic: diagnostic ?? null,
@@ -638,8 +669,8 @@ export class ConversationTurnQueueOwner {
     providerId: string;
     itemKind: "conversation-turn" | "review";
   }): ExecutionContractIdentity {
-    const provider = (this.options.providerRegistry ?? defaultProviderRegistry).get(input.providerId);
-    return (this.options.executionContractRegistry ?? defaultExecutionContractRegistry).resolve({
+    const provider = this.options.providerRegistry.get(input.providerId);
+    return this.options.executionContractRegistry.resolve({
       productMode: input.productMode,
       operationProfile: input.productMode === "agent" ? "agent" : "main",
       operationKind: input.itemKind,
@@ -902,6 +933,19 @@ function parseReviewTarget(value: string | null): ProviderReviewTarget {
   try { return normalizeReviewTarget(value ? JSON.parse(value) : null); } catch (cause) { if (cause instanceof Error && cause.name === "BadRequest") throw cause; throw badRequest("Queued Review target is invalid."); }
 }
 function hasPendingInteraction(rows: Array<{ rawJson: string }>): boolean { return rows.some((row) => { try { const raw = JSON.parse(row.rawJson) as { providerUserInput?: { status?: string }; providerApproval?: { status?: string }; clarification?: { status?: string } }; return [raw.providerUserInput?.status, raw.providerApproval?.status, raw.clarification?.status].some((status) => status === "pending" || status === "submitting"); } catch { return false; } }); }
+
+function isDefiniteRejection(cause: unknown): boolean {
+  return cause instanceof Error && "inputNotInvoked" in cause && cause.inputNotInvoked === true;
+}
+
+function hasGuidanceBlockers(database: import("./persistence/database.js").WorkbenchDatabase, conversation: import("./persistence/contracts.js").StoredConversation): boolean {
+  const rows = database.timeline.listConversationMessages(conversation.projectId, conversation.conversationId);
+  return hasPendingInteraction(rows)
+    || rows.some((row) => row.type === "provider.context-compaction" && (row.status === "submitting" || row.status === "compacting"))
+    || database.conversationForks.listIncomplete(conversation.projectId).some((op) => op.sourceConversationId === conversation.conversationId)
+    || Boolean(conversation.productMode === "harness" && conversation.boundChangeId
+      && database.decisions.listDecisions(conversation.projectId, conversation.boundChangeId).some((decision) => decision.status === "pending" || decision.status === "requested-changes"));
+}
 function hasStoredDispatchEvidence(rows: Array<{ rawJson: string }>, item: StoredConversationQueuedTurn): boolean {
   return rows.some((row) => {
     try {
@@ -912,9 +956,6 @@ function hasStoredDispatchEvidence(rows: Array<{ rawJson: string }>, item: Store
       return false;
     }
   });
-}
-function isExplicitZeroSideEffectFailure(cause: unknown): boolean {
-  return cause instanceof Error && (cause.name === "BadRequest" || cause.name === "Conflict" || cause.name === "NotFound");
 }
 function uncertainDispatch(cause: unknown): Error {
   const error = new Error("Queued Turn dispatch outcome is uncertain and will not be sent again automatically.", { cause });

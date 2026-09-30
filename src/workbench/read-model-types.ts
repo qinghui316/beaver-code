@@ -232,6 +232,7 @@ export interface ThreadStreamEvidence {
 }
 
 export interface ThreadStreamItem {
+  transcriptReading?: import("./types.js").AssistantTranscriptReading;
   id: string;
   kind: "user-message" | "assistant-turn" | "assistant-message" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
   label: string;

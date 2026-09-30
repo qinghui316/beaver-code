@@ -167,6 +167,21 @@ for (const file of sourceFiles) {
   }
 }
 
+// Composer controllers consume shared input parsing and pure DTOs, never UI owners.
+for (const file of webFiles) {
+  const path = normalizePath(relative(root, file));
+  const content = await readFile(file, "utf8");
+  if (path.startsWith("src/web/src/controllers/") && /from\s+["'][^"']*shell\/(?:file-mentions|skill-mentions|composer|ComposerExecutionControls)/.test(content)) violations.push(`${path}: Composer controllers must depend on shared parsing and contracts`);
+}
+const deliverySource = await readFile(resolve(root, "src/workbench/conversation-input-delivery.ts"), "utf8");
+if (/from\s+["'][^"']*conversation-turn-queue\.js/.test(deliverySource)) violations.push("Input delivery must not import the queue Owner");
+const captureSource = await readFile(resolve(root, "src/workbench/live-transcript.ts"), "utf8");
+if (/from\s+["'][^"']*conversation-(?:turn-queue|input-delivery)/.test(captureSource)) violations.push("Transcript capture must not import queue or input delivery");
+for (const path of ["src/workbench/conversation-turn-queue-contract.ts"]) {
+  const content = await readFile(resolve(root, path), "utf8");
+  if (/^import(?!\s+type\b)|^export\s+(?:function|class|const)\b/m.test(content)) violations.push(`${path}: contracts must contain only types`);
+}
+
 const calibrationContract = await readFile(resolve(root, "scripts/office-calibration-v3.ts"), "utf8");
 for (const retiredStage of ["standby-start", "standby-end"]) {
   if (calibrationContract.includes(retiredStage)) {

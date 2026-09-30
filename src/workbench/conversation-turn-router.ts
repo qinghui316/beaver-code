@@ -25,6 +25,9 @@ import { TurnAttachmentResolver } from "./turn-attachment-resolver.js";
 import type { ConversationTurnControlOwner } from "./conversation-turn-control.js";
 import { ConversationModelAdmissionOwner } from "./conversation-model-admission.js";
 import type { ConversationContextLifecycleOwner } from "./conversation-context-lifecycle.js";
+import { commitAcceptedConversationInput } from "./conversation-input-commit.js";
+import { publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
+import { publishProjectLiveEvent } from "./project-live-events.js";
 
 export type ConversationTurnStrategies = Readonly<Record<ProductMode, ConversationTurnStrategy>>;
 
@@ -301,14 +304,18 @@ export class ConversationTurnRouter {
       if (!attempt) return null;
       const state = this.turnControl.state(paths.projectId, conversation.conversationId, attempt.attemptId);
       if (state.state === "idle") throw conflict("The current Harness Attempt is not owned by a current-process Provider Turn.");
-      return this.turnControl.steer(project, {
+      const request = {
         projectId: paths.projectId,
-        productMode: "harness",
+        productMode: "harness" as const,
         conversationId: conversation.conversationId,
         providerId: attempt.providerId,
         expectedAttemptId: attempt.attemptId,
         clientRequestId,
         text,
+      };
+      return await this.turnControl.steer(project, request, (receipt) => {
+        const row = commitAcceptedConversationInput(database, request, receipt.runId);
+        publishCommittedCanonicalTimelineRow((envelope) => publishProjectLiveEvent(project.id, { event: "timeline.patch", data: envelope }), row, "harness");
       });
     } finally {
       database.close();

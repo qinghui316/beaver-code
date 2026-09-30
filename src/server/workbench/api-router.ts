@@ -10,7 +10,7 @@ import { defaultProviderRegistry, type ProductMode } from "../../provider-runtim
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { resolveWorkspaceResource, type WorkspaceResourceTarget } from "../../workbench/workspace-resources.js";
-import { createTopicAttachment, deleteTopicAttachment, toTopicAttachmentEvidence } from "../../workbench/attachments.js";
+import { createTopicAttachment, deleteTopicAttachment, readTopicAttachmentPreview, toTopicAttachmentEvidence } from "../../workbench/attachments.js";
 import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitReviewOptions, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
 import { hashNativeSkillPackageContent } from "../../skill/content-hash.js";
@@ -270,6 +270,17 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     } catch (error) {
       sendJson(response, error instanceof Error && error.name === "BadRequest" ? 400 : 500, { error: error instanceof Error ? error.message : String(error) });
     }
+    return;
+  }
+  const attachmentPreviewMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/attachments\/([^/]+)\/preview$/);
+  if (request.method === "GET" && attachmentPreviewMatch) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(attachmentPreviewMatch[1]!));
+    if (!input.project) { sendJson(response, 404, { error: "Project not found." }); return; }
+    try {
+      const preview = await readTopicAttachmentPreview(input.project, decodeURIComponent(attachmentPreviewMatch[2]!), { workbenchRoot: context.projectRuntimeCoordinator.runtimePaths(input.project.id).workbenchRoot });
+      response.writeHead(200, { "Content-Type": preview.mediaType, "Content-Length": preview.data.length, "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store" });
+      response.end(preview.data);
+    } catch { sendJson(response, 404, { error: "Attachment preview is unavailable." }); }
     return;
   }
   const attachmentDeleteMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/attachments\/([^/]+)$/);

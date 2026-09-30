@@ -5,7 +5,7 @@ import {
   filterSkillMentionSuggestions,
   findSkillMentionTrigger,
   replaceSkillMentionTrigger,
-} from "./skill-mentions.js";
+} from "../input/mentions.js";
 
 export function SkillMentionPicker({
   value,

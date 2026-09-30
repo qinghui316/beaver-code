@@ -1,9 +1,9 @@
 import Database from "better-sqlite3";
-import { applyCurrentWorkbenchSchema, applyWorkbenchSchema20, applyWorkbenchAccessSchema21, ensureColumn, hasAnyWorkbenchUserTables, hasWorkbenchRuntimeTables, WORKBENCH_SCHEMA_VERSION } from "./schema.js";
+import { applyCurrentWorkbenchSchema, applyWorkbenchSchema20, applyWorkbenchAccessSchema21, applyWorkbenchDeliverySchema22, ensureColumn, hasAnyWorkbenchUserTables, hasWorkbenchRuntimeTables, WORKBENCH_SCHEMA_VERSION } from "./schema.js";
 import type { SqliteRow } from "./sql-mappers.js";
 
 export const MINIMUM_AUTOMATIC_WORKBENCH_SCHEMA_VERSION = 16;
-export const WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION = 3;
+export const WORKBENCH_MIGRATION_IMPLEMENTATION_VERSION = 4;
 
 export type WorkbenchDatabaseCompatibilityCode =
   | "unsupported-legacy"
@@ -199,6 +199,14 @@ export const WORKBENCH_SCHEMA_MIGRATIONS: readonly WorkbenchSchemaMigration[] = 
   schema18To19,
   schema19To20,
   schema20To21,
+  {
+    from: 21, to: 22,
+    migrate: applyWorkbenchDeliverySchema22,
+    validate(db) {
+      assertColumns(db, "conversation_input_deliveries", ["project_id", "conversation_id", "client_request_id", "queue_item_id", "request_hash", "mode", "phase", "message_id", "attempt_id", "execution_revision"]);
+      assertSchemaShape(db, 22, { historicalSource: true });
+    },
+  },
 ];
 
 export function inspectWorkbenchSchema(db: Database.Database): {
@@ -356,7 +364,7 @@ function compatibleDefaultValue(
 function expectedSchemaShape(version: number): SchemaShape {
   const cached = schemaShapeCache.get(version);
   if (cached) return cached;
-  if (version !== 16 && version !== 17 && version !== 18 && version !== 19 && version !== 20 && version !== 21) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
+  if (version !== 16 && version !== 17 && version !== 18 && version !== 19 && version !== 20 && version !== 21 && version !== 22) throw new Error(`Unsupported Workbench schema contract version: ${version}`);
   const reference = new Database(":memory:");
   try {
     applyCurrentWorkbenchSchema(reference);
@@ -450,7 +458,8 @@ function readSchemaShape(db: Database.Database): SchemaShape {
   return { tables, indexes, triggers };
 }
 
-export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19 | 20 | 21): void {
+export function materializeWorkbenchSchemaContract(db: Database.Database, version: 16 | 17 | 18 | 19 | 20 | 21 | 22): void {
+  if (version < 22) db.exec("DROP TRIGGER IF EXISTS trg_delivery_identity_insert; DROP TRIGGER IF EXISTS trg_delivery_identity_update; DROP TABLE conversation_input_deliveries;");
   if (version < 21) {
     db.exec(`
       ALTER TABLE conversations DROP COLUMN agent_access_mode;
@@ -670,6 +679,13 @@ function assertCheckConstraintFragments(db: Database.Database, version: number, 
     versioned.conversation_review_operations = [
       "check(statusin('pending','submitting','reviewing','completed','failed','interrupted'))",
       "check(sourcein('direct','queue'))",
+    ];
+  }
+  if (version >= 22) {
+    versioned.conversation_input_deliveries = [
+      "check(product_modein('agent','harness'))",
+      "check(modein('next-turn','steer','cutover'))",
+      "check(phasein('claimed','invoking','waiting-terminal','accepted','rejected','uncertain','completed'))",
     ];
   }
   for (const [table, requiredFragments] of Object.entries(versioned)) {

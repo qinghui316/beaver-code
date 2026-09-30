@@ -1682,70 +1682,38 @@ describe("Conversation composer controller", () => {
     expect(ports.onError).not.toHaveBeenCalledWith("stale Skill mutation failed");
   });
 
-  it("steers only running text while retaining attachments and keeping Stop separate", async () => {
+  it.each(["agent", "harness"] as const)("queues the full draft in %s even when realtime steering is available", async (productMode) => {
     const ports = composerPorts();
-    const runningScope = conversationScope({
-      running: true,
-      selectedProviderId: "codex",
-      runControlState: { state: "running", canStop: true, canSteer: true },
-    });
-    const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
-    act(() => {
-      result.current.setComposerText("follow up");
-      result.current.setAttachments([attachment("attachment-1")]);
-    });
+    const enqueue = vi.fn(async () => queueSnapshot("queue:1"));
+    ports.queue = { snapshot: queueSnapshot("queue:0"), loading: false, enqueue, reclaim: vi.fn() };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ productMode, running: true,
+      runControlState: { state: "running", canStop: true, canSteer: true, providerId: "codex", attemptId: "attempt-1" } }), ports));
+    act(() => { result.current.setComposerText("follow up"); result.current.setAttachments([attachment("attachment-1")]); });
     await act(async () => result.current.send());
-    expect(ports.actions.steer).toHaveBeenCalledWith({
-      projectId: "repo",
-      conversationId: "conversation-1",
-      productMode: "harness",
-      providerId: undefined,
-      expectedAttemptId: undefined,
-      clientRequestId: "request-1",
-      prompt: "follow up",
-    });
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ text: "follow up", attachmentIds: ["attachment-1"] }));
+    expect(ports.actions.steer).not.toHaveBeenCalled();
     expect(result.current.composerText).toBe("");
-    expect(result.current.attachments).toEqual([attachment("attachment-1")]);
-
-    act(() => result.current.setComposerText("stop context"));
+    expect(result.current.attachments).toEqual([]);
+    act(() => result.current.setComposerText("next draft"));
     await act(async () => result.current.stop());
-    expect(ports.actions.stop).toHaveBeenCalledWith({
-      projectId: "repo",
-      conversationId: "conversation-1",
-      productMode: "harness",
-      prompt: "stop context",
-    });
-    expect(result.current.composerText).toBe("");
-    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "" }));
-    expect(ports.projection.refreshConversation).not.toHaveBeenCalled();
+    expect(ports.actions.stop).toHaveBeenCalledWith({ projectId: "repo", conversationId: "conversation-1", productMode, providerId: "codex", expectedAttemptId: "attempt-1" });
+    expect(result.current.composerText).toBe("next draft");
   });
 
-  it("preserves text re-entered with the same value while an accepted steer is pending", async () => {
-    const steer = deferred<{ status: "accepted" }>();
+  it("protects a re-entered identical draft while enqueue is pending", async () => {
+    const held = deferred<ConversationTurnQueueSnapshot>();
     const ports = composerPorts();
-    ports.actions.steer.mockImplementation(() => steer.promise);
-    const runningScope = conversationScope({
-      running: true,
-      selectedProviderId: "codex",
-      runControlState: { state: "running", canStop: true, canSteer: true },
-    });
-    const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
-    act(() => result.current.setComposerText("steer text"));
-
+    const enqueue = vi.fn(() => held.promise);
+    ports.queue = { snapshot: queueSnapshot("queue:0"), loading: false, enqueue, reclaim: vi.fn() };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ running: true,
+      runControlState: { state: "running", canStop: true, canSteer: true } }), ports));
+    act(() => result.current.setComposerText("same text"));
     let pending!: Promise<void>;
     act(() => { pending = result.current.send(); });
-    await waitFor(() => expect(ports.actions.steer).toHaveBeenCalledOnce());
-    act(() => {
-      result.current.setComposerText("changed while steering");
-      result.current.setComposerText("steer text");
-    });
-    await act(async () => {
-      steer.resolve({ status: "accepted" });
-      await pending;
-    });
-
-    expect(result.current.composerText).toBe("steer text");
-    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "steer text" }));
+    await waitFor(() => expect(enqueue).toHaveBeenCalledOnce());
+    act(() => { result.current.setComposerText("changed"); result.current.setComposerText("same text"); });
+    await act(async () => { held.resolve(queueSnapshot("queue:1")); await pending; });
+    expect(result.current.composerText).toBe("same text");
   });
 
   it("preserves text re-entered with the same value while Harness Stop is pending", async () => {
@@ -1755,7 +1723,7 @@ describe("Conversation composer controller", () => {
     const runningScope = conversationScope({
       productMode: "harness",
       running: true,
-      runControlState: { state: "running", canStop: true, canSteer: true },
+      runControlState: { state: "running", canStop: true, canSteer: true, providerId: "codex", attemptId: "attempt-1" },
     });
     const { result } = renderHook(() => useConversationComposerController(runningScope, ports));
     act(() => result.current.setComposerText("stop text"));
@@ -1773,7 +1741,7 @@ describe("Conversation composer controller", () => {
     });
 
     expect(result.current.composerText).toBe("stop text");
-    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({ text: "stop text" }));
+    expect(ports.actions.stop.mock.calls[0]![0]).not.toHaveProperty("prompt");
   });
 
   it("queues the complete next Turn when a running Conversation cannot steer", async () => {
@@ -1937,82 +1905,37 @@ describe("Conversation composer controller", () => {
     expect(ports.onError).toHaveBeenCalledWith("当前会话队列已变化，请等待校准后重试。");
   });
 
-  it("reuses the same steering request id when a failed submission is retried unchanged", async () => {
+  it.each(["agent", "harness"] as const)("preserves %s draft when queue calibration is missing", async (productMode) => {
     const ports = composerPorts();
-    ports.ids.createClientRequestId
-      .mockReturnValueOnce("steer-retry-id")
-      .mockReturnValueOnce("unexpected-new-id");
-    ports.actions.steer
-      .mockRejectedValueOnce(new Error("evidence write failed"))
-      .mockResolvedValueOnce({ status: "accepted" });
-    const { result } = renderHook(() => useConversationComposerController(
-      conversationScope({ running: true, runControlState: { state: "running", canStop: true, canSteer: true } }),
-      ports,
-    ));
-    act(() => result.current.setComposerText("same steer"));
-
-    await act(async () => {
-      await expect(result.current.send()).rejects.toThrow("evidence write failed");
-    });
-    expect(result.current.composerText).toBe("same steer");
+    ports.queue = { snapshot: null, loading: true, enqueue: vi.fn(), reclaim: vi.fn() };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ productMode, running: true,
+      runControlState: { state: "running", canStop: true, canSteer: true } }), ports));
+    act(() => result.current.setComposerText("retain until calibrated"));
     await act(async () => result.current.send());
-
-    expect(ports.ids.createClientRequestId).toHaveBeenCalledOnce();
-    expect(ports.actions.steer).toHaveBeenNthCalledWith(1, expect.objectContaining({ clientRequestId: "steer-retry-id" }));
-    expect(ports.actions.steer).toHaveBeenNthCalledWith(2, expect.objectContaining({ clientRequestId: "steer-retry-id" }));
-    expect(result.current.composerText).toBe("");
+    expect(result.current.composerText).toBe("retain until calibrated");
+    expect(ports.queue.enqueue).not.toHaveBeenCalled();
+    expect(ports.actions.steer).not.toHaveBeenCalled();
   });
 
-  it.each(["agent", "harness"] as const)("preserves %s text when the Turn becomes terminal before steering settles", async (productMode) => {
+  it.each(["queue", "stop"] as const)("isolates late %s failure after switching mode", async (action) => {
+    const held = deferred<ConversationTurnQueueSnapshot>();
     const ports = composerPorts();
-    ports.actions.steer.mockResolvedValue({ status: "already-terminal" });
-    const scope = productMode === "agent"
-      ? conversationScope({
-          productMode,
-          running: true,
-          runControlState: { state: "running", canStop: true, canSteer: true, providerId: "codex", attemptId: "attempt-1" },
-          conversation: { id: "conversation-1", productMode, state: "active", selectedProviderId: "codex" },
-        })
-      : conversationScope({ productMode, running: true, runControlState: { state: "running", canStop: true, canSteer: true } });
-    const { result } = renderHook(() => useConversationComposerController(scope, ports));
-    act(() => result.current.setComposerText("send this next"));
-
-    await act(async () => result.current.send());
-
-    expect(result.current.composerText).toBe("send this next");
-    expect(ports.onError).toHaveBeenLastCalledWith("当前执行已结束，这条文本已保留，可作为下一回合发送。");
-  });
-
-  it.each(["steer", "stop"] as const)("does not leak a late %s failure into a new mode scope", async (action) => {
-    let rejectAction!: (cause: Error) => void;
-    const ports = composerPorts();
-    ports.actions[action].mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectAction = reject; }));
-    const { result, rerender } = renderHook(
-      ({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
-      { initialProps: { scope: action === "steer"
-        ? conversationScope({ productMode: "harness", running: true, runControlState: { state: "running", canStop: true, canSteer: true } })
-        : conversationScope({
-          productMode: "agent",
-          running: true,
-          runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-1" },
-          conversation: { id: "agent-conversation", productMode: "agent", state: "active", selectedProviderId: "codex" },
-        }) } },
-    );
-    act(() => result.current.setComposerText("old action"));
+    const enqueue = vi.fn(() => held.promise);
+    ports.queue = { snapshot: queueSnapshot("queue:0"), loading: false, enqueue, reclaim: vi.fn() };
+    ports.actions.stop.mockImplementation(() => held.promise);
+    const { result, rerender } = renderHook(({ scope }: { scope: ConversationComposerScope }) => useConversationComposerController(scope, ports),
+      { initialProps: { scope: conversationScope({ productMode: "agent", running: true,
+        runControlState: { state: "running", canStop: true, providerId: "codex", attemptId: "attempt-1" },
+        conversation: { id: "conversation-1", productMode: "agent", state: "active", selectedProviderId: "codex" } }) } });
+    act(() => result.current.setComposerText("old draft"));
     let pending!: Promise<void>;
-    act(() => { pending = action === "steer" ? result.current.send() : result.current.stop(); });
-    await waitFor(() => expect(ports.actions[action]).toHaveBeenCalledOnce());
-
+    act(() => { pending = action === "queue" ? result.current.send() : result.current.stop(); });
+    await waitFor(() => expect(action === "queue" ? enqueue : ports.actions.stop).toHaveBeenCalledOnce());
     rerender({ scope: homeScope({ productMode: "harness", conversation: null }) });
-    act(() => result.current.setComposerText("new mode draft"));
-    await act(async () => {
-      rejectAction(new Error(`late ${action} failure`));
-      await expect(pending).rejects.toThrow(`late ${action} failure`);
-    });
-
-    expect(result.current.composerText).toBe("new mode draft");
-    expect(ports.onError).not.toHaveBeenCalledWith(`late ${action} failure`);
-    expect(ports.timeline.calibrate).not.toHaveBeenCalled();
+    act(() => result.current.setComposerText("new draft"));
+    await act(async () => { held.reject(new Error("late failure")); await expect(pending).rejects.toThrow("late failure"); });
+    expect(result.current.composerText).toBe("new draft");
+    expect(ports.onError).not.toHaveBeenCalledWith("late failure");
   });
 
   it("does not leak a late Stop response into a newer Attempt in the same Conversation", async () => {

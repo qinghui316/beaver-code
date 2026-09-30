@@ -48,7 +48,7 @@ describe("Topic Composer height", () => {
     expect(screen.getByRole("button", { name: "访问权限：完全访问" })).toBeTruthy();
     expect(screen.getByLabelText("当前为计划模式").querySelector(".lucide-lightbulb")).toBeTruthy();
     expect(screen.queryByText("计划中仅分析")).toBeNull();
-    expect(screen.getByRole("button", { name: "当前 Agent 不支持计划模式。" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(true);
     fireEvent.keyDown(screen.getByRole("button", { name: "添加上下文" }), { key: "ArrowDown" });
     const planButton = await screen.findByRole("menuitemcheckbox", { name: "计划模式" });
     expect(planButton.getAttribute("aria-checked")).toBe("true");
@@ -133,24 +133,23 @@ describe("Topic Composer height", () => {
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("draft");
   });
 
-  it("submits the Queue alternative once and removes its menu when execution becomes busy", async () => {
-    const enqueue = vi.fn(async () => undefined);
+  it("uses one fixed send slot for active-task enqueue and shortcuts", () => {
     const send = vi.fn(async () => undefined);
-    const queue = { projectId: "project", productMode: "agent" as const, conversationId: "conversation",
-      revision: "queue:1", executionRevision: null, canEnqueue: true, canDispatch: false, items: [] };
-    const running = { state: "running" as const, canStop: true, canSteer: true, steerState: "idle" as const,
-      providerId: "codex", attemptId: "attempt", runId: "run" };
+    const stop = vi.fn(async () => undefined);
     const props = { value: "follow up", onChange: vi.fn(), modelLabel: "gpt", projectId: "project", productMode: "agent" as const,
-      onSend: send, onEnqueue: enqueue, onStopAndContinue: vi.fn(async () => undefined), currentWorkpadStatus: "running" as const,
-      turnQueue: queue, runControlState: running };
-    const rendered = render(<TopicComposer {...props} />);
-    fireEvent.keyDown(screen.getByRole("button", { name: "其他发送方式" }), { key: "ArrowDown" });
-    const item = await screen.findByRole("menuitem", { name: "稍后发送" });
-    fireEvent.click(item);
-    expect(enqueue).toHaveBeenCalledOnce();
-    expect(send).not.toHaveBeenCalled();
-    rendered.rerender(<TopicComposer {...props} queueBusy />);
+      onSend: send, onStopAndContinue: stop, currentWorkpadStatus: "running" as const, queueAvailable: true,
+      turnQueue: { projectId: "project", productMode: "agent" as const, conversationId: "conversation", revision: "queue:1", executionRevision: null, items: [], canEnqueue: true, canDispatch: false },
+      runControlState: { state: "running" as const, canStop: true, canSteer: true } };
+    const view = render(<TopicComposer {...props} />);
+    const button = screen.getByRole("button", { name: "加入待发送" });
+    fireEvent.click(button);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(stop).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "其他发送方式" })).toBeNull();
+    view.rerender(<TopicComposer {...props} queueBusy />);
+    expect(screen.getByRole("button", { name: "发送" })).toBe(button);
+    expect(button.hasAttribute("disabled")).toBe(true);
   });
 
   it("keeps a compact input and caps content growth at 160px", () => {
@@ -232,10 +231,12 @@ describe("Topic Composer height", () => {
     else delete (HTMLTextAreaElement.prototype as { scrollHeight?: number }).scrollHeight;
   });
 
-  it("keeps Agent steer and Stop available with a conversation Skill enabled", () => {
+  it("queues Agent input with Skills while Stop stays separate", () => {
     const onSend = vi.fn(async () => undefined);
     const onStop = vi.fn(async () => undefined);
     render(<TopicComposer
+      turnQueue={{ projectId: "project", productMode: "agent", conversationId: "conversation", revision: "queue:1", executionRevision: null, items: [], canEnqueue: true, canDispatch: false }}
+      queueAvailable
       value="keep this for the next turn"
       onChange={vi.fn()}
       modelLabel="gpt"
@@ -258,7 +259,7 @@ describe("Topic Composer height", () => {
       }}
     />);
 
-    fireEvent.click(screen.getByRole("button", { name: "发送给当前执行" }));
+    fireEvent.click(screen.getByRole("button", { name: "加入待发送" }));
     expect(onSend).toHaveBeenCalledOnce();
     expect(onStop).not.toHaveBeenCalled();
 
@@ -283,7 +284,7 @@ describe("Topic Composer height", () => {
       runControlState={{ state: "running", canStop: true, canSteer: false, steerState: "submitting" }}
     />);
 
-    expect(screen.getByRole("button", { name: "正在发送给当前执行" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(true);
     const stop = screen.getByRole("button", { name: "停止当前执行" });
     expect(stop.hasAttribute("disabled")).toBe(false);
     fireEvent.click(stop);
@@ -317,8 +318,8 @@ describe("Topic Composer height", () => {
     />);
 
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", shiftKey: false });
-    expect(onEnqueue).toHaveBeenCalledOnce();
-    expect(onSend).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(onEnqueue).not.toHaveBeenCalled();
   });
 
   it("does not submit with Enter while a queue mutation is in flight", () => {
@@ -345,12 +346,12 @@ describe("Topic Composer height", () => {
 
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", shiftKey: false });
     expect(onSend).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "正在更新会话队列" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(true);
   });
 });
 
 describe("Conversation Turn queue surface", () => {
-  it("renders stable FIFO actions and exposes blocked retry without allowing dispatching removal", () => {
+  it("renders stable FIFO actions and exposes blocked retry without allowing dispatching removal", async () => {
     const onReclaim = vi.fn();
     const onRemove = vi.fn();
     const onRetry = vi.fn();
@@ -370,17 +371,19 @@ describe("Conversation Turn queue surface", () => {
     render(<ConversationTurnQueue snapshot={snapshot} busy={false} onReclaim={onReclaim} onRemove={onRemove} onRetry={onRetry} />);
 
     expect(screen.getByLabelText("待发送内容")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "重新尝试发送" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "移回输入框" })[0]!);
+    fireEvent.keyDown(screen.getAllByRole("button", { name: "待发送内容菜单" })[0]!, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "重试" }));
+    fireEvent.keyDown(screen.getAllByRole("button", { name: "待发送内容菜单" })[0]!, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "移回输入框" }));
     fireEvent.click(screen.getAllByRole("button", { name: "删除待发送内容" })[0]!);
     expect(onRetry).toHaveBeenCalledWith("blocked-item");
     expect(onReclaim).toHaveBeenCalledWith("blocked-item");
     expect(onRemove).toHaveBeenCalledWith("blocked-item");
-    expect(screen.getAllByRole("button", { name: "移回输入框" })[1]!.hasAttribute("disabled")).toBe(true);
+
     expect(screen.getAllByRole("button", { name: "删除待发送内容" })[1]!.hasAttribute("disabled")).toBe(true);
   });
 
-  it("requires explicit execution confirmation without exposing the generic retry action", () => {
+  it("requires explicit execution confirmation without exposing the generic retry action", async () => {
     const onConfirmExecution = vi.fn();
     const onRetry = vi.fn();
     const snapshot: ConversationTurnQueueSnapshot = {
@@ -409,9 +412,11 @@ describe("Conversation Turn queue surface", () => {
       onConfirmExecution={onConfirmExecution}
     />);
 
-    expect(screen.getByText("执行方式已更新，需要确认后发送。")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "重新尝试发送" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "按当前方式发送" }));
+    expect(screen.queryByText("执行方式已更新，需要确认后发送。")).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "待发送内容菜单" }), { key: "ArrowDown" });
+    await screen.findByRole("menuitem", { name: "按当前方式发送" });
+    expect(screen.queryByRole("menuitem", { name: "重试" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "按当前方式发送" }));
     expect(onConfirmExecution).toHaveBeenCalledWith("changed-execution");
     expect(onRetry).not.toHaveBeenCalled();
   });

@@ -564,11 +564,8 @@ describe("Project conversation session owner", () => {
     expect(fixture.api.createDemandConversation).toHaveBeenCalledTimes(1);
     expect(fixture.ui.restoreView).toHaveBeenLastCalledWith({ orchestrationOpen: false, settingsOpen: false });
     expect(result.current.selectedTopic).toBe("conv-created");
-    expect(result.current.pendingDemandConversation).toMatchObject({
-      id: "conv-created",
-      canonical: true,
-      phase: "reconciling",
-    });
+    expect(result.current.pendingDemandConversation).toBeNull();
+    expect(result.current.snapshot.center.selectedTopic?.id).toBe("conv-created");
     expect(routed.map((event) => event.event)).toEqual(["topic.created"]);
   });
 
@@ -633,6 +630,7 @@ describe("Project conversation session owner", () => {
         event: "conversation.turn-control.invalidated",
         data: { conversationId: "conv-correct", attemptId: "attempt-correct" },
       });
+      onEvent({ event: "assistant.delta", data: { projectId: "repo-1", productMode: "agent", conversationId: "conv-correct", delta: "still receiving" } });
       await streamPending;
     });
     const { result } = renderHook(() => useProjectConversationSession({
@@ -664,12 +662,13 @@ describe("Project conversation session owner", () => {
             title: event.data.topic.title,
             selectedProviderId: event.data.topic.selectedProviderId,
           });
+          void result.current.refresh("repo-1", "conv-correct");
         }
       });
     });
 
     await waitFor(() => expect(result.current.selectedTopic).toBe("conv-correct"));
-    expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status", "conversation.turn-control.invalidated"]);
+    expect(routed.map((event) => event.event)).toEqual(["topic.created", "run.status", "conversation.turn-control.invalidated", "assistant.delta"]);
     expect(routed[0]?.data.clientRequestId).toBe("request-correct");
     expect(routed.every((event) => event.data.conversationId === "conv-correct")).toBe(true);
     await waitFor(() => expect(fixture.api.loadSnapshot).toHaveBeenCalledWith("repo-1", "agent", "conv-correct"));

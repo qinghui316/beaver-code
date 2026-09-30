@@ -135,7 +135,7 @@ describe("Conversation action controller", () => {
     const harness = controllerHarness();
     const { result } = renderHook(() => useConversationActionController(harness.options));
 
-    await act(async () => result.current.interruptAgentTurn({
+    await act(async () => result.current.interruptTurn({
       projectId: "repo-1",
       conversationId: "conversation-1",
       providerId: "codex",

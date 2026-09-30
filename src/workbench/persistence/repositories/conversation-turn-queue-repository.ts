@@ -8,11 +8,52 @@ import type {
   StoredConversationTurnQueue,
 } from "../contracts.js";
 import type { SqliteRow } from "../sql-mappers.js";
+import type { ConversationDeliveryOperation, ConversationDeliveryPhase } from "../../conversation-turn-queue-contract.js";
 
 const ACTIVE_STATUSES: StoredConversationQueuedTurnStatus[] = ["queued", "dispatching", "blocked"];
 
 export class ConversationTurnQueueRepository {
   constructor(private readonly db: Database.Database) {}
+
+  readDelivery(projectId: string, conversationId: string, clientRequestId: string): ConversationDeliveryOperation | null {
+    return this.listDeliveries(projectId, conversationId).find((item) => item.clientRequestId === clientRequestId) ?? null;
+  }
+
+  listDeliveries(projectId: string, conversationId: string): ConversationDeliveryOperation[] {
+    const rows = this.db.prepare(`SELECT project_id AS projectId, conversation_id AS conversationId,
+      product_mode AS productMode, client_request_id AS clientRequestId, queue_item_id AS queueItemId,
+      request_hash AS requestHash, mode, provider_id AS providerId, attempt_id AS attemptId,
+      execution_revision AS executionRevision, phase, message_id AS messageId, diagnostic,
+      created_at AS createdAt, updated_at AS updatedAt FROM conversation_input_deliveries
+      WHERE project_id = ? AND conversation_id = ? ORDER BY created_at, rowid`).all(projectId, conversationId);
+    return rows as ConversationDeliveryOperation[];
+  }
+
+  unsettledDelivery(projectId: string, conversationId: string): ConversationDeliveryOperation | null {
+    return this.listDeliveries(projectId, conversationId).find((item) => item.phase !== "completed" && item.phase !== "rejected") ?? null;
+  }
+
+  insertDelivery(operation: ConversationDeliveryOperation): void {
+    this.db.prepare(`INSERT INTO conversation_input_deliveries
+      (project_id, conversation_id, product_mode, client_request_id, queue_item_id, request_hash,
+       mode, provider_id, attempt_id, execution_revision, phase, message_id, diagnostic, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      operation.projectId, operation.conversationId, operation.productMode, operation.clientRequestId,
+      operation.queueItemId, operation.requestHash, operation.mode, operation.providerId,
+      operation.attemptId, operation.executionRevision, operation.phase, operation.messageId,
+      operation.diagnostic, operation.createdAt, operation.updatedAt,
+    );
+  }
+
+  transitionDelivery(operation: ConversationDeliveryOperation, phase: ConversationDeliveryPhase, messageId: string | null = operation.messageId, diagnostic: string | null = null): ConversationDeliveryOperation {
+    const updatedAt = new Date().toISOString();
+    const result = this.db.prepare(`UPDATE conversation_input_deliveries SET phase = ?, message_id = ?, diagnostic = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND client_request_id = ? AND request_hash = ? AND phase = ?`).run(
+      phase, messageId, diagnostic, updatedAt, operation.projectId, operation.conversationId, operation.clientRequestId, operation.requestHash, operation.phase,
+    );
+    if (result.changes !== 1) throw conflict("Input delivery changed before settlement.");
+    return { ...operation, phase, messageId, diagnostic, updatedAt };
+  }
 
   readQueue(projectId: string, conversationId: string): StoredConversationTurnQueue | null {
     const row = this.db.prepare(`
@@ -255,6 +296,7 @@ export class ConversationTurnQueueRepository {
   }
 
   deleteConversationQueue(projectId: string, conversationId: string): void {
+    this.db.prepare("DELETE FROM conversation_input_deliveries WHERE project_id = ? AND conversation_id = ?").run(projectId, conversationId);
     this.db.prepare("DELETE FROM conversation_turn_queue_contract_confirmations WHERE project_id = ? AND conversation_id = ?")
       .run(projectId, conversationId);
     this.db.prepare("DELETE FROM conversation_turn_queue_items WHERE project_id = ? AND conversation_id = ?")

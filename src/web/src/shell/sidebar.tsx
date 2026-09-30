@@ -81,13 +81,11 @@ export function ProjectConversationSidebar(props: ProjectNavigationSurfaceProps 
                 <ResponsiveActionMenu open={overlay.kind === "project-actions" && overlay.projectId === projectId} onOpenChange={(open) => open ? props.onOpenProjectActions(projectId) : props.onCloseOverlay()} trigger={<MoreHorizontal size={15} />} triggerLabel={`${projectName} 项目菜单`} menuLabel={`${projectName} 项目菜单`} items={projectItems} />
               </span>
             </div>
-            {expanded ? <div className="conversation-list">
+            {expanded && (grouped.active.length > 0 || navigationError || (lifecycleError && selected) || (!projectUnavailable && canNavigateConversations && !projectNavigation && !projectSnapshot)) ? <div className="conversation-list">
               {lifecycleError && selected ? <div className="conversation-lifecycle-error" role="alert">{lifecycleError}</div> : null}
-              {!projectUnavailable && canNavigateConversations && !projectNavigation && !navigationError ? <div className="conversation-placeholder">正在加载对话。</div> : null}
+              {!projectUnavailable && canNavigateConversations && !projectNavigation && !projectSnapshot && !navigationError ? <div className="conversation-placeholder">正在加载对话。</div> : null}
               {navigationError ? <div className="conversation-placeholder" role="status">{navigationError} <button type="button" onClick={() => concreteProjectId && void props.onRetryNavigation?.(concreteProjectId)}>重试</button></div> : null}
-              {!projectUnavailable && !canNavigateConversations && !projectSnapshot && !projectNavigation && !navigationError ? <div className="conversation-placeholder">创建第一条会话即可开始使用。</div> : null}
               {grouped.active.map((conversation) => <ConversationRow key={conversation.id} projectId={concreteProjectId} conversation={conversation} archived={false} props={props} runLifecycleAction={runLifecycleAction} onDelete={setDeleteConfirmation} onLifecycleError={setLifecycleError} />)}
-              {canNavigateConversations && projectNavigation && conversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
             </div> : null}
           </div>;
         })}
@@ -115,7 +113,7 @@ function ConversationRow({ projectId, conversation, archived, props, runLifecycl
     { id: "rename", label: "重命名", icon: <Pencil size={14} />, onSelect: () => projectId && props.onOpenRenameConversation(projectId, conversation.id, conversation.title) },
     { id: "archive", label: "归档", icon: <Archive size={14} />, disabled: !conversation.lifecycle?.canArchive, disabledReason: conversation.lifecycle?.disabledReason, onSelect: () => projectId && conversation.lifecycle && void runLifecycleAction(props.onArchiveConversation(projectId, conversation.id, conversation.lifecycle.lifecycleRevision)) },
   ];
-  return <div className={`conversation-row-wrap${archived ? " archived" : ""}${conversation.selected ? " selected" : ""}`}><button className={`conversation-row${conversation.selected ? " selected" : ""}`} onClick={() => projectId && void props.onChooseConversation(projectId, conversation.id)}><span>{conversation.title}</span><small>{archived ? "已归档" : conversation.userStatusLabel}</small>{conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}</button><ResponsiveActionMenu open={open} onOpenChange={(next) => next && projectId ? props.onOpenConversationActions(projectId, conversation.id) : props.onCloseOverlay()} trigger={<MoreHorizontal size={14} />} triggerLabel={`${conversation.title} 会话菜单`} triggerClassName="conversation-more" menuLabel={`${conversation.title} 会话菜单`} items={items} /></div>;
+  return <div className={`conversation-row-wrap${archived ? " archived" : ""}${conversation.selected ? " selected" : ""}`}><button className={`conversation-row${conversation.selected ? " selected" : ""}`} onClick={() => projectId && void props.onChooseConversation(projectId, conversation.id)}><span>{conversation.title}</span>{conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}</button><ResponsiveActionMenu open={open} onOpenChange={(next) => next && projectId ? props.onOpenConversationActions(projectId, conversation.id) : props.onCloseOverlay()} trigger={<MoreHorizontal size={14} />} triggerLabel={`${conversation.title} 会话菜单`} triggerClassName="conversation-more" menuLabel={`${conversation.title} 会话菜单`} items={items} /></div>;
 }
 
 function ProjectFormDialog({ overlay, onClose, onDone }: { overlay: ProjectNavigationSurfaceProps["overlay"]; onClose: () => void; onDone: (projectId?: string) => Promise<void> }): ReactElement {

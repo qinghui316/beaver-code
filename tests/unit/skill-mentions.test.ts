@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractInlineSkillMentions } from "../../src/web/src/shell/skill-mentions.js";
+import { extractInlineSkillMentions } from "../../src/web/src/input/mentions.js";
 import type { SkillListItem } from "../../src/web/src/types.js";
 
 const skills: SkillListItem[] = [{

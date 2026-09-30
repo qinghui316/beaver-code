@@ -335,7 +335,7 @@ describe("workbench server", () => {
     expect(closeHandle.server.listening).toBe(false);
   });
 
-  it("serves the exact Agent Turn interrupt JSON contract and rejects Harness mode before the Owner", async () => {
+  it("serves the shared Agent and Harness exact Turn interrupt JSON contract", async () => {
     await new Promise<void>((resolve) => handle!.server.close(() => resolve()));
     const interrupt = vi.fn(async () => ({ status: "interrupt-requested" as const, attemptId: "attempt-agent", runId: "run-agent" }));
     const turnControl = {
@@ -357,8 +357,8 @@ describe("workbench server", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ productMode: "harness", providerId: "codex", expectedAttemptId: "attempt-agent" }),
     });
-    expect(wrongMode.status).toBe(409);
-    expect(interrupt).not.toHaveBeenCalled();
+    expect(wrongMode.status).toBe(200);
+    expect(interrupt).toHaveBeenCalledWith(project(), expect.objectContaining({ productMode: 'harness' }));
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -422,7 +422,7 @@ describe("workbench server", () => {
       expectedAttemptId: "attempt-agent",
       clientRequestId: "steer-1",
       text: "constraint",
-    });
+    }, expect.any(Function));
   });
 
   it("serves one shared Agent/AHO context compact JSON contract", async () => {

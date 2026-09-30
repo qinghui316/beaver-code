@@ -144,3 +144,20 @@ function safeTokenEqual(left: string, right: string): boolean {
   const rightBytes = Buffer.from(right, "utf8");
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
+
+export function requireAccessRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    const error = new Error("Access revision is invalid.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return value;
+}
+
+export function requireExpectedUpdatedAt(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value))) return value;
+  const error = new Error("Composer draft expectedUpdatedAt must be null or a valid timestamp.");
+  error.name = "BadRequest";
+  throw error;
+}

@@ -3,7 +3,7 @@ import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../
 import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-contract.js";
 export type { ProductModeActivityIndicator, ProductModeActivityState, ProjectProductModeActivitySnapshot } from "../../workbench/product-mode-activity.js";
 export type { ConversationContextSnapshot, ProviderContextLifecycleState } from "../../workbench/conversation-context-lifecycle.js";
-export type { ConversationQueuedTurn, ConversationQueuedTurnInput, ConversationTurnQueueSnapshot } from "../../workbench/conversation-turn-queue.js";
+export type { ConversationQueuedTurn, ConversationQueuedTurnInput, ConversationTurnQueueSnapshot } from "../../workbench/conversation-turn-queue-contract.js";
 export type { ConversationDeleteConfirmation, ConversationLifecycleReceipt, ConversationLifecycleSnapshot } from "../../workbench/conversation-lifecycle.js";
 export type { ProviderReviewTarget } from "../../provider-runtime/index.js";
 import type { ConversationContextSnapshot } from "../../workbench/conversation-context-lifecycle.js";
@@ -1421,6 +1421,7 @@ export type ThreadStreamAction = {
   reworkAuditRunId?: string;
 };
 export type ThreadStreamItem = {
+  transcriptReading?: import("../../workbench/types.js").AssistantTranscriptReading;
   id: string;
   kind: "user-message" | "assistant-turn" | "assistant-message" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
   label: string;
@@ -1639,6 +1640,8 @@ export type CanonicalTimelineEnvelope = {
   revision: number;
   orderClass: "sequence" | "thread-start";
   cells: ParentAgentTranscriptCell[];
+  /** Renderer-only placement; never part of the server timeline DTO. */
+  optimisticPlacement?: { afterMessageId: string | null; submissionOrdinal: number };
 };
 export type CanonicalTimelinePage = {
   projectId: string;

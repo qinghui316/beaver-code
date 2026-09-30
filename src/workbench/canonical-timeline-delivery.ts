@@ -28,7 +28,7 @@ export class CanonicalTimelineDelivery {
   }
 
   publishCommitted(row: StoredTopicMessage): CanonicalTimelineEnvelope {
-    return publishCommittedCanonicalTimelineRow(this.target, row, this.productMode);
+    return publishCommittedCanonicalTimelineRow(this.target, row, this.productMode, (id) => this.database.timeline.readMessage(row.projectId, row.conversationId, id));
   }
 
   publishCommittedMany(rows: readonly StoredTopicMessage[]): CanonicalTimelineEnvelope[] {
@@ -51,8 +51,9 @@ export function publishCommittedCanonicalTimelineRow(
   target: WorkbenchLiveSink | CanonicalTimelinePublisher | undefined,
   row: StoredTopicMessage,
   productMode: ProductMode,
+  resolveSource?: (id: string) => StoredTopicMessage | null,
 ): CanonicalTimelineEnvelope {
-  const envelope = projectCanonicalTimelineEnvelope(row, productMode);
+  const envelope = projectCanonicalTimelineEnvelope(row, productMode, resolveSource);
   try {
     if (typeof target === "function") target(envelope);
     else target?.emit({ event: "timeline.patch", data: envelope });

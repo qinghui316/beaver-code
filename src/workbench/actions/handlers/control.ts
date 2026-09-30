@@ -1,9 +1,8 @@
 import { requestRunStop } from "../../../run/control.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
-import { appendCanonicalTimelineEntry, openCanonicalTimelineWriter } from "../../canonical-timeline-command.js";
+import { appendCanonicalTimelineEntry } from "../../canonical-timeline-command.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import type { WorkbenchLiveSink } from "../../types.js";
-import { conversationSteerTimelineIds } from "../../conversation-turn-control.js";
 
 export interface ConversationControlDeps {
   findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null>;
@@ -77,31 +76,6 @@ export async function steerConversation(
   }
   if (receipt.status === "already-terminal") return { ...receipt, realtime: false };
 
-  const writer = await openCanonicalTimelineWriter(project, changeId, live);
-  const timestamp = new Date().toISOString();
-  const { userId, ackId } = conversationSteerTimelineIds(receipt.attemptId, requestId);
-  try {
-    writer.upsert({
-      id: userId,
-      type: "user.message",
-      timestamp,
-      changeId,
-      text: message,
-      status: "steering-sent",
-      runId: receipt.runId,
-    });
-    writer.upsert({
-      id: ackId,
-      type: "assistant.message",
-      timestamp,
-      changeId,
-      status: "steering-sent",
-      runId: receipt.runId,
-      text: "已发送给当前执行。",
-    });
-  } finally {
-    writer.close();
-  }
   emitAssistantEvent(live, {
     runId: receipt.runId,
     kind: "status",

@@ -30,6 +30,7 @@ import { AgentNativeChildLifecycleService, runAgentNativeChildFollowup } from ".
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import { DirectAgentConversationTurnStrategy } from "../../src/workbench/direct-agent-conversation-turn-strategy.js";
 import { ConversationTurnControlOwner } from "../../src/workbench/conversation-turn-control.js";
+import { ConversationInputDeliveryService } from "../../src/workbench/conversation-input-delivery.js";
 import { reconcileStaleAgentMainAttempts } from "../../src/workbench/agent-main-attempt-recovery.js";
 import { TurnAttachmentResolver } from "../../src/workbench/turn-attachment-resolver.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -57,6 +58,47 @@ afterEach(async () => {
 });
 
 describe("DirectAgentConversationTurnStrategy", () => {
+  it("persists late accepted steering before terminalization and publishes source-bound reading segments", async () => {
+    const releaseProvider = deferred<void>();
+    const providerEntered = deferred<void>();
+    const acceptInput = deferred<void>();
+    const provider = fakeProvider({ waitForRelease: releaseProvider.promise, onEntered: () => providerEntered.resolve(),
+      onSteer: () => acceptInput.promise, realtime: true, lifecycleEvents: true });
+    const registry = new ProviderRegistry();
+    registry.register(provider.descriptor);
+    const projectRuntimeCoordinator = { resolve: async () => ({ state: "onboarding", project: fixture.project, paths: fixture.paths }) } as never;
+    const turnControl = new ConversationTurnControlOwner({ providerRegistry: registry, projectRuntimeCoordinator, onInvalidated: () => undefined });
+    const delivery = new ConversationInputDeliveryService({ projectRuntimeCoordinator, turnControl, turnRouter: {} as never, reviewDispatch: {} as never });
+    const strategy = new DirectAgentConversationTurnStrategy({ providerRegistry: registry, resolveRuntimePaths: () => fixture.paths, turnControl });
+    const input = await initialTurnInput(fixture, "first demand");
+    const events: WorkbenchLiveEvent[] = [];
+    input.live = { emit: (event) => { events.push(event); } };
+    let settled = false;
+    const running = strategy.execute(input, emptyPorts()).finally(() => { settled = true; });
+    await providerEntered.promise;
+    const target = provider.requests[0]!;
+    const steering = delivery.steer(fixture.project, { projectId: fixture.project.id, conversationId: input.conversation.conversationId,
+      productMode: "agent", providerId: "codex", expectedAttemptId: target.attemptId, clientRequestId: "late-input", text: "second demand" });
+    await vi.waitFor(() => expect(provider.steers).toEqual(["second demand"]));
+    releaseProvider.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+    acceptInput.resolve();
+    await expect(steering).resolves.toMatchObject({ status: "steer-accepted" });
+    await running;
+    const db = await openProjectRuntimeWorkbenchDatabase(fixture.paths);
+    try {
+      const rows = db.timeline.listConversationMessages(fixture.project.id, input.conversation.conversationId);
+      const guide = rows.find((row) => row.text === "second demand")!;
+      const rootMessage = rows.find((row) => row.type === "assistant.message" && row.agentSurfaceId === "main-agent")!;
+      const segment = rows.find((row) => row.type === "assistant.transcript-segment")!;
+      expect(rootMessage.position).toBeLessThan(guide.position);
+      expect(guide.position).toBeLessThan(segment.position);
+      const finalSegment = events.filter((event) => event.event === "timeline.patch" && event.data.messageId === segment.id).at(-1);
+      expect(finalSegment?.event === "timeline.patch" ? finalSegment.data.cells : []).toEqual(expect.arrayContaining([expect.objectContaining({ activityKind: "turn", forkTarget: expect.objectContaining({ sourceMessageId: rootMessage.id }) })]));
+      expect(db.timeline.listRecentSemanticMessages(fixture.project.id, input.conversation.conversationId, 20).some((row) => row.type === "assistant.transcript-segment")).toBe(false);
+    } finally { db.close(); }
+  });
   it("runs from an onboarding project path with Agent readiness and persists no-delta output", async () => {
     const skillPath = join(root, "ordinary-skill", "SKILL.md");
     await mkdir(dirname(skillPath), { recursive: true });
@@ -1477,6 +1519,8 @@ interface FakeProviderBehavior {
   interruptErrors?: Error[];
   interruptResult?: "interrupt-requested" | "already-terminal";
   steerErrors?: Array<Error | undefined>;
+  onSteer?: () => Promise<void>;
+  lifecycleEvents?: boolean;
   onEntered?: () => void;
   skills?: ProviderNativeSkill[];
   childCapability?: boolean;
@@ -1582,6 +1626,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
           startedAt: new Date().toISOString(),
           steer: async (input) => {
             steers.push(input);
+            await behavior.onSteer?.();
             const error = behavior.steerErrors?.shift();
             if (error) throw error;
           },
@@ -1605,6 +1650,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
           sessionId,
           turnId: "turn-1",
         });
+        if (behavior.lifecycleEvents) request.onRealtimeEvent?.(realtime(request, { type: "status", label: "thinking", raw: {} }, { sessionId, threadId: sessionId }));
         if (!behavior.beforeActive) behavior.onEntered?.();
         if (behavior.waitForRelease) await behavior.waitForRelease;
         if (behavior.realtime) {
@@ -1717,6 +1763,7 @@ function fakeProvider(behavior: FakeProviderBehavior = {}): {
           return result(request, behavior.userInputResolved ? "completed" : "interrupted", sessionId);
         }
         active = null;
+        if (behavior.lifecycleEvents) request.onRealtimeEvent?.(realtime(request, { type: "turn_completed", status: "completed", raw: {} }, { sessionId, threadId: sessionId }));
         return result(request, behavior.status, sessionId);
       },
       inspectChild: async (request) => {

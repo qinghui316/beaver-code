@@ -39,6 +39,7 @@ export const WORKBENCH_PROJECT_IDENTITY_COLUMNS: readonly SqliteProjectIdentityC
   { table: "conversation_turn_queues", column: "project_id" },
   { table: "conversation_turn_queue_items", column: "project_id" },
   { table: "conversation_turn_queue_contract_confirmations", column: "project_id" },
+  { table: "conversation_input_deliveries", column: "project_id" },
   { table: "approval_cache", column: "project_id" },
   { table: "decision_records", column: "project_id" },
   { table: "conversation_fork_operations", column: "project_id" },
@@ -82,6 +83,10 @@ export function migrateSqliteProjectIdentity(
     const before = snapshotTables(database, tables, allowlist, sourceProjectId, targetProjectId);
     let updatedRows = 0;
     database.transaction(() => {
+      // The staged database is isolated. Restore the exact identity guard within
+      // the same transaction after changing the allowlisted project identities.
+      const deliveryGuard = database.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='trg_delivery_identity_update'").get() as { sql: string } | undefined;
+      if (deliveryGuard && allowlist.get("conversation_input_deliveries")?.has("project_id")) database.exec("DROP TRIGGER trg_delivery_identity_update");
       for (const table of tables) {
         const columns = allowlist.get(table.name) ?? new Set<string>();
         for (const column of columns) {
@@ -92,6 +97,7 @@ export function migrateSqliteProjectIdentity(
           updatedRows += result.changes;
         }
       }
+      if (deliveryGuard && allowlist.get("conversation_input_deliveries")?.has("project_id")) database.exec(deliveryGuard.sql);
     })();
     assertIdentityValuesAreCanonical(database, tables, allowlist, sourceProjectId, targetProjectId);
     const after = snapshotTables(database, tables, allowlist, sourceProjectId, targetProjectId);

@@ -289,7 +289,7 @@ listRecentSemanticMessages(projectId: string, conversationId: string, limit: num
         provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
       FROM canonical_timeline_items
-      WHERE project_id = ? AND conversation_id = ?
+      WHERE project_id = ? AND conversation_id = ? AND type != 'assistant.transcript-segment'
       ORDER BY position DESC
       LIMIT ?
     `).all(projectId, conversationId, limit) as SqliteRow[]).map(mapMessageRow).reverse();

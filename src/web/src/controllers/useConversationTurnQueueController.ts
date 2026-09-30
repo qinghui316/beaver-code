@@ -26,7 +26,8 @@ export function useConversationTurnQueueController(input: {
   const snapshotCalibrationKeyRef = useRef<string | null>(null);
   const responseGenerationRef = useRef(0);
   const dispatchRevisionRef = useRef<string | null>(null);
-  const enqueueRetryRef = useRef<{ key: string; clientRequestId: string } | null>(null);
+  const enqueueRetryRef = useRef(new Map<string, ConversationTurnQueueEnqueueInput & { productMode: ProductMode; clientRequestId: string; expectedRevision: string; expectedExecutionRevision: string }>());
+  const guideRetryRef = useRef(new Map<string, Record<string, unknown>>());
   const confirmationRetryRef = useRef<{ key: string; clientRequestId: string } | null>(null);
   const invalidationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const executionKeyRef = useRef(input.executionKey ?? "");
@@ -65,8 +66,8 @@ export function useConversationTurnQueueController(input: {
 
   useEffect(() => {
     dispatchRevisionRef.current = null;
-    enqueueRetryRef.current = null;
     confirmationRetryRef.current = null;
+    setMutating(false);
     setSnapshot(null);
     setSnapshotCalibrationKey(null);
     snapshotCalibrationKeyRef.current = null;
@@ -116,22 +117,16 @@ export function useConversationTurnQueueController(input: {
   }, [load]);
 
   const enqueue = useCallback(async (queuedInput: ConversationTurnQueueEnqueueInput) => {
-    const key = JSON.stringify(queuedInput);
-    const clientRequestId = enqueueRetryRef.current?.key === key
-      ? enqueueRetryRef.current.clientRequestId
-      : createRequestId("turn-queue");
-    enqueueRetryRef.current = { key, clientRequestId };
+    const key = `${identityRef.current}\0${JSON.stringify({ ...queuedInput, expectedDraftUpdatedAt: undefined })}`;
     const result = await applyMutation((current, currentSnapshot) => {
       if (!currentSnapshot.executionRevision) throw new Error("Conversation execution identity is unavailable.");
-      return postJson<ConversationTurnQueueSnapshot>(baseQueueUrl(current), {
-        ...queuedInput,
-        productMode: current.productMode,
-        clientRequestId,
-        expectedRevision: currentSnapshot.revision,
-        expectedExecutionRevision: currentSnapshot.executionRevision,
-      });
+      if (!enqueueRetryRef.current.has(key)) enqueueRetryRef.current.set(key, structuredClone({
+        ...queuedInput, productMode: current.productMode, clientRequestId: createRequestId("turn-queue"),
+        expectedRevision: currentSnapshot.revision, expectedExecutionRevision: currentSnapshot.executionRevision,
+      }));
+      return postJson<ConversationTurnQueueSnapshot>(baseQueueUrl(current), enqueueRetryRef.current.get(key)!);
     });
-    if (result) enqueueRetryRef.current = null;
+    if (result) enqueueRetryRef.current.delete(key);
     return result;
   }, [applyMutation]);
 
@@ -143,6 +138,24 @@ export function useConversationTurnQueueController(input: {
     if (!response.ok) throw new Error(await response.text());
     return response.json() as Promise<ConversationTurnQueueSnapshot>;
   }), [applyMutation]);
+
+  const guide = useCallback(async (queueItemId: string) => {
+    const key = `${identityRef.current}\0${queueItemId}`;
+    const result = await applyMutation((current, currentSnapshot) => {
+      const item = currentSnapshot.items.find((candidate) => candidate.queueItemId === queueItemId);
+      if (!guideRetryRef.current.has(key)) {
+        if (!currentSnapshot.guideTarget || !currentSnapshot.executionRevision || !item?.guideMode || item.guideMode === "unavailable") throw new Error("当前执行暂不允许引导。");
+        guideRetryRef.current.set(key, {
+          productMode: current.productMode, expectedRevision: currentSnapshot.revision,
+          expectedExecutionRevision: currentSnapshot.executionRevision, providerId: currentSnapshot.guideTarget.providerId,
+          expectedAttemptId: currentSnapshot.guideTarget.attemptId, clientRequestId: createRequestId("turn-queue-guide"),
+        });
+      }
+      return postJson<ConversationTurnQueueSnapshot>(`${baseQueueUrl(current)}/${encodeURIComponent(queueItemId)}/guide`, guideRetryRef.current.get(key)!);
+    });
+    if (result) guideRetryRef.current.delete(key);
+    return result;
+  }, [applyMutation]);
 
   const reclaim = useCallback((queueItemId: string, expectedDraftUpdatedAt: string | null) => applyMutation(
     (current, currentSnapshot) => postJson<ConversationTurnQueueSnapshot>(
@@ -181,7 +194,7 @@ export function useConversationTurnQueueController(input: {
         expectedTargetContract: compatibility.target,
       },
     ));
-    if (result) confirmationRetryRef.current = null;
+    if (result && confirmationRetryRef.current?.key === key) confirmationRetryRef.current = null;
     return result;
   }, [applyMutation]);
 
@@ -238,10 +251,11 @@ export function useConversationTurnQueueController(input: {
     && snapshotCalibrationKey !== currentCalibrationKey;
   return {
     snapshot: currentSnapshot,
-    loading: loading || calibrating,
+    loading: (loading && !currentSnapshot) || calibrating,
     mutating,
     load,
     enqueue,
+    guide,
     remove,
     reclaim,
     retry,

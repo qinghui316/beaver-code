@@ -118,6 +118,7 @@ describe("Workbench module boundaries", () => {
     expect(directWrites).toEqual([
       "src/workbench/canonical-timeline-delivery.ts",
       "src/workbench/conversation-fork-lifecycle.ts",
+      "src/workbench/conversation-input-commit.ts",
       "src/workbench/conversation-review-lifecycle.ts",
       "src/workbench/persistence/repositories/conversation-context-repository.ts",
       "src/workbench/persistence/repositories/interaction-repository.ts",

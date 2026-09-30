@@ -188,13 +188,14 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       subOrder: 0,
     };
   }
-  if (message.type === "assistant.message") {
+  if (message.type === "assistant.message" || message.type === "assistant.transcript-segment") {
     return {
       id: message.id,
       kind: "assistant-turn",
       label: "AI",
       timestamp: message.timestamp,
       body: message.text,
+      transcriptReading: message.transcriptReading,
       source: "chat",
       artifact: message.artifact,
       status: message.status,

@@ -122,6 +122,7 @@ export interface ProjectConversationSessionPorts {
     syncLocation(projectId: string | null, conversationId: string | null): void;
   };
   timeline?: {
+    cacheEvent?(projectId: string, productMode: ProductMode, conversationId: string, event: WorkbenchLiveEvent): void;
     invalidateProjection(): void;
     clearProject(projectId: string): void;
     clearConversation(projectId: string, conversationId: string): void;
@@ -169,6 +170,9 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const projectRequestGenerationRef = useRef(0);
   const [pendingDemandConversation, setPendingDemandConversation] = useState<PendingDemandConversation | null>(null);
   const requestGenerationRef = useRef(0);
+  // Snapshot requests may supersede one another without invalidating a turn.
+  // Only navigation changes invalidate a submission's selection identity.
+  const selectionEpochRef = useRef(0);
   const productModeRef = useRef<ProductMode>(requestedProductMode);
   const streamEffectGenerationRef = useRef(0);
   const pendingDemandRef = useRef<PendingDemandConversation | null>(null);
@@ -255,6 +259,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     conversationId: string | null,
     targetProductMode: ProductMode = productModeRef.current,
   ): number => {
+    ++selectionEpochRef.current;
     const generation = ++requestGenerationRef.current;
     const previous = stateRef.current;
     portsRef.current.operations?.invalidate();
@@ -350,6 +355,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   }, [refreshAtGeneration]);
 
   const loadApp = useCallback(async (): Promise<void> => {
+    ++selectionEpochRef.current;
     const generation = ++requestGenerationRef.current;
     const requestProductMode = productModeRef.current;
     const currentPorts = portsRef.current;
@@ -511,6 +517,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setNavigationErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${projectId}\0`))));
     setExpandedProjects((current) => withoutSetValue(current, projectId));
     if (stateRef.current.selectedProjectId === projectId) {
+      ++selectionEpochRef.current;
       portsRef.current.operations?.invalidate();
       portsRef.current.resources?.cleanupTransition("project-changed");
       navigation(portsRef.current).clearPersistedProjectId();
@@ -644,6 +651,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     startedAt?: string;
     productMode?: ProductMode;
   }): PendingDemandConversation => {
+    ++selectionEpochRef.current;
+    ++requestGenerationRef.current;
     const pending: PendingDemandConversation = {
       ...input,
       productMode: input.productMode ?? productModeRef.current,
@@ -658,6 +667,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setStream(null);
     setPendingDemandConversation(pending);
     pendingDemandRef.current = pending;
+    stateRef.current = { ...stateRef.current, selectedProjectId: input.projectId, selectedTopic: pending.id, pendingDemandConversation: pending };
     navigation(portsRef.current).persistProjectId(input.projectId);
     navigation(portsRef.current).syncLocation(input.projectId, pending.id);
     return pending;
@@ -735,6 +745,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     };
     setPendingDemandConversation(canonical);
     pendingDemandRef.current = canonical;
+    stateRef.current = { ...stateRef.current, selectedProjectId: input.projectId, selectedTopic: input.conversationId, pendingDemandConversation: canonical };
     return "rekeyed";
   }, []);
 
@@ -746,7 +757,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     let boundConversationId: string | null = null;
     const requestOwnsCurrentSelection = request.productMode === productModeRef.current
       && stateRef.current.selectedProjectId === request.projectId;
-    let requestGeneration = requestGenerationRef.current;
+    let selectionEpoch = selectionEpochRef.current;
     if (request.showPendingBeforeCreate && requestOwnsCurrentSelection) {
       portsRef.current.ui?.restoreView({ orchestrationOpen: false, settingsOpen: false });
       beginPendingDemand({
@@ -758,11 +769,13 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
         body: request.body,
         selectedProviderId: request.providerId,
       });
-      requestGeneration = requestGenerationRef.current;
-    } else if (requestOwnsCurrentSelection) requestGeneration = ++requestGenerationRef.current;
-    const canApplyToCurrentSelection = (): boolean => requestGenerationRef.current === requestGeneration
+      selectionEpoch = selectionEpochRef.current;
+    } else if (requestOwnsCurrentSelection) ++requestGenerationRef.current;
+    const canApplyToCurrentSelection = (): boolean => selectionEpochRef.current === selectionEpoch
       && productModeRef.current === request.productMode
-      && stateRef.current.selectedProjectId === request.projectId;
+      && stateRef.current.selectedProjectId === request.projectId
+      && (stateRef.current.selectedTopic === (boundConversationId ?? `pending:${request.clientRequestId}`)
+        || (!request.showPendingBeforeCreate && stateRef.current.selectedTopic === previousConversationId));
     try {
       await sessionApi(portsRef.current).createDemandConversation(request, (event) => {
           if (event.event === "topic.created") {
@@ -785,14 +798,15 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
                   selectedProviderId: event.data.topic.selectedProviderId,
                 });
                 if (rekeyResult === "rejected") return;
-                if (rekeyResult !== "not-pending") requestGeneration = requestGenerationRef.current;
               }
+              if (!canApplyToCurrentSelection()) portsRef.current.timeline?.rekeyConversation?.({ projectId: request.projectId, productMode: request.productMode, conversationId: `pending:${request.clientRequestId}` }, eventConversationId, request.clientRequestId);
               boundConversationId = eventConversationId;
             }
             if (canApplyToCurrentSelection()) routeEvent(request.projectId, event);
             return;
           }
           if (!boundConversationId) return;
+          if (!canApplyToCurrentSelection() && boundConversationId) portsRef.current.timeline?.cacheEvent?.(request.projectId, request.productMode, boundConversationId, event);
           const exactTurnControlInvalidation = event.event === "conversation.turn-control.invalidated"
             && event.data.conversationId === boundConversationId;
           if (canApplyToCurrentSelection() && (exactTurnControlInvalidation || eventMatchesConversationScope(event, {
@@ -802,11 +816,10 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
           }))) {
             routeEvent(request.projectId, event);
             if (event.event === "conversation.turn-control.invalidated") {
-              requestGeneration = ++requestGenerationRef.current;
               void refreshAtGeneration(
                 request.projectId,
                 boundConversationId,
-                requestGeneration,
+                ++requestGenerationRef.current,
                 request.productMode,
               ).catch(reportError);
             }
@@ -977,6 +990,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   }, []);
 
   const cancelPendingDemand = useCallback((restoreConversationId: string | null): void => {
+    ++selectionEpochRef.current;
     ++requestGenerationRef.current;
     setPendingDemandConversation(null);
     pendingDemandRef.current = null;
@@ -984,10 +998,10 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     navigation(portsRef.current).syncLocation(stateRef.current.selectedProjectId, restoreConversationId);
   }, []);
 
-  const acceptSnapshot = useCallback((projectId: string, next: Snapshot, expectedEpoch = requestGenerationRef.current): void => {
+  const acceptSnapshot = useCallback((projectId: string, next: Snapshot, expectedEpoch = selectionEpochRef.current): void => {
     const expectedMode = productModeRef.current;
     if (stateRef.current.selectedProjectId !== projectId
-      || !isCurrentSelection(expectedEpoch, expectedMode, requestGenerationRef, productModeRef)
+      || !isCurrentSelection(expectedEpoch, expectedMode, selectionEpochRef, productModeRef)
       || !snapshotMatchesSelection(next, projectId, expectedMode, stateRef.current.selectedTopic)) return;
     const conversationId = next.center.selectedTopic?.id ?? null;
     const selectedConversationId = stateRef.current.selectedTopic;
@@ -1032,6 +1046,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
 
   const switchProductMode = useCallback(async (targetProductMode: ProductMode): Promise<void> => {
     if (targetProductMode === productModeRef.current) return;
+    ++selectionEpochRef.current;
     const projectId = stateRef.current.selectedProjectId;
     const generation = ++requestGenerationRef.current;
     const previous = stateRef.current;
@@ -1109,6 +1124,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     });
     return () => {
       active = false;
+      selectionEpochRef.current += 1;
       requestGenerationRef.current += 1;
     };
   }, [loadApp, ports.autoLoad, reportError]);
@@ -1148,7 +1164,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   return {
     projects,
     productMode,
-    selectionEpoch: requestGenerationRef.current,
+    selectionEpoch: selectionEpochRef.current,
     selectedProjectId,
     snapshot,
     snapshotError,

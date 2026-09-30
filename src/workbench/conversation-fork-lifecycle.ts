@@ -253,7 +253,10 @@ export class ConversationForkLifecycleOwner {
         conversation,
         operation,
         anchor,
-        sourceRows: sourceRows.filter((row) => row.position <= anchor.position),
+        sourceRows: sourceRows.filter((row) => row.position <= Math.max(anchor.position, ...sourceRows.filter((candidate) => {
+          const evidence = safeRecord(candidate.rawJson);
+          return evidence.attemptId === raw.attemptId && (candidate.type === "user.message" || candidate.type === "assistant.transcript-segment");
+        }).map((candidate) => candidate.position))),
         sourceSessionId: binding.nativeSessionId,
         anchorTurnId: anchor.turnId,
         preferredModel: binding.preferredModel,
@@ -397,6 +400,9 @@ function replayReceipt(operation: StoredConversationForkOperation): Conversation
 
 function copyTimelineRow(row: StoredTopicMessage, targetConversationId: string, targetGraphScopeId: string): StoredTopicMessageWrite {
   const raw = sanitizeForkEvidence(safeRecord(row.rawJson));
+  const reading = raw.transcriptReading as Record<string, unknown> | undefined;
+  if (typeof raw.sourceMessageId === "string") raw.sourceMessageId = `fork-copy-${shortHash(`${targetConversationId}\0${raw.sourceMessageId}`)}`;
+  if (reading && typeof reading.sourceMessageId === "string") reading.sourceMessageId = `fork-copy-${shortHash(`${targetConversationId}\0${reading.sourceMessageId}`)}`;
   return {
     id: `fork-copy-${shortHash(`${targetConversationId}\0${row.id}`)}`,
     projectId: row.projectId,

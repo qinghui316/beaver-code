@@ -6,7 +6,7 @@ import {
   mergeFileRefs,
   removeFileRef,
   replaceFileMentionTrigger,
-} from "./file-mentions.js";
+} from "../input/mentions.js";
 
 export function FileMentionPicker({
   projectId,

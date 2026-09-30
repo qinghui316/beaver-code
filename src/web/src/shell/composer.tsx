@@ -1,7 +1,9 @@
-import { AgentAccessControl, type AgentAccessControlProps } from "./AgentAccessControl.js";
+import { ComposerActionButtons, ConversationTurnQueue, ConversationContextIndicator } from "./ComposerExecutionControls.js";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+export { ConversationTurnQueue, ConversationContextIndicator } from "./ComposerExecutionControls.js";
+import { AgentAccessControl, type AgentAccessControlProps } from "./AgentAccessControl.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react";
-import { AlertCircle, ArrowLeft, ArrowUp, Check, CheckCircle2, ChevronDown, File, Gauge, Lightbulb, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, Undo2, X } from "lucide-react";
+import { ArrowLeft, Check, File, Lightbulb, LoaderCircle, Paperclip, Plus, Search, Sparkles, X } from "lucide-react";
 import type { AgentTurnMode, ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProductMode, ProjectGitReviewOptions, ProviderModelCatalogGroup, ProviderReviewTarget, SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { parseReviewCommand } from "../reviewCommand.js";
 import { ComposerAttachmentList, ComposerFileInput, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
@@ -11,8 +13,6 @@ import { SkillMentionPicker } from "./SkillMentionPicker.js";
 import { ComposerFrame } from "./ComposerFrame.js";
 import {
   buildComposerActionProjection,
-  type ComposerActionProjection,
-  type ComposerPrimaryIntent,
 } from "../controllers/ComposerExperienceProjection.js";
 import type { TopicComposerFeatureSurface } from "../presentation/conversation-workspace.js";
 
@@ -27,6 +27,7 @@ export function TopicComposer({
   value,
   onChange,
   providerDisplayName,
+  conversationId,
   modelLabel,
   projectId,
   skills,
@@ -65,7 +66,7 @@ export function TopicComposer({
   turnQueue,
   queueAvailable,
   queueBusy,
-  onEnqueue,
+  onGuideQueuedTurn,
   onReclaimQueuedTurn,
   onRemoveQueuedTurn,
   onRetryQueuedTurn,
@@ -81,6 +82,7 @@ export function TopicComposer({
   onReviewCommandError,
 }: {
   value: string;
+  conversationId?: string | null;
   onChange: (value: string) => void;
   providerDisplayName?: string;
   modelLabel: string;
@@ -130,7 +132,7 @@ export function TopicComposer({
   turnQueue?: ConversationTurnQueueSnapshot | null;
   queueAvailable?: boolean;
   queueBusy?: boolean;
-  onEnqueue?: () => void | Promise<void>;
+  onGuideQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onReclaimQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRemoveQueuedTurn?: (queueItemId: string) => void | Promise<void>;
   onRetryQueuedTurn?: (queueItemId: string) => void | Promise<void>;
@@ -151,24 +153,13 @@ export function TopicComposer({
     && Boolean(runControlState?.canStop);
   const hasAttachments = (attachments?.length ?? 0) > 0;
   const canSend = Boolean(value.trim()) || hasAttachments;
-  const steerIdentityReady = productMode === "harness"
-    || Boolean(runControlState?.providerId && runControlState.attemptId);
-  const canSteerText = runningConversation
-    && Boolean(value.trim())
-    && Boolean(runControlState?.canSteer)
-    && steerIdentityReady
-    && runControlState?.steerState !== "submitting"
-    && runControlState?.state !== "stopping";
   const canQueue = canSend && Boolean(turnQueue?.canEnqueue) && !queueBusy;
-  const hasNextTurnContext = hasAttachments || (selectedFileRefs?.length ?? 0) > 0;
   const actionProjection = buildComposerActionProjection({
     running: runningConversation,
     queueBusy: Boolean(queueBusy),
     stopping: runControlState?.state === "stopping",
     steerSubmitting: runControlState?.steerState === "submitting",
     hasDraft: canSend,
-    hasNextTurnContext,
-    canSteer: canSteerText,
     canQueue,
     canStop,
     queueHasItems: Boolean(turnQueue?.items?.length),
@@ -201,7 +192,7 @@ export function TopicComposer({
       onChange={onChange}
       disabledReason={disabledReason}
       placeholder={runningConversation
-        ? runControlState?.canSteer ? "补充当前执行" : "输入下一回合"
+        ? "输入下一条需求"
         : "输入问题或下一步需求"}
       projectId={projectId}
       skills={skills}
@@ -239,18 +230,20 @@ export function TopicComposer({
       onStartReview={onStartReview}
       onSubmit={() => {
         if (!actionProjection.canSubmitDraft) return;
-        if (actionProjection.primaryIntent === "queue") void onEnqueue?.();
-        else submit();
+        submit();
       }}
       beforeEditor={<ConversationTurnQueue
         snapshot={turnQueue ?? null}
         busy={Boolean(queueBusy)}
         onReclaim={onReclaimQueuedTurn}
+        onGuide={onGuideQueuedTurn}
         onRemove={onRemoveQueuedTurn}
         onRetry={onRetryQueuedTurn}
         onConfirmExecution={onConfirmQueuedTurnExecution}
       />}
       contextControl={<ConversationContextIndicator
+        scopeKey={`${projectId}:${productMode}:${conversationId ?? turnQueue?.conversationId ?? ""}`}
+        dismiss={Boolean(reviewOpen)}
         snapshot={conversationContext ?? null}
         submitting={Boolean(contextSubmitting)}
         onCompact={onCompactContext}
@@ -260,7 +253,7 @@ export function TopicComposer({
           projection={actionProjection}
           mutationBusy={Boolean(queueBusy)}
           onSend={submit}
-          onQueue={() => void onEnqueue?.()}
+          onQueue={submit}
           onStop={() => void onStopAndContinue?.()}
         />
       }
@@ -516,163 +509,6 @@ function ComposerSelectedContextItems({ skills, activeSkillIds, fileRefs, onTogg
   </div>;
 }
 
-function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onStop }: {
-  projection: ComposerActionProjection;
-  mutationBusy: boolean;
-  onSend: () => void;
-  onQueue: () => void;
-  onStop: () => void;
-}): ReactElement {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const queueSelectedRef = useRef(false);
-  const intent = projection.primaryIntent;
-  const contextIntent = projection.canStop && (intent === "steer" || intent === "queue" || intent === "jump-to-request" || intent === "wait")
-    ? intent
-    : null;
-  const primaryIntent: ComposerPrimaryIntent = projection.canStop ? "stop" : intent;
-  const primaryLabel = composerActionLabel(primaryIntent, projection.canStop ? null : projection.disabledReason);
-  const contextLabel = contextIntent ? composerActionLabel(contextIntent, projection.disabledReason) : "";
-  const queueAlternativeAvailable = contextIntent === "steer" && projection.alternativeIntent === "queue" && !mutationBusy && projection.canSubmitDraft;
-  useEffect(() => {
-    if (!queueAlternativeAvailable) setMenuOpen(false);
-  }, [queueAlternativeAvailable]);
-  const invokePrimary = () => {
-    if (primaryIntent === "send") onSend();
-    else if (primaryIntent === "queue") onQueue();
-    else if (primaryIntent === "stop") onStop();
-  };
-  const invokeContext = () => {
-    if (contextIntent === "steer") onSend();
-    else if (contextIntent === "queue") onQueue();
-  };
-  return <div className="composer-action-group" data-primary-intent={primaryIntent}>
-    {contextIntent ? <div className="composer-context-action-slot is-visible">
-      <div className={`composer-context-action-wrap ${projection.alternativeIntent ? "has-alternative" : ""}`}>
-        <button type="button" className="composer-context-action" tabIndex={contextIntent ? undefined : -1} disabled={!contextIntent || mutationBusy || !projection.canSubmitDraft} title={contextLabel} aria-label={contextLabel || "当前没有其他操作"} onClick={invokeContext}>
-          {contextIntent === "wait" ? <LoaderCircle size={14} className="spin" /> : contextIntent === "queue" ? <ListPlus size={14} /> : <ArrowUp size={14} />}
-          <span>{contextLabel}</span>
-        </button>
-        {queueAlternativeAvailable ? <DropdownMenu.Root open={menuOpen} onOpenChange={(open) => { if (open) queueSelectedRef.current = false; setMenuOpen(open); }}>
-          <DropdownMenu.Trigger asChild>
-            <button type="button" className="composer-action-alternative-trigger" aria-label="其他发送方式"><ChevronDown size={13} /></button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content className="composer-action-menu" side="top" align="end" sideOffset={8} collisionPadding={12} aria-label="其他发送方式">
-              <DropdownMenu.Item className="composer-menu-item" onSelect={() => {
-                if (!queueAlternativeAvailable || queueSelectedRef.current) return;
-                queueSelectedRef.current = true;
-                onQueue();
-              }}><ListPlus size={14} />稍后发送</DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root> : null}
-      </div>
-    </div> : null}
-    <div className="composer-primary-action">
-      <button type="button" className="composer-send" disabled={primaryIntent === "stop" ? false : mutationBusy || !projection.canSubmitDraft} title={primaryLabel} aria-label={primaryLabel} onClick={invokePrimary}>
-        {primaryIntent === "stop" ? <Square size={14} fill="currentColor" /> : primaryIntent === "queue" ? <ListPlus size={16} /> : primaryIntent === "wait" ? <LoaderCircle size={16} className={mutationBusy ? "spin" : undefined} /> : <ArrowUp size={17} />}
-      </button>
-    </div>
-  </div>;
-}
-
-function composerActionLabel(intent: ComposerPrimaryIntent, disabledReason: string | null): string {
-  if (disabledReason) return disabledReason;
-  if (intent === "steer") return "发送给当前执行";
-  if (intent === "queue") return "稍后发送";
-  if (intent === "stop") return "停止当前执行";
-  if (intent === "jump-to-request") return "查看待处理请求";
-  if (intent === "wait") return "暂时不可发送";
-  return "发送";
-}
-
-export function ConversationTurnQueue({
-  snapshot,
-  busy,
-  onReclaim,
-  onRemove,
-  onRetry,
-  onConfirmExecution,
-}: {
-  snapshot: ConversationTurnQueueSnapshot | null;
-  busy: boolean;
-  onReclaim?: (queueItemId: string) => void | Promise<void>;
-  onRemove?: (queueItemId: string) => void | Promise<void>;
-  onRetry?: (queueItemId: string) => void | Promise<void>;
-  onConfirmExecution?: (queueItemId: string) => void | Promise<void>;
-}): ReactElement | null {
-  if (!snapshot?.items?.length) return null;
-  return <div className="conversation-turn-queue" aria-label="待发送内容">
-    <div className="conversation-turn-queue-heading">
-      <span>待发送</span>
-      <span>{snapshot.items.length}</span>
-    </div>
-    <ol>
-      {snapshot.items.map((item, index) => {
-        const needsAttention = queuedTurnNeedsAttention(item.status);
-        const settlementPending = queuedTurnSettlementPending(item.status);
-        const confirmationRequired = item.executionCompatibility.state !== "compatible";
-        return <li key={item.queueItemId} data-attention={needsAttention ? "true" : undefined}>
-          <span className="conversation-turn-queue-index">{index + 1}</span>
-          <span className="conversation-turn-queue-copy">
-            <span>{item.itemKind === "review" ? reviewTargetPreview(item.reviewTarget) : queuePreview(item.text)}</span>
-            <small>{confirmationRequired
-              ? queueExecutionCompatibilitySummary(item.executionCompatibility)
-              : queuedTurnStatusLabel(item.status, item.attachmentIds.length)}</small>
-            {item.itemKind !== "review" && item.agentAccessMode != null ? <small>
-              {item.agentTurnMode === "plan" ? "计划中仅分析" : item.agentAccessMode === "full-access" ? "完全访问" : "默认权限"}
-            </small> : null}
-          </span>
-          <span className="conversation-turn-queue-actions">
-            {confirmationRequired ? <button
-              type="button"
-              className="conversation-turn-queue-confirm"
-              title="按当前方式发送"
-              disabled={busy || settlementPending}
-              onClick={() => void onConfirmExecution?.(item.queueItemId)}
-            >按当前方式发送</button> : needsAttention ? <button
-              type="button"
-              title="重新尝试"
-              aria-label="重新尝试发送"
-              disabled={busy}
-              onClick={() => void onRetry?.(item.queueItemId)}
-            ><RotateCcw size={14} /></button> : null}
-            <button
-              type="button"
-              title="移回输入框"
-              aria-label="移回输入框"
-              disabled={busy || settlementPending}
-              onClick={() => void onReclaim?.(item.queueItemId)}
-            ><Undo2 size={14} /></button>
-            <button
-              type="button"
-              title="删除待发送内容"
-              aria-label="删除待发送内容"
-              disabled={busy || settlementPending}
-              onClick={() => void onRemove?.(item.queueItemId)}
-            ><Trash2 size={14} /></button>
-          </span>
-        </li>;
-      })}
-    </ol>
-  </div>;
-}
-
-function queueExecutionCompatibilitySummary(
-  compatibility: ConversationTurnQueueSnapshot["items"][number]["executionCompatibility"],
-): string {
-  return compatibility.state === "compatible" ? "" : compatibility.summary;
-}
-
-function reviewTargetPreview(target: ProviderReviewTarget | null): string {
-  if (!target) return "代码审查";
-  if (target.type === "uncommitted-changes") return "审查未提交改动";
-  if (target.type === "base-branch") return `代码审查 · ${target.branch}`;
-  if (target.type === "commit") return `代码审查 · ${target.sha.slice(0, 7)}`;
-  const text = target.instructions.replace(/\s+/g, " ").trim();
-  return `代码审查 · ${text.length > 72 ? `${text.slice(0, 71)}...` : text}`;
-}
-
 type ReviewSelectorStep = "preset" | "base" | "commit" | "custom";
 
 export function ReviewInlineSelector({ options, loading, submitting, onClose, onStart }: {
@@ -759,100 +595,6 @@ export function ReviewInlineSelector({ options, loading, submitting, onClose, on
               : <div className="review-inline-empty">没有可用选项。</div>}
           </div>}
   </div>;
-}
-
-function queuePreview(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > 96 ? `${normalized.slice(0, 95)}...` : normalized;
-}
-
-function queuedTurnStatusLabel(status: string, attachmentCount: number): string {
-  const statusLabel = status === "dispatching" ? "正在提交"
-    : status === "blocked" ? "需要处理"
-      : "等待发送";
-  return attachmentCount > 0 ? `${statusLabel} · ${attachmentCount} 个附件` : statusLabel;
-}
-
-function queuedTurnNeedsAttention(status: string): boolean {
-  return status === "blocked";
-}
-
-function queuedTurnSettlementPending(status: string): boolean {
-  return status === "dispatching";
-}
-
-export function ConversationContextIndicator({
-  snapshot,
-  submitting,
-  onCompact,
-}: {
-  snapshot: ConversationContextSnapshot | null;
-  submitting: boolean;
-  onCompact?: () => void | Promise<void>;
-}): ReactElement {
-  const [open, setOpen] = useState(false);
-  const lifecycle = submitting ? "submitting" : snapshot?.lifecycle ?? "idle";
-  const busy = lifecycle === "submitting" || lifecycle === "compacting";
-  const failed = lifecycle === "failed" || lifecycle === "interrupted";
-  const title = failed
-    ? lifecycle === "failed" ? "上下文压缩失败" : "上下文压缩已中断"
-    : busy
-      ? "正在压缩上下文"
-      : snapshot?.usedPercent !== null && snapshot?.usedPercent !== undefined
-        ? `上下文已使用 ${snapshot.usedPercent}%`
-        : "上下文用量";
-  return <div className="conversation-context-control">
-    <button
-      type="button"
-      className={`conversation-context-indicator ${busy ? "is-busy" : ""} ${failed ? "is-error" : ""}`}
-      aria-label={title}
-      title={title}
-      onClick={() => setOpen((value) => !value)}
-    >
-      {busy ? <RefreshCw size={15} /> : failed ? <AlertCircle size={15} /> : lifecycle === "completed" ? <CheckCircle2 size={15} /> : <Gauge size={15} />}
-      {snapshot?.usedPercent !== null && snapshot?.usedPercent !== undefined ? <span>{snapshot.usedPercent}%</span> : null}
-    </button>
-    {open ? <div className="conversation-context-popover" role="dialog" aria-label="会话上下文">
-      <div className="conversation-context-popover-header">
-        <strong>会话上下文</strong>
-        <span>{contextUsageLabel(snapshot)}</span>
-      </div>
-      <dl>
-        <div><dt>已用</dt><dd>{formatTokens(snapshot?.usage?.contextUsedTokens)}</dd></div>
-        <div><dt>剩余</dt><dd>{snapshot?.remainingPercent === null || snapshot?.remainingPercent === undefined ? "未知" : `${snapshot.remainingPercent}%`}</dd></div>
-        <div><dt>窗口</dt><dd>{formatTokens(snapshot?.usage?.modelContextWindow)}</dd></div>
-        <div><dt>最近一轮输入</dt><dd>{formatTokens(snapshot?.usage?.last.inputTokens)}</dd></div>
-        <div><dt>缓存输入</dt><dd>{formatTokens(snapshot?.usage?.last.cachedInputTokens)}</dd></div>
-        <div><dt>最近压缩</dt><dd>{formatContextTime(snapshot?.lastCompactedAt)}</dd></div>
-      </dl>
-      <button
-        type="button"
-        className="conversation-context-compact"
-        disabled={!snapshot?.canCompact || busy || !onCompact}
-        title={snapshot?.disabledReason ?? "压缩当前会话上下文"}
-        onClick={() => void onCompact?.()}
-      >
-        <RefreshCw size={14} />
-        <span>压缩上下文</span>
-      </button>
-      {snapshot?.disabledReason ? <p>{snapshot.disabledReason}</p> : null}
-    </div> : null}
-  </div>;
-}
-
-function contextUsageLabel(snapshot: ConversationContextSnapshot | null): string {
-  if (!snapshot?.usage) return "暂无可靠用量";
-  return snapshot.usedPercent === null ? formatTokens(snapshot.usage.contextUsedTokens) : `${snapshot.usedPercent}% 已用`;
-}
-
-function formatTokens(value: number | null | undefined): string {
-  return typeof value === "number" ? value.toLocaleString() : "未知";
-}
-
-function formatContextTime(value: string | null | undefined): string {
-  if (!value) return "尚未压缩";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString();
 }
 
 function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {

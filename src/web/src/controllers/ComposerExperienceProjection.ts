@@ -7,7 +7,6 @@ export interface ComposerActionProjection {
   canSubmitDraft: boolean;
   canStop: boolean;
   disabledReason: string | null;
-  alternativeIntent?: "queue";
 }
 
 export interface ComposerExperienceProjection {
@@ -41,15 +40,6 @@ export function buildComposerActionProjection(input: {
     }
     if (input.steerSubmitting) {
       return { primaryIntent: "wait", canSubmitDraft: false, canStop: Boolean(input.canStop), disabledReason: "正在发送给当前执行" };
-    }
-    if (input.hasDraft && input.canSteer && !input.hasNextTurnContext) {
-      return {
-        primaryIntent: "steer",
-        canSubmitDraft: true,
-        canStop: Boolean(input.canStop),
-        disabledReason: null,
-        alternativeIntent: input.canQueue ? "queue" : undefined,
-      };
     }
     if (input.hasDraft && input.canQueue) {
       return { primaryIntent: "queue", canSubmitDraft: true, canStop: Boolean(input.canStop), disabledReason: null };

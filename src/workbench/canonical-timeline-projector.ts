@@ -4,11 +4,19 @@ import type { StoredTopicMessage } from "./persistence/contracts.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import type { ProductMode } from "../provider-runtime/index.js";
 
-export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage, productMode: ProductMode): CanonicalTimelineEnvelope {
+export function projectCanonicalTimelineEnvelope(row: StoredTopicMessage, productMode: ProductMode, resolveSource?: (id: string) => StoredTopicMessage | null): CanonicalTimelineEnvelope {
   const entry = fromStoredThreadMessage(row);
+  if (entry.sourceMessageId) {
+    const source = resolveSource?.(entry.sourceMessageId);
+    if (source && source.conversationId === row.conversationId && source.projectId === row.projectId && source.agentSurfaceId === row.agentSurfaceId) {
+      const original = fromStoredThreadMessage(source);
+      entry.forkTarget = original.forkTarget;
+      entry.retryTarget = original.retryTarget;
+    }
+  }
   const child = row.agentSurfaceId !== "main-agent";
-  const forkedAssistantText = row.text?.trim() ?? "";
-  const forkedAssistantHistory = row.type === "assistant.message" && isForkedHistory(row.rawJson) && forkedAssistantText
+  const forkedAssistantText = (entry.transcriptReading?.text ?? row.text)?.trim() ?? "";
+  const forkedAssistantHistory = (row.type === "assistant.message" || row.type === "assistant.transcript-segment") && isForkedHistory(row.rawJson) && forkedAssistantText
     ? [{
         id: `cell:forked-assistant:${row.id}`,
         kind: "assistant-message" as const,

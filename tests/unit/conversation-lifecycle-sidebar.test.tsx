@@ -32,6 +32,16 @@ describe("shared Conversation lifecycle sidebar", () => {
     expect(screen.queryByRole("button", { name: "已归档" })).toBeNull();
   });
 
+  it.each(["agent", "harness"] as const)("has no empty row or routine subtitle in %s", (mode) => {
+    const empty = renderSidebar(mode, []);
+    expect(screen.queryByText(/暂无对话|暂无会话|创建第一条/)).toBeNull();
+    expect(empty.container.querySelector(".conversation-list")).toBeNull();
+    empty.unmount();
+    const withTopic = renderSidebar(mode, [topic("active", "Title", "active", mode, {})]);
+    expect(screen.getByText("Title")).toBeTruthy();
+    expect(withTopic.container.querySelector(".conversation-copy small")).toBeNull();
+  });
+
   it("keeps Harness workflow archives out of the sidebar", () => {
     renderSidebar("harness", [
       topic("archived-harness", "Archived Harness", "archive", "harness", {

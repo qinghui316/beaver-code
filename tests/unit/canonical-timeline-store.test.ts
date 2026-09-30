@@ -23,6 +23,27 @@ const mainScope: CanonicalTimelineScope = {
 };
 
 describe("canonical Timeline Store", () => {
+  it("keeps a delayed user confirmation before newer replies and preserves its visible identity", () => {
+    let state = loadPage(createCanonicalTimelineState(), "latest", page(1, [envelope("previous", 1, 1)]));
+    state = canonicalTimelineReducer(state, { type: "optimistic.received", scope: mainScope, envelope: optimisticUserEnvelope("late", "new demand") });
+    state = canonicalTimelineReducer(state, { type: "envelope.received", projectId: mainScope.projectId, envelope: envelope("reply", 3, 3) });
+    expect(texts(state)).toEqual(["previous@1", "new demand", "reply@3"]);
+    const user = { ...envelope("confirmed", 2, 4), clientRequestId: "late", cells: [{ ...optimisticUserEnvelope("late", "new demand").cells[0], id: "canonical-user" }] };
+    state = canonicalTimelineReducer(state, { type: "envelope.received", projectId: mainScope.projectId, envelope: user });
+    state = loadPage(state, "latest", page(5, [{ ...user, revision: 5 }, envelope("reply", 3, 3)]));
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope).map((row) => row.messageId)).toEqual(["confirmed", "reply"]);
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope)[0]?.cells[0]?.id).toBe("pending-user:late");
+  });
+
+  it("does not duplicate a canonical user when confirmation beats pending rekey", () => {
+    const from = { ...mainScope, conversationId: "pending:early" };
+    let state = canonicalTimelineReducer(createCanonicalTimelineState(), { type: "optimistic.received", scope: from, envelope: { ...optimisticUserEnvelope("early", "demand"), conversationId: from.conversationId } });
+    const confirmed = { ...envelope("user", 1, 1), clientRequestId: "early", cells: optimisticUserEnvelope("early", "demand").cells };
+    state = canonicalTimelineReducer(state, { type: "envelope.received", projectId: mainScope.projectId, envelope: confirmed });
+    state = canonicalTimelineReducer(state, { type: "optimistic.rekeyed", from, to: mainScope, clientRequestId: "early" });
+    state = canonicalTimelineReducer(state, { type: "optimistic.rekeyed", from, to: mainScope, clientRequestId: "early" });
+    expect(selectCanonicalTimelineEnvelopes(state, mainScope).map((row) => row.messageId)).toEqual(["user"]);
+  });
   it("calibrates Main and every open child surface after project SSE reconnect", () => {
     expect(canonicalTimelineReconnectScopes("project-a", "harness", "conversation-a", [
       { resourceId: "agent:a", target: { kind: "agent", conversationId: "conversation-a", agentSurfaceId: "agent:a" } },

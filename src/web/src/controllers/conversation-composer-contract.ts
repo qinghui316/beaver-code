@@ -1,6 +1,6 @@
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
-import { extractInlineFileMentions } from "../shell/file-mentions.js";
-import { extractInlineSkillMentions } from "../shell/skill-mentions.js";
+import { extractInlineFileMentions } from "../input/mentions.js";
+import { extractInlineSkillMentions } from "../input/mentions.js";
 import type {
   AgentTurnMode,
   ConversationTurnQueueSnapshot,
@@ -111,7 +111,6 @@ export interface ConversationComposerPorts {
   };
   actions: {
     sendMessage?(request: ComposerMessageRequest): Promise<void>;
-    steer(request: ComposerActionRequest): Promise<ConversationSteerOutcome>;
     stop(request: ComposerActionRequest): Promise<void>;
   };
   projection: {
@@ -197,7 +196,6 @@ export interface ConversationExecutionActionPorts {
   readonly operation: Readonly<ConversationComposerPorts["operation"]>;
   readonly ids?: Readonly<NonNullable<ConversationComposerPorts["ids"]>>;
   readonly actions: Readonly<{
-    steer(request: ComposerActionRequest): Promise<ConversationSteerOutcome>;
     stop(request: ComposerActionRequest): Promise<void>;
   }>;
   readonly timeline: Readonly<{

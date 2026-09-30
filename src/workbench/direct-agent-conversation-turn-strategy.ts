@@ -10,7 +10,7 @@ import { resolveStoredExecutionContract } from "../provider-runtime/execution-co
 import { parseAgentAccessPolicy } from "../provider-runtime/agent-access-policy.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../project-runtime/paths.js";
-import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
+import { applyFinalCaptureFallback, buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
 import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { CanonicalTimelineDelivery, publishCanonicalTimelineEnvelope, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
@@ -366,7 +366,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         updatedAt: startedAt,
       });
       attemptCreated = true;
-      this.turnControl?.registerAttempt(turnRegistration);
+      this.turnControl?.registerAttempt({ ...turnRegistration, onInputAccepted: capture.acceptInput });
       if (existingSessionId) {
         bindMainThread(database, paths.projectId, attemptId, existingSessionId, runId);
         liveMainThreadId = existingSessionId;
@@ -506,6 +506,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
         runtimeWorkspaceRoots: [input.project.path, ...attachmentResolution.runtimeReadRoots],
         writableRoots: [...input.admission.writableRoots],
       });
+      await this.turnControl?.settlePendingInputs(turnRegistration);
       if (result.session && liveMainThreadId !== result.session.sessionId) {
         bindMainThread(database, paths.projectId, attemptId, result.session.sessionId, runId);
         liveMainThreadId = result.session.sessionId;
@@ -522,7 +523,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       const persistenceFailure = canonicalPersistenceError;
       const status = persistenceFailure ? "failed" : result.status;
       const assistant = terminalize(result, status, persistenceFailure ?? undefined);
-      for (const row of terminalRows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
+      for (const row of terminalRows) delivery.publishCommitted(row);
       input.live?.emit({
         event: "run.status",
         data: {
@@ -549,6 +550,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
       };
     } catch (error) {
       const failure = asError(error);
+      await this.turnControl?.settlePendingInputs(turnRegistration);
       if (!providerInputTerminalized) {
         await providerInputLifecycle.terminalize().catch((terminalizeError) => {
           canonicalPersistenceError ??= asError(terminalizeError);
@@ -611,7 +613,7 @@ export class DirectAgentConversationTurnStrategy implements ConversationTurnStra
             );
           }
         }
-        for (const row of terminalRows) publishCommittedCanonicalTimelineRow(input.live, row, "agent");
+        for (const row of terminalRows) delivery.publishCommitted(row);
       }
       if (terminalFailure) throw new AggregateError([failure, terminalFailure], "Direct Agent Turn and terminal recovery both failed.");
       throw failure;
@@ -701,6 +703,7 @@ function terminalCaptureWrites(input: {
   retryLineage?: Readonly<import("./types.js").ConversationRetryLineageEvidence>;
   sessionRecoveryAnchor?: Pick<import("./types.js").ConversationForkTargetEvidence, "sourceMessageId" | "providerId" | "completedTurnSequence">;
 }): StoredTopicMessageWrite[] {
+  applyFinalCaptureFallback(input.capture, input.result?.planText?.trim() || input.result?.lastMessage.trim() || input.failure?.message || input.result?.error?.trim() || "");
   const writes = buildCanonicalCaptureWrites({
     projectId: input.projectId,
     conversationId: input.conversationId,
@@ -738,7 +741,7 @@ function terminalCaptureWrites(input: {
       blocks: input.capture.blocks,
       error: input.status === "failed" ? input.failure?.message ?? input.result?.error : undefined,
     }));
-  } else if (authoritativePlanText) {
+  } else if (authoritativePlanText && ![...input.capture.mainCaptures.values()].some((main) => main.inputBoundaries.length)) {
     const last = writes.at(-1)!;
     writes[writes.length - 1] = replaceCanonicalText(last, authoritativePlanText);
   } else if (fallbackText) {

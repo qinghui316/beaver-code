@@ -8,9 +8,9 @@ describe("Composer action projection", () => {
     expect(buildComposerActionProjection({ running: false, hasDraft: true, canQueue: true, queueHasItems: true })).toMatchObject({ primaryIntent: "queue", canSubmitDraft: true });
   });
 
-  it("projects Stop, Steer, and Queue from the current execution state", () => {
+  it("keeps draft submission queued and Stop independent during execution", () => {
     expect(buildComposerActionProjection({ running: true, hasDraft: false, canStop: true })).toMatchObject({ primaryIntent: "stop", canStop: true });
-    expect(buildComposerActionProjection({ running: true, hasDraft: true, canStop: true, canSteer: true, canQueue: true })).toMatchObject({ primaryIntent: "steer", alternativeIntent: "queue" });
+    expect(buildComposerActionProjection({ running: true, hasDraft: true, canStop: true, canSteer: true, canQueue: true })).toMatchObject({ primaryIntent: "queue", canStop: true });
     expect(buildComposerActionProjection({ running: true, hasDraft: true, hasNextTurnContext: true, canStop: true, canSteer: true, canQueue: true })).toMatchObject({ primaryIntent: "queue" });
   });
 

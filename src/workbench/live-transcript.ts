@@ -83,6 +83,7 @@ export function createAssistantTranscriptCapture(
       text: "",
       activity: [],
       blocks: [],
+      inputBoundaries: [],
     };
     mainCaptures.set(exactKey, created);
     return created;
@@ -148,6 +149,15 @@ export function createAssistantTranscriptCapture(
     blocks,
     mainCaptures,
     childCaptures,
+    acceptInput(clientRequestId, userMessageId) {
+      const main = [...mainCaptures.values()].at(-1);
+      if (!main || main.inputBoundaries.some((boundary) => boundary.clientRequestId === clientRequestId)) return;
+      main.inputBoundaries.push({ clientRequestId, userMessageId, timestamp: new Date().toISOString(),
+        textOffset: main.text.length, blocks: structuredClone(main.blocks) });
+      // Reserve the new segment immediately after the committed user input,
+      // even when the same Provider item continues or no delta follows.
+      if (persistBeforeEmit && !persistBeforeEmit(capture)) throw new Error("Accepted input boundary could not be persisted.");
+    },
     updateTargetAgent(targetSurfaceId, roleId, displayName, status) {
       updateTargetAgentBlocks(targetSurfaceId, composeAgentDisplayLabel(roleId, displayName), status);
     },
@@ -320,6 +330,7 @@ export interface AssistantTranscriptCapture {
   blocks: AssistantTurnBlock[];
   mainCaptures: Map<string, MainTranscriptCapture>;
   childCaptures: Map<string, ChildTranscriptCapture>;
+  acceptInput(clientRequestId: string, userMessageId: string): void;
   updateTargetAgent: (targetSurfaceId: string, roleId: string, displayName?: string, status?: string) => void;
 }
 
@@ -332,6 +343,15 @@ export interface MainTranscriptCapture {
   turnId: string;
   text: string;
   activity: AssistantTurnActivity[];
+  blocks: AssistantTurnBlock[];
+  inputBoundaries: TranscriptInputBoundary[];
+}
+
+export interface TranscriptInputBoundary {
+  clientRequestId: string;
+  userMessageId: string;
+  timestamp: string;
+  textOffset: number;
   blocks: AssistantTurnBlock[];
 }
 

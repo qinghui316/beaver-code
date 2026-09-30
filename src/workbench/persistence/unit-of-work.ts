@@ -272,7 +272,7 @@ export class WorkbenchUnitOfWork {
           throw conflict("Conversation access changed before the submission was accepted.");
         }
       }
-      this.assertConversationQueueCommit(
+      this.assertConversationQueueAdmission(
         input.projectId,
         input.conversationId,
         input.queuedTurnDispatch,
@@ -286,6 +286,7 @@ export class WorkbenchUnitOfWork {
       );
       this.conversations.updateAgentTurnPreferences(input);
       const message = this.timeline.appendMessage(input.message);
+      this.acceptQueuedInput(input.projectId, input.conversationId, input.queuedTurnDispatch, message.id);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
       return { message, graphScopeRows, replayed: false };
     }).immediate();
@@ -308,7 +309,7 @@ export class WorkbenchUnitOfWork {
     return this.db.transaction(() => {
       const replay = this.timeline.readCanonicalRequestReplay(input.message);
       if (replay) return { message: replay, graphScopeRows: [], replayed: true };
-      this.assertConversationQueueCommit(
+      this.assertConversationQueueAdmission(
         input.projectId,
         input.conversationId,
         input.queuedTurnDispatch,
@@ -330,12 +331,22 @@ export class WorkbenchUnitOfWork {
         updatedAt: input.updatedAt,
       });
       const message = this.timeline.appendMessage(input.message);
+      this.acceptQueuedInput(input.projectId, input.conversationId, input.queuedTurnDispatch, message.id);
       this.applyConversationSkillOverrides(input.projectId, input.conversationId, input.skillOverrides, input.updatedAt);
       return { message, graphScopeRows, replayed: false };
     }).immediate();
   }
 
-  private assertConversationQueueCommit(
+  acceptQueuedInput(projectId: string, conversationId: string, dispatch: ConversationQueuedTurnDispatchEvidence | undefined, messageId: string): void {
+    if (!dispatch) return;
+    const operation = this.conversationTurnQueues.unsettledDelivery(projectId, conversationId);
+    if (!operation || operation.queueItemId !== dispatch.queueItemId || operation.phase !== "invoking") {
+      throw conflict("Queued input has no matching durable invocation.");
+    }
+    this.conversationTurnQueues.transitionDelivery(operation, "accepted", messageId);
+  }
+
+  assertConversationQueueAdmission(
     projectId: string,
     conversationId: string,
     dispatch: ConversationQueuedTurnDispatchEvidence | undefined,
@@ -354,6 +365,13 @@ export class WorkbenchUnitOfWork {
       || head.queueItemId !== dispatch.queueItemId
       || head.dispatchRequestId !== dispatch.dispatchRequestId
       || head.requestHash !== dispatch.requestHash) {
+      const operation = this.conversationTurnQueues.unsettledDelivery(projectId, conversationId);
+      const selected = dispatch && this.conversationTurnQueues.readItem(projectId, conversationId, dispatch.queueItemId);
+      const target = operation?.attemptId ? this.providerAttempts.readProviderAttempt(projectId, operation.attemptId) : null;
+      if (operation?.mode === "cutover" && operation.phase === "invoking"
+        && target && target.conversationId === conversationId && target.status !== "queued" && target.status !== "running"
+        && selected?.status === "dispatching" && selected.queueItemId === operation.queueItemId
+        && selected.dispatchRequestId === dispatch?.dispatchRequestId && selected.requestHash === dispatch.requestHash) return;
       throw conflict("An active Conversation Turn queue must dispatch its exact FIFO head before another Turn.");
     }
   }

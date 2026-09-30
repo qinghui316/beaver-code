@@ -172,6 +172,16 @@ function receiveOptimisticEnvelope(
   const key = canonicalTimelineScopeKey(scope);
   const surface = state.surfaces[key] ?? emptySurface(scope);
   if (surface.envelopes[envelope.messageId]) return state;
+  if (envelope.clientRequestId && Object.values(surface.envelopes).some(({ envelope: current }) =>
+    !isOptimisticEnvelope(current) && current.clientRequestId === envelope.clientRequestId)) return state;
+  const ordered = orderedStoredEnvelopes(surface);
+  envelope = {
+    ...envelope,
+    optimisticPlacement: {
+      afterMessageId: ordered.at(-1)?.envelope.messageId ?? null,
+      submissionOrdinal: Math.max(0, ...ordered.map(({ envelope: current }) => current.optimisticPlacement?.submissionOrdinal ?? 0)) + 1,
+    },
+  };
   const mutation = mutationFor(key, "append-tail", surface.watermark, [envelope.messageId], [], []);
   return putSurface(state, {
     ...surface,
@@ -272,11 +282,14 @@ function receiveEnvelope(
     ? findOptimisticEnvelope(surface, envelope.clientRequestId)
     : null;
   const nextEnvelopes = { ...surface.envelopes };
-  if (correlatedOptimistic) delete nextEnvelopes[correlatedOptimistic.messageId];
+  if (correlatedOptimistic) {
+    delete nextEnvelopes[correlatedOptimistic.messageId];
+    reanchorOptimistic(nextEnvelopes, correlatedOptimistic.messageId, envelope.messageId);
+  }
   nextEnvelopes[envelope.messageId] = {
     envelope: correlatedOptimistic
       ? preserveOptimisticCellIdentity(envelope, correlatedOptimistic.envelope)
-      : cloneEnvelope(envelope),
+      : current ? preserveOptimisticCellIdentity(envelope, current.envelope) : cloneEnvelope(envelope),
     lane: current?.lane ?? (isPinnedOrderClass(envelope.orderClass) ? "pinned" : "realtime"),
   };
   const nextSurface: CanonicalTimelineSurfaceState = {
@@ -348,11 +361,15 @@ function receiveLatestPage(
       const correlatedOptimistic = envelope.clientRequestId
         ? findOptimisticEnvelope({ ...surface, envelopes: nextEnvelopes }, envelope.clientRequestId)
         : null;
-      if (correlatedOptimistic) delete nextEnvelopes[correlatedOptimistic.messageId];
+      if (correlatedOptimistic) {
+        delete nextEnvelopes[correlatedOptimistic.messageId];
+        reanchorOptimistic(nextEnvelopes, correlatedOptimistic.messageId, envelope.messageId);
+      }
       const current = surface.envelopes[envelope.messageId];
       const accepted = current && current.envelope.revision > envelope.revision
         ? current.envelope
-        : correlatedOptimistic ? preserveOptimisticCellIdentity(envelope, correlatedOptimistic.envelope) : envelope;
+        : correlatedOptimistic ? preserveOptimisticCellIdentity(envelope, correlatedOptimistic.envelope)
+          : current ? preserveOptimisticCellIdentity(envelope, current.envelope) : envelope;
       nextEnvelopes[envelope.messageId] = { envelope: cloneEnvelope(accepted), lane };
     }
   }
@@ -474,9 +491,17 @@ function rekeyOptimisticEnvelope(
   const existingTarget = findOptimisticEnvelope(target, clientRequestId);
   const targetEnvelopes = { ...target.envelopes };
   if (existingTarget) delete targetEnvelopes[existingTarget.messageId];
+  const canonical = Object.values(targetEnvelopes).find(({ envelope }) =>
+    !isOptimisticEnvelope(envelope) && envelope.clientRequestId === clientRequestId);
+  if (canonical) {
+    targetEnvelopes[canonical.envelope.messageId] = {
+      ...canonical, envelope: preserveOptimisticCellIdentity(canonical.envelope, optimistic.envelope),
+    };
+  }
   surfaces[toKey] = {
     ...target,
-    envelopes: { ...targetEnvelopes, [optimistic.messageId]: { envelope: movedEnvelope, lane: "realtime" } },
+    envelopes: canonical ? targetEnvelopes
+      : { ...targetEnvelopes, [optimistic.messageId]: { envelope: movedEnvelope, lane: "realtime" } },
   };
   return {
     surfaces,
@@ -529,13 +554,18 @@ function receiveEarlierPage(
   const updated: string[] = [];
   for (const [lane, incoming] of [["pinned", page.pinned], ["history", page.entries]] as const) {
     for (const envelope of incoming) {
+      const optimistic = envelope.clientRequestId ? findOptimisticEnvelope({ envelopes }, envelope.clientRequestId) : null;
+      if (optimistic) {
+        delete envelopes[optimistic.messageId];
+        reanchorOptimistic(envelopes, optimistic.messageId, envelope.messageId);
+      }
       const current = envelopes[envelope.messageId];
       if (!current) {
-        envelopes[envelope.messageId] = { envelope: cloneEnvelope(envelope), lane };
+        envelopes[envelope.messageId] = { envelope: optimistic ? preserveOptimisticCellIdentity(envelope, optimistic.envelope) : cloneEnvelope(envelope), lane };
         added.push(envelope.messageId);
       } else if (envelope.revision > current.envelope.revision && sameOrderIdentity(current.envelope, envelope)) {
         envelopes[envelope.messageId] = {
-          envelope: cloneEnvelope(envelope),
+          envelope: preserveOptimisticCellIdentity(envelope, current.envelope),
           lane: lane === "pinned" ? "pinned" : current.lane,
         };
         updated.push(envelope.messageId);
@@ -661,7 +691,18 @@ function emptySurface(scope: CanonicalTimelineScope): CanonicalTimelineSurfaceSt
 }
 
 function orderedStoredEnvelopes(surface: CanonicalTimelineSurfaceState): StoredEnvelope[] {
-  return Object.values(surface.envelopes).sort((left, right) => compareEnvelopes(left.envelope, right.envelope));
+  const stored = Object.values(surface.envelopes);
+  const ordered = stored.filter(({ envelope }) => !envelope.optimisticPlacement)
+    .sort((left, right) => compareEnvelopes(left.envelope, right.envelope));
+  const pending = stored.filter(({ envelope }) => envelope.optimisticPlacement)
+    .sort((left, right) => left.envelope.optimisticPlacement!.submissionOrdinal - right.envelope.optimisticPlacement!.submissionOrdinal);
+  for (const item of pending) {
+    const anchor = item.envelope.optimisticPlacement!.afterMessageId;
+    const anchorIndex = anchor ? ordered.findIndex(({ envelope }) => envelope.messageId === anchor) : -1;
+    const pinnedCount = ordered.filter(({ envelope }) => isPinnedOrderClass(envelope.orderClass)).length;
+    ordered.splice(anchorIndex < 0 ? pinnedCount : anchorIndex + 1, 0, item);
+  }
+  return ordered;
 }
 
 function orderedMessageIds(surface: CanonicalTimelineSurfaceState): string[] {
@@ -749,6 +790,7 @@ function receiveStaleLatestPage(
         : null;
       if (correlatedOptimistic) {
         delete envelopes[correlatedOptimistic.messageId];
+        reanchorOptimistic(envelopes, correlatedOptimistic.messageId, envelope.messageId);
         removed.push(correlatedOptimistic.messageId);
       }
       const current = envelopes[envelope.messageId];
@@ -762,7 +804,7 @@ function receiveStaleLatestPage(
         if (correlatedOptimistic) updated.push(envelope.messageId);
         else added.push(envelope.messageId);
       } else if (envelope.revision > current.envelope.revision && sameOrderIdentity(current.envelope, envelope)) {
-        envelopes[envelope.messageId] = { envelope: cloneEnvelope(envelope), lane: current.lane };
+        envelopes[envelope.messageId] = { envelope: preserveOptimisticCellIdentity(envelope, current.envelope), lane: current.lane };
         updated.push(envelope.messageId);
       }
     }
@@ -812,6 +854,15 @@ function cloneEnvelope(envelope: CanonicalTimelineEnvelope): CanonicalTimelineEn
     ...envelope,
     cells: envelope.cells.map((cell) => ({ ...cell })),
   };
+}
+
+function reanchorOptimistic(envelopes: Record<string, StoredEnvelope>, fromMessageId: string, toMessageId: string): void {
+  for (const [id, stored] of Object.entries(envelopes)) {
+    const placement = stored.envelope.optimisticPlacement;
+    if (placement?.afterMessageId === fromMessageId) {
+      envelopes[id] = { ...stored, envelope: { ...stored.envelope, optimisticPlacement: { ...placement, afterMessageId: toMessageId } } };
+    }
+  }
 }
 
 function transcriptItemsFromCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptItem[] {

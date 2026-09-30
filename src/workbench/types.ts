@@ -8,6 +8,7 @@ import type { AgentSurfacesInvalidated } from "./agent-surface-contract.js";
 export type TopicThreadEventType =
   | "user.message"
   | "assistant.message"
+  | "assistant.transcript-segment"
   | "provider.review"
   | "orchestrator.plan"
   | "workflow.started"
@@ -23,6 +24,8 @@ export type WorkbenchMessageMode = "chat";
 export type WorkbenchWorkflowActionType = WorkflowActionType;
 
 export interface TopicThreadEntry {
+  transcriptReading?: AssistantTranscriptReading;
+  sourceMessageId?: string;
   id: string;
   clientRequestId?: string;
   requestHash?: string;
@@ -71,6 +74,14 @@ export interface TopicThreadEntry {
   queuedTurnDispatch?: ConversationQueuedTurnDispatchEvidence;
   providerReview?: ConversationReviewEvidence;
   document?: CanonicalPlanDocument;
+}
+
+export interface AssistantTranscriptReading {
+  sourceMessageId: string;
+  segmentIndex: number;
+  final: boolean;
+  text: string;
+  blocks: AssistantTurnBlock[];
 }
 
 export interface ConversationReviewEvidence {

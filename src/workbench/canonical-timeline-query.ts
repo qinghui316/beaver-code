@@ -46,8 +46,8 @@ export async function getCanonicalTimelinePage(
       conversationId,
       agentSurfaceId,
       watermark,
-      pinned: snapshot.pinnedRows.map((row) => projectCanonicalTimelineEnvelope(row, productMode)),
-      entries: snapshot.rows.map((row) => projectCanonicalTimelineEnvelope(row, productMode)),
+      pinned: snapshot.pinnedRows.map((row) => projectCanonicalTimelineEnvelope(row, productMode, (id) => database.timeline.readMessage(scope.projectId, conversationId, id))),
+      entries: snapshot.rows.map((row) => projectCanonicalTimelineEnvelope(row, productMode, (id) => database.timeline.readMessage(scope.projectId, conversationId, id))),
       paging: {
         limit,
         totalCount: snapshot.totalCount,
