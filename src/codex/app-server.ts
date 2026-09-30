@@ -833,7 +833,7 @@ async function runCodexAppServerOperation(
           // AHO can run ordinary conversation turns before a native Goal exists.
           // Only an authoritative absence permits the ordinary Turn control;
           // lookup failures must not bypass the native Goal pause protocol.
-          if (options.goalSession && parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }))) {
+          if (options.goalSession && parseControlGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }), activeThreadId)) {
             await requestNativeGoalPause(activeThreadId, activeTurnId);
             return { status: "interrupt-requested" as const };
           }
@@ -1428,7 +1428,7 @@ async function runCodexAppServerOperation(
     if (goalPausePromise) return goalPausePromise;
     goalPauseRequested = true;
     goalPausePromise = (async () => {
-      const beforeInterrupt = parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }));
+      const beforeInterrupt = parseControlGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }), activeThreadId);
       if (!beforeInterrupt) {
         goalPauseRequested = false;
         throw new Error("Codex native Goal yield requires an existing Goal on the provider thread.");
@@ -1625,6 +1625,15 @@ function dynamicToolItemMatches(params: Record<string, unknown>, callId: string)
 
 function parseThreadGoalResponse(response: Record<string, unknown>): CodexAppServerThreadGoal | null {
   return parseThreadGoal(isRecord(response.goal) ? response.goal : response);
+}
+
+function parseControlGoalResponse(response: Record<string, unknown>, expectedThreadId: string): CodexAppServerThreadGoal | null {
+  if (response.goal === null) return null;
+  const parsed = parseThreadGoalResponse(response);
+  if (!parsed || parsed.threadId !== expectedThreadId) {
+    throw new Error("Codex native Goal control response does not match the active provider thread.");
+  }
+  return parsed;
 }
 
 function parseThreadGoal(value: Record<string, unknown>): CodexAppServerThreadGoal | null {

@@ -399,6 +399,24 @@ describe("Codex native Goal lifecycle", () => {
     await active.interrupt();
     expect(await resultPromise).toMatchObject({ status: "interrupted" });
   });
+
+  it.each([
+    {}, { goal: {} }, { goal: { threadId: "thread-1", status: "active" } },
+    { goal: { threadId: "other-thread", objective: "Other task", status: "active" } },
+    { goal: "invalid" },
+  ])("rejects malformed or foreign successful Goal lookup responses: %j", async (response) => {
+    const server = new FakeGoalAppServer("paused", [], "tool", false, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const resultPromise = runCodexAppServerTurn(await options({}));
+    const active = await waitForActiveTurn("change-1");
+    server.goalLookupResponse = response;
+    await expect(active.interrupt()).rejects.toThrow("does not match the active provider thread");
+    expect(server.methods).not.toContain("turn/interrupt");
+    expect(server.methods).not.toContain("thread/goal/set");
+    server.goalLookupResponse = undefined;
+    await active.interrupt();
+    expect(await resultPromise).toMatchObject({ status: "interrupted" });
+  });
 });
 
 async function waitForActiveTurn(changeId: string) {
@@ -460,6 +478,7 @@ class FakeGoalAppServer extends EventEmitter {
   readonly injectedItems: unknown[] = [];
   readonly stdin: Writable;
   failGoalLookup = false;
+  goalLookupResponse: Record<string, unknown> | undefined;
   interruptParams: Record<string, unknown> | null = null;
   private input = "";
   private goal: CodexAppServerThreadGoal;
@@ -533,7 +552,7 @@ class FakeGoalAppServer extends EventEmitter {
       case "thread/goal/get":
         if (this.failGoalLookup) {
           queueMicrotask(() => this.stdout.write(`${JSON.stringify({ id, error: { code: -32000, message: "Goal lookup unavailable" } })}\n`));
-        } else this.respond(id, { goal: this.noGoal ? null : this.goal });
+        } else this.respond(id, this.goalLookupResponse ?? { goal: this.noGoal ? null : this.goal });
         return;
       case "thread/resume":
         if (this.replayCompletedTurn) {
