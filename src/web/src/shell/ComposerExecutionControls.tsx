@@ -5,21 +5,20 @@ import { AlertCircle, ArrowUp, CornerDownRight, ListEnd, Paperclip, CheckCircle2
 import type { ConversationContextSnapshot, ConversationTurnQueueSnapshot, ProviderReviewTarget } from "../types.js";
 import type { ComposerActionProjection } from "../controllers/ComposerExperienceProjection.js";
 
-export function ComposerActionButtons({ projection, mutationBusy, onSend, onQueue, onStop }: {
+export function ComposerActionButtons({ projection, hasDraft, mutationBusy, onSend, onQueue, onStop }: {
   projection: ComposerActionProjection;
+  hasDraft: boolean;
   mutationBusy: boolean;
   onSend: () => void;
   onQueue: () => void;
   onStop: () => void;
 }): ReactElement {
   const queued = projection.primaryIntent === "queue";
+  const stop = projection.canStop && !hasDraft;
   return <div className="composer-action-group" data-primary-intent={projection.primaryIntent}>
-    <div className="composer-stop-slot">
-      {projection.canStop ? <button type="button" className="composer-stop" aria-label="停止当前执行" title="停止当前执行" onClick={onStop}><Square size={14} fill="currentColor" /></button> : null}
-    </div>
     <div className="composer-primary-action">
-      <button type="button" className="composer-send" disabled={mutationBusy || !projection.canSubmitDraft} title={projection.disabledReason ?? (queued ? "加入待发送" : "发送")} aria-label={queued ? "加入待发送" : "发送"} onClick={queued ? onQueue : onSend}>
-        {mutationBusy ? <LoaderCircle size={17} className="spin" /> : <ArrowUp size={17} />}
+      <button type="button" className={stop ? "composer-stop" : "composer-send"} disabled={!stop && (mutationBusy || !projection.canSubmitDraft)} title={stop ? "停止当前执行" : projection.disabledReason ?? (queued ? "加入待发送" : "发送")} aria-label={stop ? "停止当前执行" : queued ? "加入待发送" : "发送"} onClick={stop ? onStop : queued ? onQueue : onSend}>
+        {stop ? <Square size={14} fill="currentColor" /> : mutationBusy ? <LoaderCircle size={17} className="spin" /> : <ArrowUp size={17} />}
       </button>
     </div>
   </div>;

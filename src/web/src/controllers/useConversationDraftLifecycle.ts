@@ -67,7 +67,7 @@ export interface ConversationDraftLifecycle {
     expectedDraftUpdatedAt: string | null,
     capturedMutationToken?: string | null,
   ): Promise<void>;
-  applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
+  applyRestoredSnapshot(snapshot: ComposerDraftSnapshot, expectedDraft?: ConversationDraftViewModel): void;
 }
 
 export function useConversationDraftLifecycle(
@@ -509,7 +509,23 @@ export function useConversationDraftLifecycle(
     );
   }, [settleAcceptedDraft]);
 
-  const applyRestoredSnapshot = useCallback((restored: ComposerDraftSnapshot): void => {
+  const applyRestoredSnapshot = useCallback((restored: ComposerDraftSnapshot, expectedDraft?: ConversationDraftViewModel): void => {
+    const current = controllerRef.current!.read();
+    if (expectedDraft && (current.mutationToken !== expectedDraft.mutationToken
+      || current.agentTurnMode !== expectedDraft.agentTurnMode || current.modelId !== expectedDraft.modelId
+      || current.reasoningEffort !== expectedDraft.reasoningEffort)) {
+      controllerRef.current!.restore({
+        projectId: restored.projectId, productMode: restored.productMode,
+        conversationId: scopeRef.current.conversation?.id ?? null,
+        clientRequestId: "local-draft-restore", draftRevision: restored.updatedAt,
+        text: restored.text, contextRefs: restored.contextRefs,
+        attachmentIds: restored.attachments.map((attachment) => attachment.id), skillOverrides: restored.skillOverrides,
+        providerId: restored.selectedProviderId, agentTurnMode: restored.agentTurnMode,
+        modelId: restored.agentModelId, reasoningEffort: restored.agentReasoningEffort,
+      }, restored.attachments, { restoreSkillOverrides: true });
+      portsRef.current.onError("队列内容已追加到输入框，你新输入的内容和设置已保留。");
+      return;
+    }
     setComposerTextState(restored.text);
     setFileRefsState(restored.contextRefs);
     setAttachments(restored.attachments);

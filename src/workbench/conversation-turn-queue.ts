@@ -18,7 +18,6 @@ import type {
   StoredConversationQueuedTurn,
   StoredConversationTurnQueueContractConfirmation,
 } from "./persistence/contracts.js";
-import { ComposerDraftConflictError } from "./persistence/repositories/composer-draft-repository.js";
 import { publishConversationTurnQueueInvalidated } from "./project-live-events.js";
 import type { TopicFileReference } from "./types.js";
 import { deleteUnreferencedTopicAttachments, resolveTopicAttachments } from "./attachments.js";
@@ -136,7 +135,7 @@ export class ConversationTurnQueueOwner {
     const before = await this.read(project, normalized.productMode, normalized.conversationId);
     if (!before.canEnqueue || before.revision !== normalized.expectedRevision
       || before.executionRevision !== normalized.expectedExecutionRevision) {
-      throw conflict(before.disabledReason ?? "Conversation execution or queue changed before enqueue.");
+      throw unacceptedQueueAdmission(conflict(before.disabledReason ?? "Conversation execution or queue changed before enqueue."));
     }
     const runtime = await this.options.projectRuntimeCoordinator.resolve(project);
     const paths = runtime.state === "onboarding" ? runtime.paths : runtime.resolution.paths;
@@ -191,8 +190,7 @@ export class ConversationTurnQueueOwner {
         },
       });
     } catch (error) {
-      if (error instanceof ComposerDraftConflictError) throw error;
-      throw error;
+      throw unacceptedQueueAdmission(error);
     } finally {
       database.close();
     }
@@ -354,8 +352,8 @@ export class ConversationTurnQueueOwner {
         const selected = snapshot.items.find((item) => item.queueItemId === request.queueItemId);
         if (snapshot.revision !== request.expectedRevision || snapshot.executionRevision !== request.expectedExecutionRevision
           || snapshot.guideTarget?.attemptId !== request.expectedAttemptId || snapshot.guideTarget.providerId !== request.providerId
-          || !selected || !selected.guideMode || selected.guideMode === "unavailable") throw conflict("Guide target or queue changed before acceptance.");
-        database.immediateTransaction(() => {
+          || !selected || !selected.guideMode || selected.guideMode === "unavailable") throw unacceptedQueueAdmission(conflict("Guide target or queue changed before acceptance."));
+        try { database.immediateTransaction(() => {
           const conversation = database.conversations.readConversation(project.id, request.conversationId);
           const queue = database.conversationTurnQueues.readQueue(project.id, request.conversationId);
           const item = database.conversationTurnQueues.readItem(project.id, request.conversationId, request.queueItemId);
@@ -380,7 +378,7 @@ export class ConversationTurnQueueOwner {
           claimed = database.conversationTurnQueues.transitionItem({ projectId: project.id, conversationId: request.conversationId,
             queueItemId: request.queueItemId, expectedStatus: "queued", status: "dispatching", updatedAt: now });
           database.conversationTurnQueues.advanceRevision(project.id, request.conversationId, queue.revision, now);
-        });
+        }); } catch (cause) { throw unacceptedQueueAdmission(cause); }
       }
     } finally { database.close(); }
     if (!claimed || !operation) return this.read(project, request.productMode, request.conversationId);
@@ -969,4 +967,9 @@ function boundedDiagnostic(cause: unknown): string {
   return "Conversation state changed before the queued Turn could be dispatched.";
 }
 function conflict(message: string): Error { const error = new Error(message); error.name = "Conflict"; return error; }
+function unacceptedQueueAdmission(cause: unknown): unknown {
+  // Only explicit admission conflicts prove rejection. Storage/commit failures stay uncertain.
+  return cause instanceof Error && cause.name === "Conflict"
+    ? Object.assign(cause, { queueAdmissionRejected: true as const }) : cause;
+}
 function badRequest(message: string): Error { const error = new Error(message); error.name = "BadRequest"; return error; }

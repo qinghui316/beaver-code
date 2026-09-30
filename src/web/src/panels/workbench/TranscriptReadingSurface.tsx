@@ -272,7 +272,8 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   const statusLabel = cell.status ? humanStatus(cell.status) : "";
   const text = isDuplicativeActivitySummary(rawText, title, statusLabel) ? "" : rawText;
   const detailText = normalizeProviderTranscriptText(cleanTranscriptText(cell.detailText));
-  const visibleStatusLabel = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
+  const visibleStatusLabel = cell.status && !(cell.activityKind === "turn" && !cell.realtime)
+    && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
   const detailsId = `${cell.id}:details`;
   const tone = transcriptActivityTone(cell);
   const opensAgent = Boolean(cell.targetAgentSurfaceId && onOpenAgent && (canOpenAgent?.(cell.targetAgentSurfaceId) ?? true));

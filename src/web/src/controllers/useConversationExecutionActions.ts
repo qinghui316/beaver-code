@@ -8,7 +8,7 @@ import type {
   ComposerDraftSettlementOptions,
   ComposerDraftSyncOwner,
 } from "./ComposerDraftSyncOwner.js";
-import type { ConversationDraftController } from "./ConversationDraftController.js";
+import type { ConversationDraftController, ConversationDraftViewModel } from "./ConversationDraftController.js";
 import {
   composerActionOwnsCurrentScope,
   composerDraftContent,
@@ -38,7 +38,7 @@ interface ConversationExecutionDraftPort {
     checkpoint?: ComposerDraftCheckpoint,
     guard?: ComposerDraftSettlementGuard,
   ): Promise<void>;
-  applyRestoredSnapshot(snapshot: ComposerDraftSnapshot): void;
+  applyRestoredSnapshot(snapshot: ComposerDraftSnapshot, expectedDraft?: ConversationDraftViewModel): void;
   cleanupTransition(transition: ComposerTransition): void;
 }
 
@@ -191,7 +191,7 @@ export function useConversationExecutionActions(
     }
     const restored = await draft.syncOwner.load(currentScope.projectId, productMode);
     if (!restored || !ownsAction(generation, currentScope)) return;
-    draft.applyRestoredSnapshot(restored);
+    draft.applyRestoredSnapshot(restored, captured);
   }, [draft]);
 
   const send = useCallback(async (): Promise<void> => {

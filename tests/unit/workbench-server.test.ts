@@ -545,6 +545,7 @@ describe("workbench server", () => {
     };
     const read = vi.fn(async () => snapshot);
     const enqueue = vi.fn(async () => snapshot);
+    const guide = vi.fn(async () => snapshot);
     const remove = vi.fn(async () => snapshot);
     const reclaim = vi.fn(async () => snapshot);
     const retry = vi.fn(async () => snapshot);
@@ -553,6 +554,7 @@ describe("workbench server", () => {
     const conversationTurnQueue = {
       read,
       enqueue,
+      guide,
       remove,
       reclaim,
       retry,
@@ -628,6 +630,32 @@ describe("workbench server", () => {
       modelId: "gpt-test",
       reasoningEffort: "high",
     }));
+
+    for (const action of ["enqueue", "guide"] as const) {
+      const ownerAction = action === "enqueue" ? enqueue : guide;
+      const rejection = Object.assign(new Error("changed before acceptance"), { name: "Conflict", queueAdmissionRejected: true });
+      ownerAction.mockRejectedValueOnce(rejection);
+      const body = action === "enqueue" ? {
+        productMode: "agent", clientRequestId: "rejected-enqueue", expectedRevision: "queue:0",
+        expectedExecutionRevision: "execution:0", expectedDraftUpdatedAt: null, text: "next", contextRefs: [],
+        attachmentIds: [], skillOverrides: {}, providerId: "codex", agentTurnMode: "default", modelId: null, reasoningEffort: null,
+      } : { productMode: "agent", clientRequestId: "rejected-guide", expectedRevision: "queue:0",
+        expectedExecutionRevision: "execution:0", providerId: "codex", expectedAttemptId: "attempt-1" };
+      const response = await fetch(action === "enqueue" ? endpoint : `${endpoint}/item-1/guide`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ queueAdmission: {
+        status: "not-accepted", action, projectId: "repo", productMode: "agent", conversationId: "conversation-agent",
+        clientRequestId: body.clientRequestId, ...(action === "guide" ? { queueItemId: "item-1" } : {}),
+      } });
+      ownerAction.mockRejectedValueOnce(Object.assign(new Error("side effects may exist"), { name: "Conflict" }));
+      const uncertain = await fetch(action === "enqueue" ? endpoint : `${endpoint}/item-1/guide`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      expect(uncertain.status).toBe(409);
+      expect(await uncertain.text()).not.toContain("queueAdmission");
+    }
 
     expect((await fetch(`${endpoint}/item-1?productMode=agent&expectedRevision=queue%3A1`, { method: "DELETE" })).status).toBe(200);
     expect(remove).toHaveBeenCalledWith(project(), "agent", "conversation-agent", "item-1", "queue:1");

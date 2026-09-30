@@ -142,6 +142,21 @@ describe("ConversationTurnQueueOwner", () => {
     expect(interrupt).not.toHaveBeenCalled();
   });
 
+  it("proves a guide revision rejection did not claim or invoke any delivery", async () => {
+    await insertRunningAttempt("guide-attempt", true);
+    const steer = vi.fn();
+    const owner = createGuideOwner({ steer } as never);
+    const queued = await enqueueGuideInputs(owner, false);
+    const request = { ...guideRequest(queued), expectedRevision: "queue:0" };
+    await expect(owner.guide(project, request)).rejects.toMatchObject({ name: "Conflict", queueAdmissionRejected: true });
+    const db = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      expect(db.conversationTurnQueues.readDelivery(projectId, conversationId, request.clientRequestId)).toBeNull();
+      expect(db.conversationTurnQueues.listItems(projectId, conversationId).every((item) => item.status === "queued")).toBe(true);
+    } finally { db.close(); }
+    expect(steer).not.toHaveBeenCalled();
+  });
+
   it("waits for durable termination before cutover and releases UI waiting on user-message acceptance", async () => {
     await insertRunningAttempt("guide-attempt", true);
     let terminal!: () => void;
@@ -559,7 +574,7 @@ describe("ConversationTurnQueueOwner", () => {
     });
 
     await expect(owner.enqueue(project, queueRequest(initial.revision, initial.executionRevision!)))
-      .rejects.toMatchObject({ name: "Conflict" });
+      .rejects.toMatchObject({ name: "Conflict", queueAdmissionRejected: true });
 
     const database = await openProjectRuntimeWorkbenchDatabase(paths);
     try {

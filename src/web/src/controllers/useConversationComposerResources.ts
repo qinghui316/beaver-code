@@ -121,7 +121,11 @@ export function useConversationComposerResources(
       && identityKey === skillRequestIdentityKey(skillRequestIdentity(scopeRef.current));
     try {
       await (portsRef.current.skills ?? defaultComposerSkillApi).setEnabled(identity, skillId, !currentlyActive);
-      if (ownsCurrentScope()) await reloadSkills(currentScope.projectId, identity);
+      if (ownsCurrentScope()) {
+        draft.setSkillOverridesRaw((current) => ({ ...current, [skillId]: !currentlyActive }));
+        draft.markDirty();
+        await reloadSkills(currentScope.projectId, identity);
+      }
     } catch (cause) {
       if (ownsCurrentScope()) portsRef.current.onError(composerErrorMessage(cause));
       throw cause;

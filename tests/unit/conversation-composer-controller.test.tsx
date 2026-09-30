@@ -1700,6 +1700,58 @@ describe("Conversation composer controller", () => {
     expect(result.current.composerText).toBe("next draft");
   });
 
+  it.each(["agent", "harness"] as const)("merges reclaimed content without overwriting a new %s draft", async (productMode) => {
+    const held = deferred<ConversationTurnQueueSnapshot>();
+    const ports = composerPorts();
+    ports.skills.load.mockResolvedValue([skill("reviewer")]);
+    ports.queue = { snapshot: queueSnapshot("queue:1"), loading: false, enqueue: vi.fn(), reclaim: vi.fn(() => held.promise) };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ productMode }), ports));
+    await waitFor(() => expect(result.current.skillItems).toHaveLength(1));
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ productMode, text: "reclaimed demand",
+      contextRefs: [fileRef("src/reclaimed.ts")], attachments: [attachment("reclaimed")], skillOverrides: { reviewer: false, recovered: true } }));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.reclaimQueuedTurn("item-1"); });
+    await waitFor(() => expect(ports.queue!.reclaim).toHaveBeenCalledOnce());
+    act(() => {
+      result.current.setComposerText("new demand");
+      result.current.setFileRefs([fileRef("src/new.ts")]);
+      result.current.setAttachments([attachment("new")]);
+      result.current.selectAgentModel("gpt-test");
+      result.current.selectAgentReasoningEffort("high");
+    });
+    await act(async () => result.current.toggleSkill("reviewer"));
+    await act(async () => { held.resolve(queueSnapshot("queue:2")); await pending; });
+    expect(result.current.composerText).toBe("new demand\n\nreclaimed demand");
+    expect(result.current.fileRefs.map((ref) => ref.relativePath)).toEqual(["src/new.ts", "src/reclaimed.ts"]);
+    expect(result.current.attachments.map((item) => item.id)).toEqual(["new", "reclaimed"]);
+    expect(result.current.draftSkillOverrides).toEqual({ reviewer: true, recovered: true });
+    expect(result.current.agentModelId).toBe("gpt-test");
+    expect(result.current.agentReasoningEffort).toBe("high");
+    await act(async () => { await result.current.flushDraft(); });
+    expect(ports.drafts.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: "new demand\n\nreclaimed demand", attachmentIds: ["new", "reclaimed"], skillOverrides: { reviewer: true, recovered: true },
+    }));
+  });
+
+  it("preserves configuration changed during an otherwise empty reclaim", async () => {
+    const held = deferred<ConversationTurnQueueSnapshot>();
+    const ports = composerPorts();
+    ports.queue = { snapshot: queueSnapshot("queue:1"), loading: false, enqueue: vi.fn(), reclaim: vi.fn(() => held.promise) };
+    const { result } = renderHook(() => useConversationComposerController(conversationScope({ productMode: "agent" }), ports));
+    await act(async () => { await Promise.resolve(); });
+    ports.drafts.load.mockResolvedValue(draftSnapshot({ text: "reclaimed demand", agentTurnMode: "default", agentModelId: null }));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.reclaimQueuedTurn("item-1"); });
+    await waitFor(() => expect(ports.queue!.reclaim).toHaveBeenCalledOnce());
+    await act(async () => { await result.current.selectAgentTurnMode("plan"); });
+    act(() => { result.current.selectAgentModel("gpt-test"); result.current.selectAgentReasoningEffort("high"); });
+    await act(async () => { held.resolve(queueSnapshot("queue:2")); await pending; });
+    expect(result.current.composerText).toBe("reclaimed demand");
+    expect(result.current.agentTurnMode).toBe("plan");
+    expect(result.current.agentModelId).toBe("gpt-test");
+    expect(result.current.agentReasoningEffort).toBe("high");
+  });
+
   it("protects a re-entered identical draft while enqueue is pending", async () => {
     const held = deferred<ConversationTurnQueueSnapshot>();
     const ports = composerPorts();

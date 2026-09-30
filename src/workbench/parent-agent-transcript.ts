@@ -263,8 +263,9 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
     ? { ...observedTerminal, label: "failed" }
     : observedTerminal;
   const elapsedSeconds = Math.max(1, Math.round((Date.parse(terminal.timestamp) - Date.parse(startedAt)) / 1000));
-  const failed = terminal.label !== "completed";
-  const title = failed ? `本轮需要处理 · ${elapsedSeconds} 秒` : `已完成 · ${elapsedSeconds} 秒`;
+  const stopped = ["interrupted", "stopped", "cancelled"].includes(terminal.label);
+  const failed = !stopped && terminal.label !== "completed";
+  const title = `${stopped ? "已停止" : failed ? "本轮需要处理" : "已完成"} · ${elapsedSeconds} 秒`;
   return [{
     id: `cell:turn:${canonicalTurnIdentity(item)}`,
     kind: "process-row",

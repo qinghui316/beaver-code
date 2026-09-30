@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchJson, postJson } from "../api.js";
+import { fetchJson, postJson, WorkbenchRequestError } from "../api.js";
+import type { ConversationQueueAdmissionRejection } from "../../../workbench/conversation-turn-queue-contract.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
 import type {
   ConversationTurnQueueSnapshot,
@@ -124,7 +125,10 @@ export function useConversationTurnQueueController(input: {
         ...queuedInput, productMode: current.productMode, clientRequestId: createRequestId("turn-queue"),
         expectedRevision: currentSnapshot.revision, expectedExecutionRevision: currentSnapshot.executionRevision,
       }));
-      return postJson<ConversationTurnQueueSnapshot>(baseQueueUrl(current), enqueueRetryRef.current.get(key)!);
+      const captured = enqueueRetryRef.current.get(key)!;
+      return postQueueAdmission(baseQueueUrl(current), captured, { action: "enqueue", ...current }, () => {
+        if (enqueueRetryRef.current.get(key) === captured) enqueueRetryRef.current.delete(key);
+      });
     });
     if (result) enqueueRetryRef.current.delete(key);
     return result;
@@ -151,7 +155,11 @@ export function useConversationTurnQueueController(input: {
           expectedAttemptId: currentSnapshot.guideTarget.attemptId, clientRequestId: createRequestId("turn-queue-guide"),
         });
       }
-      return postJson<ConversationTurnQueueSnapshot>(`${baseQueueUrl(current)}/${encodeURIComponent(queueItemId)}/guide`, guideRetryRef.current.get(key)!);
+      const captured = guideRetryRef.current.get(key)!;
+      return postQueueAdmission(`${baseQueueUrl(current)}/${encodeURIComponent(queueItemId)}/guide`, captured,
+        { action: "guide", ...current, queueItemId }, () => {
+          if (guideRetryRef.current.get(key) === captured) guideRetryRef.current.delete(key);
+        });
     });
     if (result) guideRetryRef.current.delete(key);
     return result;
@@ -326,4 +334,20 @@ function errorMessage(cause: unknown): string {
 
 function isCanonicalConversationId(conversationId: string | null): conversationId is string {
   return Boolean(conversationId && !conversationId.startsWith("pending:"));
+}
+async function postQueueAdmission(url: string, body: { clientRequestId?: unknown },
+  scope: { action: "enqueue" | "guide"; projectId: string | null; productMode: ProductMode; conversationId: string | null; queueItemId?: string },
+  onUnaccepted: () => void): Promise<ConversationTurnQueueSnapshot> {
+  try { return await postJson<ConversationTurnQueueSnapshot>(url, body); }
+  catch (cause) {
+    if (cause instanceof WorkbenchRequestError) {
+      try {
+        const receipt = (JSON.parse(cause.technicalDetail) as { queueAdmission?: Partial<ConversationQueueAdmissionRejection> }).queueAdmission;
+        if (receipt?.status === "not-accepted" && receipt.action === scope.action && receipt.projectId === scope.projectId
+          && receipt.productMode === scope.productMode && receipt.conversationId === scope.conversationId
+          && receipt.clientRequestId === body.clientRequestId && receipt.queueItemId === scope.queueItemId) onUnaccepted();
+      } catch { /* Unparseable or absent evidence remains uncertain. */ }
+    }
+    throw cause;
+  }
 }

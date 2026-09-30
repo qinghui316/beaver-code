@@ -251,6 +251,7 @@ export function TopicComposer({
       trailingControls={
         <ComposerActionButtons
           projection={actionProjection}
+          hasDraft={Boolean(value.trim() || hasAttachments || selectedFileRefs?.length)}
           mutationBusy={Boolean(queueBusy)}
           onSend={submit}
           onQueue={submit}

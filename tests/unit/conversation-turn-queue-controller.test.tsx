@@ -12,6 +12,65 @@ afterEach(() => {
 });
 
 describe("Conversation Turn queue controller", () => {
+  it.each(["enqueue", "guide"] as const)("recalibrates %s only after an exact unaccepted receipt", async (action) => {
+    const bodies: Record<string, unknown>[] = [];
+    let revision = "queue:1";
+    const initial = { ...queuedSnapshot(false), guideTarget: { providerId: "codex", attemptId: "attempt-1" } };
+    initial.items[0] = { ...initial.items[0]!, guideMode: "steer" } as typeof initial.items[0];
+    vi.stubGlobal("fetch", vi.fn(async (_url, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        bodies.push(body);
+        if (bodies.length === 1) {
+          revision = "queue:2";
+          return new Response(JSON.stringify({ error: "changed before acceptance", queueAdmission: {
+            status: "not-accepted", action, projectId: "project-1", productMode: "agent",
+            conversationId: "conversation-a", clientRequestId: body.clientRequestId,
+            ...(action === "guide" ? { queueItemId: "item-1" } : {}),
+          } }), { status: 409 });
+        }
+      }
+      return jsonResponse({ ...initial, revision, executionRevision: `execution:${revision}` });
+    }));
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1", productMode: "agent", conversationId: "conversation-a", onError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.snapshot?.revision).toBe("queue:1"));
+    const captured = { text: "same demand", contextRefs: [], attachmentIds: [], skillOverrides: {}, providerId: "codex",
+      agentTurnMode: "default" as const, modelId: null, reasoningEffort: null, expectedDraftUpdatedAt: "draft-1" };
+    await act(async () => { await expect(action === "guide" ? result.current.guide("item-1") : result.current.enqueue(captured)).rejects.toThrow(); });
+    expect(result.current.snapshot?.revision).toBe("queue:2");
+    await act(async () => { await (action === "guide" ? result.current.guide("item-1")
+      : result.current.enqueue({ ...captured, expectedDraftUpdatedAt: "draft-2" })); });
+    expect(bodies[1]).toMatchObject({ expectedRevision: "queue:2", expectedExecutionRevision: "execution:queue:2" });
+    expect(bodies[1]!.clientRequestId).not.toBe(bodies[0]!.clientRequestId);
+    if (action === "enqueue") expect(bodies[1]!.expectedDraftUpdatedAt).toBe("draft-2");
+  });
+
+  it.each(["absent", "foreign"] as const)("retains identity when conflict acceptance evidence is %s", async (evidence) => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        bodies.push(body);
+        if (bodies.length === 1) return new Response(JSON.stringify({ error: "uncertain conflict",
+          ...(evidence === "foreign" ? { queueAdmission: { status: "not-accepted", action: "enqueue",
+            projectId: "other-project", productMode: "agent", conversationId: "conversation-a", clientRequestId: body.clientRequestId } } : {}),
+        }), { status: 409 });
+      }
+      return jsonResponse(snapshot("conversation-a", bodies.length ? "queue:2" : "queue:1"));
+    }));
+    const { result } = renderHook(() => useConversationTurnQueueController({
+      projectId: "project-1", productMode: "agent", conversationId: "conversation-a", onError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.snapshot).not.toBeNull());
+    const captured = { text: "same demand", contextRefs: [], attachmentIds: [], skillOverrides: {}, providerId: "codex",
+      agentTurnMode: "default" as const, modelId: null, reasoningEffort: null, expectedDraftUpdatedAt: "draft-1" };
+    await act(async () => { await expect(result.current.enqueue(captured)).rejects.toThrow(); });
+    await act(async () => { await result.current.enqueue({ ...captured, expectedDraftUpdatedAt: "draft-2" }); });
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
+
   it("retains uncertain enqueue identity across scope changes and newer draft revisions", async () => {
     const bodies: Record<string, unknown>[] = [];
     let fail = true;

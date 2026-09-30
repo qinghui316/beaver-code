@@ -199,6 +199,18 @@ describe("canonical parent agent transcript cells", () => {
     expect(cells).toEqual([]);
   });
 
+  it.each(["interrupted", "stopped", "cancelled"])("shows a neutral stopped summary for %s", (status) => {
+    const cells = renderThreadItems([{
+      id: "assistant-stopped", kind: "assistant-turn", label: "AI", source: "chat",
+      timestamp: "2026-07-14T00:00:02.000Z", ...providerBlockIdentity("stopped"), status,
+      activity: [
+        { kind: "status", label: "thinking", timestamp: "2026-07-14T00:00:00.000Z" },
+        { kind: "status", label: status, timestamp: "2026-07-14T00:00:02.000Z" },
+      ],
+    }]);
+    expect(cells).toContainEqual(expect.objectContaining({ title: "已停止 · 2 秒", isError: false }));
+  });
+
   it("uses the canonical failed turn status when legacy activity ends with completed", () => {
     const cells = renderThreadItems([{
       id: "assistant-failed",

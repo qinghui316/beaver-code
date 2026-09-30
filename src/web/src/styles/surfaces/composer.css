@@ -1011,26 +1011,6 @@
   min-height: 44px;
 }
 
-.composer-stop-slot {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-}
-
-.composer-stop {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-}
-
 .conversation-turn-queue-actions button:hover,
 .composer-queue-button:hover,
 .composer-review-button:hover {
@@ -1393,15 +1373,16 @@
   justify-content: center;
   width: 44px;
   height: 44px;
-  border: 1px solid var(--border-subtle);
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-pill);
-  background: var(--surface);
-  color: var(--danger);
+  background: var(--text-strong);
+  color: var(--on-accent);
   cursor: pointer;
 }
 
 .composer-stop:hover {
-  background: var(--bg-hover);
+  opacity: 0.86;
 }
 
 @media (max-width: 680px) {

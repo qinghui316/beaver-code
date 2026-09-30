@@ -11,14 +11,18 @@ export async function handleConversationDeliveryApi(context: WorkbenchServerCont
   if (request.method === "POST" && guideMatch?.[1] && guideMatch[2]) {
     assertRegisteredProject(input);
     const body = await readJsonBody<Record<string, unknown>>(request);
-    sendJson(response, 200, await context.conversationTurnQueue.guide(input.project, {
+    const guideRequest = {
       productMode: requireProductMode(typeof body.productMode === "string" ? body.productMode : null),
       conversationId: decodeURIComponent(guideMatch[1]), queueItemId: decodeURIComponent(guideMatch[2]),
       expectedRevision: requireQueueString(body.expectedRevision, "expectedRevision"),
       expectedExecutionRevision: requireQueueString(body.expectedExecutionRevision, "expectedExecutionRevision"),
       providerId: requireQueueString(body.providerId, "providerId"), expectedAttemptId: requireQueueString(body.expectedAttemptId, "expectedAttemptId"),
       clientRequestId: requireQueueString(body.clientRequestId, "clientRequestId"),
-    }));
+    };
+    await sendQueueAdmission(response, { status: "not-accepted", action: "guide", projectId: input.project.id,
+      productMode: guideRequest.productMode, conversationId: guideRequest.conversationId,
+      queueItemId: guideRequest.queueItemId, clientRequestId: guideRequest.clientRequestId },
+      () => context.conversationTurnQueue.guide(input.project, guideRequest));
     return true;
   }
   const turnInterruptMatch = rest.match(/^conversations\/([^/]+)\/turn\/interrupt$/);
@@ -57,7 +61,7 @@ export async function handleConversationDeliveryApi(context: WorkbenchServerCont
     const body = await readJsonBody<ConversationTurnQueueBody>(request);
     const productMode = requireProductMode(typeof body.productMode === "string" ? body.productMode : null);
     const itemKind = body.itemKind === "review" ? "review" : "conversation-turn";
-    sendJson(response, 200, await context.conversationTurnQueue.enqueue(input.project, {
+    const enqueueRequest: import("../../workbench/conversation-turn-queue-contract.js").ConversationTurnEnqueueRequest = {
       projectId: input.project.id,
       productMode,
       conversationId: decodeURIComponent(turnQueueMatch[1]),
@@ -77,7 +81,10 @@ export async function handleConversationDeliveryApi(context: WorkbenchServerCont
       expectedAccessRevision: body.expectedAccessRevision === undefined ? undefined : requireAccessRevision(body.expectedAccessRevision),
       modelId: itemKind === "review" ? null : requireQueueNullableString(body.modelId, "modelId"),
       reasoningEffort: itemKind === "review" ? null : requireQueueNullableString(body.reasoningEffort, "reasoningEffort"),
-    }));
+    };
+    await sendQueueAdmission(response, { status: "not-accepted", action: "enqueue", projectId: input.project.id,
+      productMode, conversationId: enqueueRequest.conversationId, clientRequestId: enqueueRequest.clientRequestId },
+      () => context.conversationTurnQueue.enqueue(input.project, enqueueRequest));
     return true;
   }
   const turnQueueItemMatch = rest.match(/^conversations\/([^/]+)\/turn-queue\/([^/]+)$/);
@@ -275,3 +282,12 @@ function conflictQueueRequest(message: string): Error {
   return error;
 }
 
+async function sendQueueAdmission(response: ServerResponse,
+  rejection: import("../../workbench/conversation-turn-queue-contract.js").ConversationQueueAdmissionRejection,
+  action: () => Promise<unknown>): Promise<void> {
+  try { sendJson(response, 200, await action()); }
+  catch (cause) {
+    if (!(cause instanceof Error) || !("queueAdmissionRejected" in cause) || cause.queueAdmissionRejected !== true) throw cause;
+    sendJson(response, 409, { error: cause.message, queueAdmission: rejection });
+  }
+}

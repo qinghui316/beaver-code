@@ -116,3 +116,12 @@ export interface ConversationDeliveryOperation {
   createdAt: string;
   updatedAt: string;
 }
+export interface ConversationQueueAdmissionRejection {
+  status: "not-accepted";
+  action: "enqueue" | "guide";
+  projectId: string;
+  productMode: ProductMode;
+  conversationId: string;
+  clientRequestId: string;
+  queueItemId?: string;
+}

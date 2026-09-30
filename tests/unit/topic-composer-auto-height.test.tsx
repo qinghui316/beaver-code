@@ -146,10 +146,17 @@ describe("Topic Composer height", () => {
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
     expect(send).toHaveBeenCalledTimes(2);
     expect(stop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "停止当前执行" })).toBeNull();
     expect(screen.queryByRole("button", { name: "其他发送方式" })).toBeNull();
     view.rerender(<TopicComposer {...props} queueBusy />);
     expect(screen.getByRole("button", { name: "发送" })).toBe(button);
     expect(button.hasAttribute("disabled")).toBe(true);
+    view.rerender(<TopicComposer {...props} value="" />);
+    const stopButton = screen.getByRole("button", { name: "停止当前执行" });
+    expect(stopButton).toBe(button);
+    expect(stopButton.className).toBe("composer-stop");
+    fireEvent.click(stopButton);
+    expect(stop).toHaveBeenCalledOnce();
   });
 
   it("keeps a compact input and caps content growth at 160px", () => {
@@ -263,12 +270,11 @@ describe("Topic Composer height", () => {
     expect(onSend).toHaveBeenCalledOnce();
     expect(onStop).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "停止当前执行" }));
-    expect(onStop).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "停止当前执行" })).toBeNull();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("keep this for the next turn");
   });
 
-  it("disables Agent steer while submitting without disabling Stop", () => {
+  it("disables sending a new draft while steer is settling", () => {
     const onSend = vi.fn(async () => undefined);
     const onStop = vi.fn(async () => undefined);
     render(<TopicComposer
@@ -285,10 +291,8 @@ describe("Topic Composer height", () => {
     />);
 
     expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(true);
-    const stop = screen.getByRole("button", { name: "停止当前执行" });
-    expect(stop.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(stop);
-    expect(onStop).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "停止当前执行" })).toBeNull();
+    expect(onStop).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
   });
 
