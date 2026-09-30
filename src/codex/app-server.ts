@@ -830,30 +830,32 @@ async function runCodexAppServerOperation(
         },
         interrupt: async (reason?: string) => {
           void reason;
-          if (options.goalSession) {
+          // AHO can run ordinary conversation turns before a native Goal exists.
+          // Only an authoritative absence permits the ordinary Turn control;
+          // lookup failures must not bypass the native Goal pause protocol.
+          if (options.goalSession && parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }))) {
             await requestNativeGoalPause(activeThreadId, activeTurnId);
             return { status: "interrupt-requested" as const };
-          } else {
-            try {
-              const lease = hostLease;
-              if (!lease) throw new Error("Codex app-server Host lease is unavailable.");
-              const terminal = activeTurnTerminal;
-              const result = await lease.request(
-                "turn/interrupt",
-                { threadId: activeThreadId, turnId: activeTurnId },
-                { timeoutMs: CODEX_TURN_INTERRUPT_TIMEOUT_MS, resolveOn: terminal.promise },
-              );
-              return result === CODEX_TURN_ALREADY_TERMINAL
-                ? { status: "already-terminal" as const }
-                : { status: "interrupt-requested" as const };
-            } catch (error) {
-              if (error instanceof CodexAppServerJsonRpcError && error.method === "turn/interrupt") {
-                const rejection = new Error(error.rpcMessage, { cause: error });
-                rejection.name = "ProviderInterruptRejected";
-                throw rejection;
-              }
-              throw error;
+          }
+          try {
+            const lease = hostLease;
+            if (!lease) throw new Error("Codex app-server Host lease is unavailable.");
+            const terminal = activeTurnTerminal;
+            const result = await lease.request(
+              "turn/interrupt",
+              { threadId: activeThreadId, turnId: activeTurnId },
+              { timeoutMs: CODEX_TURN_INTERRUPT_TIMEOUT_MS, resolveOn: terminal.promise },
+            );
+            return result === CODEX_TURN_ALREADY_TERMINAL
+              ? { status: "already-terminal" as const }
+              : { status: "interrupt-requested" as const };
+          } catch (error) {
+            if (error instanceof CodexAppServerJsonRpcError && error.method === "turn/interrupt") {
+              const rejection = new Error(error.rpcMessage, { cause: error });
+              rejection.name = "ProviderInterruptRejected";
+              throw rejection;
             }
+            throw error;
           }
         },
         respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse, expected) => {

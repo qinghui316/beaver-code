@@ -373,6 +373,32 @@ describe("Codex native Goal lifecycle", () => {
     expect(server.events).toEqual(expect.arrayContaining(["turn-interrupted", "goal-paused"]));
     expect(server.events.indexOf("turn-interrupted")).toBeLessThan(server.events.indexOf("goal-paused"));
   });
+
+  it("interrupts the exact ordinary AHO Turn when the provider confirms no native Goal exists", async () => {
+    const server = new FakeGoalAppServer("paused", [], "tool", false, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const resultPromise = runCodexAppServerTurn(await options({}));
+    const active = await waitForActiveTurn("change-1");
+    expect(active.turnId).toBe("turn-user");
+    expect(await active.interrupt()).toEqual({ status: "interrupt-requested" });
+    expect(await resultPromise).toMatchObject({ status: "interrupted", goal: null });
+    expect(server.interruptParams).toEqual({ threadId: "thread-1", turnId: "turn-user" });
+    expect(server.methods).not.toContain("thread/goal/set");
+  });
+
+  it("does not interrupt or pause when the native Goal lookup fails", async () => {
+    const server = new FakeGoalAppServer("paused", [], "tool", false, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const resultPromise = runCodexAppServerTurn(await options({}));
+    const active = await waitForActiveTurn("change-1");
+    server.failGoalLookup = true;
+    await expect(active.interrupt()).rejects.toThrow("Goal lookup unavailable");
+    expect(server.methods).not.toContain("turn/interrupt");
+    expect(server.methods).not.toContain("thread/goal/set");
+    server.failGoalLookup = false;
+    await active.interrupt();
+    expect(await resultPromise).toMatchObject({ status: "interrupted" });
+  });
 });
 
 async function waitForActiveTurn(changeId: string) {
@@ -433,6 +459,8 @@ class FakeGoalAppServer extends EventEmitter {
   readonly events: string[] = [];
   readonly injectedItems: unknown[] = [];
   readonly stdin: Writable;
+  failGoalLookup = false;
+  interruptParams: Record<string, unknown> | null = null;
   private input = "";
   private goal: CodexAppServerThreadGoal;
   private readonly history: unknown[];
@@ -442,6 +470,7 @@ class FakeGoalAppServer extends EventEmitter {
     history: unknown[] = [],
     private readonly activeOutcome: "tool" | "blocked" | "unknown" = "tool",
     private readonly replayCompletedTurn = false,
+    private readonly noGoal = false,
   ) {
     super();
     this.goal = {
@@ -502,7 +531,9 @@ class FakeGoalAppServer extends EventEmitter {
         this.respond(id, {});
         return;
       case "thread/goal/get":
-        this.respond(id, { goal: this.goal });
+        if (this.failGoalLookup) {
+          queueMicrotask(() => this.stdout.write(`${JSON.stringify({ id, error: { code: -32000, message: "Goal lookup unavailable" } })}\n`));
+        } else this.respond(id, { goal: this.noGoal ? null : this.goal });
         return;
       case "thread/resume":
         if (this.replayCompletedTurn) {
@@ -516,7 +547,7 @@ class FakeGoalAppServer extends EventEmitter {
           this.notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-old", status: "completed" } });
         }
         this.respond(id, { thread: { id: "thread-1" } });
-        if (this.goal.status === "active") {
+        if (!this.noGoal && this.goal.status === "active") {
           this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-1", status: "inProgress" } });
           if (this.activeOutcome === "blocked") {
             this.goal = { ...this.goal, status: "blocked", updatedAt: this.goal.updatedAt + 1 };
@@ -529,7 +560,7 @@ class FakeGoalAppServer extends EventEmitter {
           } else {
             this.requestTool();
           }
-        } else {
+        } else if (!this.noGoal) {
           this.notify("thread/goal/updated", { threadId: "thread-1", goal: this.goal });
         }
         return;
@@ -558,12 +589,13 @@ class FakeGoalAppServer extends EventEmitter {
         this.respond(id, { turn: { id: "turn-user" } });
         this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-user", status: "inProgress" } });
         this.notify("item/completed", { item: { type: "agentMessage", text: "I will revise the plan first." } });
-        this.notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-user", status: "completed" } });
+        if (!this.noGoal) this.notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-user", status: "completed" } });
         return;
       case "turn/interrupt":
+        this.interruptParams = params;
         this.respond(id, {});
         this.events.push("turn-interrupted");
-        this.notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } });
+        this.notify("turn/completed", { threadId: "thread-1", turn: { id: params.turnId, status: "interrupted" } });
         return;
       default:
         throw new Error(`Unexpected app-server method ${message.method}`);
