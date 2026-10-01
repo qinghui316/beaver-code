@@ -196,10 +196,14 @@ async function runProjectScopedMainAgentTurnActivity(
       "aho.plan-handoff": {
         kind: "application" as const,
         value: JSON.stringify({
+          projectId,
+          conversationId,
           kind: planHandoff.kind,
           executionMode: planHandoff.executionMode,
           sourceRunId: planHandoff.sourceRunId,
           sourceArtifact: planHandoff.sourceArtifact,
+          sourceDocumentId: planHandoff.sourceDocumentId,
+          sourceCanonicalItemId: planHandoff.sourceCanonicalItemId,
           sourceProposalHash: planHandoff.sourceProposalHash,
           graphScopeId,
           feedback: planHandoff.feedback ?? null,
@@ -216,8 +220,17 @@ async function runProjectScopedMainAgentTurnActivity(
       sourceRunId: planHandoff.sourceRunId,
       sourceArtifact: planHandoff.sourceArtifact,
       feedback: planHandoff.feedback ?? null,
+      resumeContextVersion: 1,
     })).digest("hex")}`,
-    contextText: prompt,
+    contextText: [
+      prompt,
+      `The user selected ${planHandoff.kind} on the exact current Plan card. Review that validated handoff. An execute-plan choice permits reviewing and accepting the proposal through aho_accept_current_plan if it is ready; it does not bypass Runtime execution authorization or human gates. For a revision, use the current proposal workspace and the supplied feedback. A skip grants no acceptance or execution authority.`,
+      "Current validated Plan handoff application context:\n" + JSON.stringify({
+        "aho.project": additionalContext["aho.project"],
+        "aho.proposal-workspace": additionalContext["aho.proposal-workspace"],
+        "aho.plan-handoff": additionalContext["aho.plan-handoff"],
+      }),
+    ].join("\n\n"),
   } : undefined;
   await writeFile(join(directory, "prompt.md"), prompt, "utf8");
   let acceptedPlanMarker: TopicThreadEntry | null = null;

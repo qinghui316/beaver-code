@@ -1488,7 +1488,18 @@ describe("Workbench provider planning flow", () => {
           deliveryKey: expect.stringMatching(/^plan-handoff:/),
           contextText: expect.stringContaining("执行当前计划"),
         });
-        const arguments_ = mainAcceptanceArguments(options);
+        // Native Goal recovery injects contextText and does not send turn/start additionalContext.
+        const marker = "Current validated Plan handoff application context:\n";
+        expect(options.goalResume.contextText).toContain(marker);
+        const recoveredContext = JSON.parse(options.goalResume.contextText.split(marker)[1]);
+        expect(Object.keys(recoveredContext).sort()).toEqual(["aho.plan-handoff", "aho.project", "aho.proposal-workspace"]);
+        const recoveredHandoff = JSON.parse(recoveredContext["aho.plan-handoff"].value);
+        expect(recoveredHandoff).toMatchObject({
+          kind: "execute-plan", projectId: "repo", conversationId: options.conversationId,
+          sourceDocumentId: expect.any(String), sourceCanonicalItemId: expect.any(String),
+          sourceProposalHash: expect.any(String), graphScopeId: expect.any(String),
+        });
+        const arguments_ = mainAcceptanceArguments({ additionalContext: recoveredContext });
         const missingContract = await options.onDynamicToolCall?.({
           requestId: "request-missing-contract",
           threadId: "thread-main",

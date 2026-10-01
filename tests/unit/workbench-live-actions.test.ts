@@ -88,4 +88,27 @@ describe("Workbench live actions", () => {
     expect(mocks.runWorkbenchWorkflowAction).not.toHaveBeenCalled();
     expect(response.chunks.join("\n")).toContain("Action planning.confirm-execution is not supported by the live endpoint.");
   });
+
+  it("preserves the exact graph identity after current-action validation", async () => {
+    const input = { path: "project-root", project: {
+      id: "repo", name: "Repo", path: "project-root",
+      addedAt: "2026-06-25T00:00:00.000Z", lastSeenAt: "2026-06-25T00:00:00.000Z",
+    } };
+    const body = { actionType: "workflow.run.start", changeId: "change-1",
+      graphScopeId: "graph-scope-1", workflowGraphPlanId: "authored-graph-1", confirm: true };
+    const response = new FakeSseResponse();
+    await sendWorkbenchActionLive(input, jsonRequest(body) as never, response as unknown as ServerResponse, {} as never);
+    expect(mocks.assertCurrentWorkflowAction).toHaveBeenCalledWith(input, body, expect.anything());
+    expect(mocks.runWorkbenchWorkflowAction).toHaveBeenCalledWith(input.project,
+      expect.objectContaining({ actionType: body.actionType, changeId: body.changeId,
+        graphScopeId: body.graphScopeId, workflowGraphPlanId: body.workflowGraphPlanId }), expect.anything(), expect.anything());
+    expect(mocks.assertCurrentWorkflowAction.mock.invocationCallOrder[0]).toBeLessThan(mocks.runWorkbenchWorkflowAction.mock.invocationCallOrder[0]);
+
+    mocks.runWorkbenchWorkflowAction.mockClear();
+    mocks.assertCurrentWorkflowAction.mockRejectedValueOnce(new Error("Current graph identity changed."));
+    const rejected = new FakeSseResponse();
+    await sendWorkbenchActionLive(input, jsonRequest(body) as never, rejected as unknown as ServerResponse, {} as never);
+    expect(mocks.runWorkbenchWorkflowAction).not.toHaveBeenCalled();
+    expect(rejected.chunks.join("\n")).toContain("Current graph identity changed.");
+  });
 });

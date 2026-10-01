@@ -35,6 +35,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
       const result = await runWorkbenchWorkflowAction(input.project, {
         actionType: body.actionType,
         changeId: body.changeId,
+        graphScopeId: body.graphScopeId,
         prompt: body.prompt,
         feedback: body.feedback,
         proposalId: body.proposalId,
