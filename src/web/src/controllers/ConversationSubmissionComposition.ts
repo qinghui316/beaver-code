@@ -138,6 +138,14 @@ async function sendConversationMessageTransport(
     (event) => routeEvent?.(request.projectId, event),
     {
       firstConfirmationTimeoutMs: 30_000,
+      isFirstConfirmation: (event) => {
+        const data = event.data as Record<string, unknown>;
+        const conversation = (data.conversation ?? (data.center as Record<string, unknown> | undefined)?.selectedTopic) as Record<string, unknown> | undefined;
+        const scope = data.scope as Record<string, unknown> | undefined;
+        return (data.projectId ?? scope?.projectId) === request.projectId
+          && (data.productMode ?? scope?.productMode ?? conversation?.productMode) === request.productMode
+          && (data.conversationId ?? scope?.conversationId ?? conversation?.id) === request.conversationId;
+      },
       onFirstConfirmationTimeout,
     },
   );

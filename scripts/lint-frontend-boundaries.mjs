@@ -93,6 +93,18 @@ const retiredSymbols = [
 for (const file of webFiles) {
   const relativePath = normalizePath(relative(root, file));
   const content = await readFile(file, "utf8");
+  if (["src/web/src/controllers/useDecisionInspectorController.ts", "src/web/src/controllers/useConversationActionController.ts"].includes(relativePath)
+    && /from\s+["'][^"']*(?:panels\/|shell\/|App\.)/.test(content)) {
+    violations.push(`${relativePath}: decision/action owners consume pure contracts and ports, not UI components`);
+  }
+  if (relativePath === "src/web/src/controllers/useDecisionInspectorController.ts"
+    && /from\s+["'][^"']*(?:\/api\.|provider-runtime|persistence|application-history)/.test(content)) {
+    violations.push(`${relativePath}: confirmation presentation delegates execution and navigation to owner ports`);
+  }
+  if (relativePath === "src/web/src/panels/workbench/DecisionPanels.tsx"
+    && /from\s+["'][^"']*(?:controllers\/|\/api\.|provider-runtime|persistence)/.test(content)) {
+    violations.push(`${relativePath}: confirmation view consumes its pure contract only`);
+  }
   if (relativePath !== "src/web/src/controllers/application-history-adapter.ts"
     && /\bhistory\.(?:pushState|replaceState)\s*\(/.test(content)) {
     violations.push(`${relativePath}: application History writes belong to application-history-adapter`);

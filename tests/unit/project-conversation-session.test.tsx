@@ -18,6 +18,19 @@ afterEach(() => {
 });
 
 describe("Project conversation session owner", () => {
+  it("uses only the exact creation identity as its first confirmation", async () => {
+    const fixture = ownerFixture();
+    const hook = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await hook.result.current.loadApp(); });
+    await act(async () => { await hook.result.current.createDemandConversation({ projectId: "repo-1", productMode: "harness", clientRequestId: "exact", body: "Hello", contextRefs: [], attachmentIds: [], skillOverrides: [], showPendingBeforeCreate: true }, vi.fn()); });
+    const call = fixture.api.createDemandConversation.mock.calls[0];
+    const streamOptions = call?.[2] as import("../../src/web/src/api.js").LiveStreamOptions<WorkbenchLiveEvent>;
+    const event = { event: "topic.created", data: { projectId: "repo-1", productMode: "harness", conversationId: "conv-created", clientRequestId: "exact", topic: { id: "conv-created" } } } as WorkbenchLiveEvent;
+    expect(streamOptions.isFirstConfirmation?.(event)).toBe(true);
+    expect(streamOptions.isFirstConfirmation?.({ ...event, data: { ...event.data, conversationId: "conflicting-conversation" } } as WorkbenchLiveEvent)).toBe(false);
+    expect(streamOptions.isFirstConfirmation?.({ ...event, data: { ...event.data, clientRequestId: "other" } } as WorkbenchLiveEvent)).toBe(false);
+    expect(streamOptions.isFirstConfirmation?.({ event: "run.status", data: { projectId: "repo-1", conversationId: "conv-created", productMode: "harness" } } as WorkbenchLiveEvent)).toBe(false);
+  });
   it("restores the explicit historical mode and conversation without choosing the latest", async () => {
     const fixture = ownerFixture();
     const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));

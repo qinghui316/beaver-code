@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
@@ -75,6 +75,21 @@ describe("Workbench App owner composition", () => {
     expect(screen.getByPlaceholderText("输入问题或下一步需求")).toBeTruthy();
     expect(MockEventSource.instances).toHaveLength(1);
     expect(MockEventSource.instances[0]?.url).toBe("/api/projects/repo/workbench/events/live");
+  });
+
+  it("keeps unrelated stream errors out of the confirmation pane and allows dismissing the application notice", async () => {
+    installApiFixture(createSnapshot());
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+    fireEvent.click(screen.getByRole("button", { name: "打开工具" }));
+    fireEvent.click(screen.getByTestId("right-tool-launcher-confirm"));
+    const pane = screen.getByTestId("decision-pane-shell");
+    expect(within(pane).getByText("当前没有待确认事项")).toBeTruthy();
+    act(() => MockEventSource.instances[0]?.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ event: "error", data: { projectId: "repo", productMode: "harness", conversationId: "conv-1", message: "general stream failure" } }) })));
+    const close = await screen.findByRole("button", { name: "关闭操作提示" });
+    expect(within(pane).queryByRole("alert")).toBeNull();
+    fireEvent.click(close);
+    expect(screen.queryByRole("button", { name: "关闭操作提示" })).toBeNull();
   });
 
   it("shows one direct mode toggle with a bounded inactive-mode status", async () => {

@@ -23,6 +23,8 @@ import type {
   ConversationInteractionQuestion,
   ConversationInteractionSettlement,
 } from "../../../../workbench/conversation-interaction-contract.js";
+import type { ConversationInteractionDraft } from "../../types.js";
+export type { ConversationInteractionDraft } from "../../types.js";
 
 export interface ConversationInteractionDockProps {
   interaction: ConversationInteraction;
@@ -32,14 +34,6 @@ export interface ConversationInteractionDockProps {
   onDraftChange?: (interactionId: string, draft: ConversationInteractionDraft) => void;
   onSettle: (interactionId: string, settlement: ConversationInteractionSettlement) => Promise<void>;
   onStop: () => Promise<void>;
-}
-
-export interface ConversationInteractionDraft {
-  questionIndex: number;
-  answers: Record<string, string | string[]>;
-  skippedQuestionIds: string[];
-  feedbackExpanded: boolean;
-  feedback: string;
 }
 
 export function ConversationInteractionDock({

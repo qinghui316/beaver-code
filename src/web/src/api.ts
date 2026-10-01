@@ -14,33 +14,41 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export type LiveStreamOptions = {
+export type LiveStreamOptions<TEvent = unknown> = {
   firstConfirmationTimeoutMs?: number;
   onFirstConfirmation?: () => void;
   onFirstConfirmationTimeout?: () => void;
   signal?: AbortSignal;
+  isFirstConfirmation?: (event: TEvent) => boolean;
 };
 
 export async function consumeWorkbenchLiveStream<TEvent>(
   url: string,
   body: unknown,
   onEvent: (event: TEvent) => void,
-  options: LiveStreamOptions = {},
+  options: LiveStreamOptions<TEvent> = {},
 ): Promise<void> {
   let confirmed = false;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const timeout = options.firstConfirmationTimeoutMs && options.firstConfirmationTimeoutMs > 0
     ? setTimeout(() => { if (!confirmed) options.onFirstConfirmationTimeout?.(); }, options.firstConfirmationTimeoutMs)
     : undefined;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: options.signal,
-  });
+  const confirm = (event: TEvent): void => {
+    if (confirmed || (options.isFirstConfirmation && !options.isFirstConfirmation(event))) return;
+    confirmed = true;
+    if (timeout) clearTimeout(timeout);
+    options.onFirstConfirmation?.();
+  };
   try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
     if (!response.ok) throw await WorkbenchRequestError.fromResponse(response);
     if (!response.body) throw new Error("Live response did not include a readable body.");
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     while (true) {
@@ -53,10 +61,7 @@ export async function consumeWorkbenchLiveStream<TEvent>(
         buffer = buffer.slice(index + 2);
         const event = parseWorkbenchSseFrame<TEvent>(frame);
         if (event) {
-          if (!confirmed) {
-            confirmed = true;
-            options.onFirstConfirmation?.();
-          }
+          confirm(event);
           onEvent(event);
         }
         await yieldToBrowser();
@@ -67,16 +72,14 @@ export async function consumeWorkbenchLiveStream<TEvent>(
     if (trailing) {
       const event = parseWorkbenchSseFrame<TEvent>(trailing);
       if (event) {
-        if (!confirmed) {
-          confirmed = true;
-          options.onFirstConfirmation?.();
-        }
+        confirm(event);
         onEvent(event);
       }
       await yieldToBrowser();
     }
   } finally {
     if (timeout) clearTimeout(timeout);
+    reader?.releaseLock();
   }
 }
 

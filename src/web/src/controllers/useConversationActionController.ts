@@ -1,8 +1,9 @@
 import { useCallback, useRef } from "react";
-import { consumeWorkbenchLiveStream, postJson } from "../api.js";
+import { consumeWorkbenchLiveStream, postJson, WorkbenchRequestError } from "../api.js";
 import { userFacingErrorMessage } from "../presentation/user-facing-language.js";
-import type { ConversationInteractionDraft } from "../panels/workbench/ConversationInteractionDock.js";
 import type {
+  ConversationInteractionDraft,
+  DecisionActionResult,
   ConversationInteractionSettlement,
   DecisionAction,
   DecisionContext,
@@ -46,7 +47,6 @@ export interface ConversationActionPorts {
   cacheProjectSnapshot: (projectId: string, snapshot: Snapshot) => void;
   setComposerText: (value: string) => void;
   setError: (message: string | null) => void;
-  clearConfirmation: () => void;
   chooseRun: (runId: string) => Promise<void>;
   openOrchestration: () => void;
   navigateConversation: (conversationId: string) => Promise<void>;
@@ -63,8 +63,8 @@ export type ConversationSteerOutcome =
   | { status: "already-terminal" };
 
 export interface ConversationActionController {
-  executeDecisionAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
-  requestDecisionFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
+  executeDecisionAction: (action: DecisionAction, context: DecisionContext) => Promise<DecisionActionResult>;
+  requestDecisionFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<DecisionActionResult>;
   runWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   interruptTurn: (request: {
     productMode?: ProductMode;
@@ -122,13 +122,16 @@ export function useConversationActionController({
   const forkRequestRef = useRef<{ key: string; clientRequestId: string } | null>(null);
   sessionRef.current = session;
   portsRef.current = ports;
-  const isCurrentScope = (projectId: string, conversationId: string | null): boolean => (
+  const isCurrentScope = (projectId: string, conversationId: string | null, productMode?: ProductMode): boolean => (
     sessionRef.current.projectId === projectId && sessionRef.current.conversationId === conversationId
+    && (!productMode || sessionRef.current.snapshot.productMode === productMode)
   );
 
   const runWorkflowAction = useCallback(async (
     actionType: string,
     options: Record<string, unknown> = {},
+    inputPolicy: "composer" | "preserve" = "composer",
+    onAccepted?: () => void,
   ): Promise<void> => {
     const current = sessionRef.current;
     const actionPorts = portsRef.current;
@@ -144,36 +147,40 @@ export function useConversationActionController({
     const topicBeforeAction = conversationId ?? current.selectedTopicId;
     const snapshotBeforeAction = current.snapshot;
     const operationToken = actionPorts.operationGate.begin(actionType);
-    actionPorts.setError(null);
+    if (inputPolicy === "composer") actionPorts.setError(null);
+    let liveFailure: string | null = null;
+    let liveAccepted = false;
     try {
       if (actionType === "intake.scan") {
         const result = await request<{ snapshot: Snapshot }>(
           `/api/projects/${encodeURIComponent(projectId)}/workbench/intake/scan`,
           {
             changeId: conversationId,
-            prompt: current.composerText.trim() || snapshotBeforeAction.center.selectedTopic?.title || "",
+            prompt: (inputPolicy === "composer" ? current.composerText.trim() : String(actionOptions.prompt ?? "")) || snapshotBeforeAction.center.selectedTopic?.title || "",
           },
         );
-        if (isCurrentScope(projectId, conversationId)) {
+        onAccepted?.();
+        if (isCurrentScope(projectId, conversationId, current.snapshot.productMode)) {
           actionPorts.applySnapshot(result.snapshot);
-          if (current.composerText.trim()) actionPorts.setComposerText("");
+          if (inputPolicy === "composer" && current.composerText.trim()) actionPorts.setComposerText("");
         }
         return;
       }
 
       if (actionType === "intake.reanalyze") {
-        const requested = actionPorts.requestReanalysisMessage
+        const requested = inputPolicy === "preserve" ? String(actionOptions.feedback ?? actionOptions.prompt ?? "") : actionPorts.requestReanalysisMessage
           ? actionPorts.requestReanalysisMessage()
           : typeof window === "undefined" ? null : window.prompt("补充需求或回答需要确认的问题");
-        const message = (current.composerText.trim() || requested || "").trim();
+        const message = ((inputPolicy === "composer" ? current.composerText.trim() : "") || requested || "").trim();
         if (!message) return;
         const result = await request<{ snapshot: Snapshot }>(
           `/api/projects/${encodeURIComponent(projectId)}/workbench/intake/reanalyze`,
           { changeId: conversationId, message },
         );
-        if (isCurrentScope(projectId, conversationId)) {
+        onAccepted?.();
+        if (isCurrentScope(projectId, conversationId, current.snapshot.productMode)) {
           actionPorts.applySnapshot(result.snapshot);
-          actionPorts.setComposerText("");
+          if (inputPolicy === "composer") actionPorts.setComposerText("");
         }
         return;
       }
@@ -184,13 +191,27 @@ export function useConversationActionController({
           actionType,
           changeId: conversationId,
           confirm: true,
-          prompt: current.composerText.trim() || undefined,
+          ...(inputPolicy === "composer" ? { prompt: current.composerText.trim() || undefined } : {}),
           ...actionOptions,
         },
         (event) => {
-          if (isCurrentScope(projectId, conversationId)) actionPorts.routeProjectionEvent(projectId, event);
+          if (inputPolicy === "preserve") {
+            if (event.event === "error") liveFailure = event.data.message;
+            if (event.event === "done" && event.data.status === "completed" && !liveFailure
+              && (!event.data.projectId || event.data.projectId === projectId)
+              && (!event.data.productMode || event.data.productMode === current.snapshot.productMode)
+              && (!event.data.conversationId || event.data.conversationId === conversationId)) {
+              liveAccepted = true;
+              onAccepted?.();
+            }
+          }
+          if (isCurrentScope(projectId, conversationId, current.snapshot.productMode)
+            && !(inputPolicy === "preserve" && event.event === "error")) actionPorts.routeProjectionEvent(projectId, event);
         },
       );
+      if (inputPolicy === "preserve" && (liveFailure || !liveAccepted)) {
+        throw new Error(liveFailure ?? "Workflow acceptance was not confirmed.");
+      }
 
       if (shouldPreserveSelectedTopic && topicBeforeAction && isCurrentScope(projectId, conversationId)) {
         const refreshed = await actionPorts.refreshSession(projectId, topicBeforeAction);
@@ -200,10 +221,10 @@ export function useConversationActionController({
           actionPorts.cacheProjectSnapshot(projectId, restored);
         }
       }
-      if (current.composerText.trim() && isCurrentScope(projectId, conversationId)) actionPorts.setComposerText("");
+      if (inputPolicy === "composer" && current.composerText.trim() && isCurrentScope(projectId, conversationId, current.snapshot.productMode)) actionPorts.setComposerText("");
     } finally {
       try {
-        if (isCurrentScope(projectId, conversationId)) {
+        if (isCurrentScope(projectId, conversationId, current.snapshot.productMode)) {
           await actionPorts.calibrateTimeline({ projectId, productMode: current.snapshot.productMode, conversationId, agentSurfaceId: "main-agent" });
         }
       } finally {
@@ -215,37 +236,38 @@ export function useConversationActionController({
   const executeDecisionAction = useCallback(async (
     action: DecisionAction,
     context: DecisionContext,
-  ): Promise<void> => {
+  ): Promise<DecisionActionResult> => {
     const current = sessionRef.current;
     const actionPorts = portsRef.current;
-    if (!current.projectId || !action.enabled) return;
+    if (!current.projectId || !action.enabled) return { status: "failed", message: "此事项当前不可操作，请重新读取。" };
 
     if (action.kind === "workflow-action" && action.actionType) {
-      await runWorkflowAction(action.actionType, workflowActionPayloadFromScope(action, {
+      return settleDecisionAction(async (accepted) => runWorkflowAction(action.actionType!, workflowActionPayloadFromScope(action, {
         changeId: action.changeId ?? context.changeId,
         worktreeId: action.worktreeId ?? context.targetId,
-      }));
-      return;
+      }), "preserve", accepted));
     }
 
     if (action.kind === "evidence" && context.runId) {
-      await actionPorts.chooseRun(context.runId);
-      actionPorts.openOrchestration();
-      return;
+      return settleDecisionAction(async (accepted) => {
+        await actionPorts.chooseRun(context.runId!);
+        if (isCurrentScope(current.projectId!, current.conversationId, current.snapshot.productMode)) actionPorts.openOrchestration();
+        accepted();
+      });
     }
 
-    if (action.kind !== "approval" && action.kind !== "abandon") return;
-    if (action.kind === "approval" && !action.action) return;
+    if (action.kind !== "approval" && action.kind !== "abandon") return { status: "failed", message: "此事项暂无可用操作。" };
+    if (action.kind === "approval" && !action.action) return { status: "failed", message: "此事项缺少有效确认信息，请重新读取。" };
 
     const projectId = current.projectId;
     const currentTopic = current.snapshot.center.selectedTopic?.id === current.conversationId
       ? current.snapshot.center.selectedTopic
       : current.snapshot.left.topics.find((topic) => topic.id === current.conversationId);
     if (action.kind === "abandon" && (!context.changeId || !current.conversationId || !currentTopic?.graphScopeId)) {
-      throw new Error("Abandon requires the current Conversation, graph, and Change identity.");
+      return { status: "failed", message: "此事项缺少有效会话信息，请重新读取。" };
     }
     const operationToken = actionPorts.operationGate.begin(`decision.${action.id}`);
-    try {
+    return settleDecisionAction(async (accepted) => { try {
       const body = action.kind === "approval"
         ? action.options
           ? { action: action.action, confirm: true, options: action.options }
@@ -266,13 +288,13 @@ export function useConversationActionController({
             },
           };
       await (actionPorts.postJson ?? postJson)(`/api/projects/${encodeURIComponent(projectId)}/workbench/actions`, body);
-      actionPorts.clearConfirmation();
-      if (isCurrentScope(projectId, current.conversationId)) {
-        await actionPorts.refreshSession(projectId, current.conversationId);
+      accepted();
+      if (isCurrentScope(projectId, current.conversationId, current.snapshot.productMode)) {
+        if (await actionPorts.refreshSession(projectId, current.conversationId) === null) throw new Error("Decision refresh failed.");
       }
     } finally {
       actionPorts.operationGate.release(operationToken);
-    }
+    } });
   }, [runWorkflowAction]);
 
   const interruptTurn = useCallback(async (request: {
@@ -487,25 +509,24 @@ export function useConversationActionController({
     context: DecisionContext,
     action: DecisionAction,
     feedback: string,
-  ): Promise<void> => {
+  ): Promise<DecisionActionResult> => {
     const current = sessionRef.current;
     const trimmedFeedback = feedback.trim();
-    if (!current.projectId || !trimmedFeedback) return;
+    if (!current.projectId || !trimmedFeedback || !action.enabled) return { status: "failed", message: "请填写修改意见后再提交。" };
     if (action.actionType) {
-      await runWorkflowAction(action.actionType, {
+      return settleDecisionAction(async (accepted) => runWorkflowAction(action.actionType!, {
         ...workflowActionPayloadFromScope(action, {
           changeId: action.changeId ?? context.changeId,
           worktreeId: action.worktreeId ?? context.targetId,
         }),
         feedback: trimmedFeedback,
-      });
-      return;
+      }, "preserve", accepted));
     }
 
     const projectId = current.projectId;
     const actionPorts = portsRef.current;
     const operationToken = actionPorts.operationGate.begin(`decision.feedback.${action.id}`);
-    try {
+    return settleDecisionAction(async (accepted) => { try {
       await (actionPorts.postJson ?? postJson)(`/api/projects/${encodeURIComponent(projectId)}/workbench/actions`, {
         action: action.action,
         feedback: trimmedFeedback,
@@ -525,12 +546,13 @@ export function useConversationActionController({
           artifact: action.artifact ?? context.artifact,
         },
       });
-      if (isCurrentScope(projectId, current.conversationId)) {
-        await actionPorts.refreshSession(projectId, current.conversationId);
+      accepted();
+      if (isCurrentScope(projectId, current.conversationId, current.snapshot.productMode)) {
+        if (await actionPorts.refreshSession(projectId, current.conversationId) === null) throw new Error("Decision refresh failed.");
       }
     } finally {
       actionPorts.operationGate.release(operationToken);
-    }
+    } });
   }, [runWorkflowAction]);
 
   const settleInteraction = useCallback(async (
@@ -612,6 +634,21 @@ export function useConversationActionController({
     setInteractionDraft,
     clearInteractionDrafts,
   };
+}
+
+async function settleDecisionAction(operation: (accepted: () => void) => Promise<void>): Promise<DecisionActionResult> {
+  let accepted = false;
+  try {
+    await operation(() => { accepted = true; });
+    return accepted ? { status: "accepted", refresh: "ready" }
+      : { status: "uncertain", message: "操作结果待确认，请重新读取状态。" };
+  } catch (cause) {
+    if (accepted) return { status: "accepted", refresh: "failed" };
+    if (cause instanceof WorkbenchRequestError && cause.status >= 400 && cause.status < 500 && cause.status !== 408) {
+      return { status: "failed", message: userFacingErrorMessage(cause, "conversation") };
+    }
+    return { status: "uncertain", message: "操作结果待确认，请重新读取状态。" };
+  }
 }
 
 function conversationSteerOutcome(value: unknown): ConversationSteerOutcome {

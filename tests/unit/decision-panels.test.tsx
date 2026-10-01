@@ -1,92 +1,83 @@
 // @vitest-environment jsdom
-
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
-import type { ConfirmationQueue, ConfirmationQueueItem, DecisionAction, DecisionContext, DecisionInspector } from "../../src/web/src/types.js";
-
+import { useDecisionInspectorController } from "../../src/web/src/controllers/useDecisionInspectorController.js";
+import type { ConfirmationQueue, ConfirmationQueueItem, DecisionActionResult, DecisionContext, DecisionInspector } from "../../src/web/src/types.js";
 afterEach(cleanup);
 
-describe("Decision inspector panel", () => {
-  it("keeps apply confirmation explicit and submits the original action once", async () => {
-    const action = decisionAction("apply", "应用并本地提交", "approval", true);
-    const queue = confirmationQueue(confirmation("apply-item", "确认应用到项目", [action]));
-    const onConfirmingChange = vi.fn();
-    const onExecuteAction = vi.fn(async () => undefined);
-    const view = renderPane(queue, { onConfirmingChange, onExecuteAction });
-
-    fireEvent.click(screen.getByRole("button", { name: /应用并本地提交/ }));
-    expect(onConfirmingChange).toHaveBeenCalledWith("apply");
-    view.rerender(pane(queue, { confirming: "apply", onConfirmingChange, onExecuteAction }));
-    fireEvent.click(screen.getByRole("button", { name: "确认" }));
-
-    expect(onExecuteAction).toHaveBeenCalledTimes(1);
-    expect(onExecuteAction).toHaveBeenCalledWith(action, expect.objectContaining({ id: "apply-item" }));
+const accepted = async (): Promise<DecisionActionResult> => ({ status: "accepted", refresh: "ready" });
+function Harness({ queue = emptyQueue(), inspector = { primary: null, related: [], history: [] }, execute = vi.fn(accepted), feedback = vi.fn(accepted), open = vi.fn(async () => undefined), loadFailure = null }: {
+  queue?: ConfirmationQueue; inspector?: DecisionInspector; execute?: ReturnType<typeof vi.fn>; feedback?: ReturnType<typeof vi.fn>; open?: ReturnType<typeof vi.fn>; loadFailure?: string | null;
+}) {
+  const controller = useDecisionInspectorController({ projectId: "repo-1", productMode: "harness", conversationId: "conv-1", queue, inspector, busy: false, loadFailure,
+    actions: { executeDecisionAction: execute, requestDecisionFeedback: feedback, refresh: async () => undefined, openConversation: open } });
+  return <DecisionInspectorPane controller={controller} />;
+}
+describe("Confirmation surface", () => {
+  it("renders one quiet empty state with no zero counts or empty history", () => {
+    render(<Harness />);
+    expect(screen.getByText("当前没有待确认事项")).toBeTruthy();
+    expect(screen.queryByText("0")).toBeNull();
+    expect(screen.queryByTestId("decision-history")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
-
-  it("renders a blocked queue item as primary without inventing approval controls", () => {
-    const evidence = decisionAction("evidence", "查看证据", "evidence", false);
-    const blocked = {
-      ...confirmation("blocked-item", "任务已暂停", [evidence]),
-      status: "failed",
-      summary: "验证失败，需要修改",
-      riskSummary: "失败原因已经记录。",
-    };
-    renderPane(confirmationQueue(blocked));
-
-    expect(screen.getByText("任务已暂停")).toBeTruthy();
-    expect(screen.getByText("验证失败，需要修改")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /查看证据/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "确认" })).toBeNull();
-    expect(screen.getByText("历史")).toBeTruthy();
+  it("selects every current item by its own identity and keeps approval explicit", async () => {
+    const first = item("one", "第一个事项"), second = item("two", "第二个事项");
+    const execute = vi.fn(accepted);
+    render(<Harness queue={{ ...emptyQueue(), primary: first, current: [first, second] }} execute={execute} />);
+    fireEvent.click(screen.getByRole("button", { name: /第二个事项/ }));
+    const detail = screen.getByTestId("decision-inspector-primary");
+    expect(detail.getAttribute("data-decision-id")).toBe("two");
+    fireEvent.click(within(detail).getByRole("button", { name: "应用到项目" }));
+    expect(execute).not.toHaveBeenCalled();
+    fireEvent.click(within(detail).getByRole("button", { name: "确认应用到项目" }));
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute).toHaveBeenCalledWith(second.actions[0], expect.objectContaining({ id: "two" }));
+  });
+  it("shows history detail as readonly and retains its history row", () => {
+    const context = { id: "history-1", kind: "history", title: "历史事项", summary: "已处理", severity: "info", actions: item("old", "old").actions } as DecisionContext;
+    render(<Harness inspector={{ primary: null, related: [], history: [context] }} />);
+    fireEvent.click(screen.getByText("历史记录"));
+    fireEvent.click(screen.getByRole("button", { name: /历史事项/ }));
+    const detail = screen.getByTestId("decision-inspector-primary");
+    expect(within(detail).getByText("已处理")).toBeTruthy();
+    expect(within(detail).queryByRole("button", { name: /应用/ })).toBeNull();
+    expect(screen.getByTestId("decision-history")).toBeTruthy();
+  });
+  it("does not show a false empty state when only another conversation has an item", () => {
+    const other = { ...item("other", "其他会话事项"), conversationId: "conv-2" };
+    const open = vi.fn(async () => undefined);
+    render(<Harness queue={{ ...emptyQueue(), otherDemands: [other] }} open={open} />);
+    expect(screen.queryByText("当前没有待确认事项")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "打开对应会话" }));
+    expect(open).toHaveBeenCalledWith("repo-1", "conv-2");
+    expect(screen.queryByRole("button", { name: "应用到项目" })).toBeNull();
+  });
+  it("keeps failed feedback and prevents repeated pending submission", async () => {
+    let finish!: (value: DecisionActionResult) => void;
+    const feedback = vi.fn(() => new Promise<DecisionActionResult>((resolve) => { finish = resolve; }));
+    const primary = item("one", "需要修改");
+    render(<Harness queue={{ ...emptyQueue(), primary, current: [primary] }} feedback={feedback} />);
+    fireEvent.click(screen.getByRole("button", { name: "要求修改" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留接口" } });
+    fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
+    fireEvent.click(screen.getByRole("button", { name: "正在提交…" }));
+    expect(feedback).toHaveBeenCalledTimes(1);
+    finish({ status: "failed", message: "提交失败" });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("提交失败"));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("保留接口");
+  });
+  it("shows read failure instead of claiming the list is empty", () => {
+    render(<Harness loadFailure="读取失败" />);
+    expect(screen.getByRole("alert").textContent).toContain("读取失败");
+    expect(screen.queryByText("当前没有待确认事项")).toBeNull();
   });
 });
-
-function renderPane(queue: ConfirmationQueue, overrides: Partial<PaneProps> = {}) {
-  return render(pane(queue, overrides));
-}
-
-type PaneProps = {
-  confirming: string | null;
-  onConfirmingChange: (id: string | null) => void;
-  onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
-};
-
-function pane(queue: ConfirmationQueue, overrides: Partial<PaneProps> = {}) {
-  const inspector: DecisionInspector = { primary: null, related: [], history: [] };
-  return <DecisionInspectorPane
-    inspector={inspector}
-    confirmationQueue={queue}
-    confirming={overrides.confirming ?? null}
-    busy={false}
-    error={null}
-    onConfirmingChange={overrides.onConfirmingChange ?? vi.fn()}
-    onExecuteAction={overrides.onExecuteAction ?? vi.fn(async () => undefined)}
-    onFeedback={vi.fn(async () => undefined)}
-    onSelectContext={vi.fn()}
-  />;
-}
-
-function confirmationQueue(primary: ConfirmationQueueItem): ConfirmationQueue {
-  return { primary, current: [primary], otherDemands: [], maintenance: [], history: [] };
-}
-
-function confirmation(id: string, title: string, actions: DecisionAction[]): ConfirmationQueueItem {
-  return {
-    id,
-    kind: "apply",
-    conversationId: "conv-1",
-    changeId: "change-1",
-    summary: "Ready",
-    whyNeedsConfirmation: title,
-    confirmEffect: "Apply the accepted result.",
-    riskSummary: "Local source will change.",
-    evidenceRefs: ["validation.json"],
-    actions,
-    primary: true,
-  };
-}
-
-function decisionAction(id: string, label: string, kind: DecisionAction["kind"], requiresConfirmation: boolean): DecisionAction {
-  return { id, label, kind, enabled: true, requiresConfirmation };
+function emptyQueue(): ConfirmationQueue { return { primary: null, current: [], otherDemands: [], maintenance: [], history: [] }; }
+function item(id: string, title: string): ConfirmationQueueItem {
+  return { id, kind: "single-result-apply", conversationId: "conv-1", changeId: "change-1", summary: "检查通过", whyNeedsConfirmation: title, confirmEffect: "应用检查通过的结果", riskSummary: "", evidenceRefs: ["checks.json"], primary: true, actions: [
+    { id: `apply:${id}`, label: "应用到项目", kind: "approval", enabled: true, requiresConfirmation: true },
+    { id: `feedback:${id}`, label: "要求修改", kind: "feedback", enabled: true, requiresConfirmation: false },
+  ] };
 }

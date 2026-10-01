@@ -19,6 +19,52 @@ export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceSt
 export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null; desktopShell?: DesktopShellCapability };
+
+export interface ConversationInteractionDraft {
+  questionIndex: number;
+  answers: Record<string, string | string[]>;
+  skippedQuestionIds: string[];
+  feedbackExpanded: boolean;
+  feedback: string;
+}
+
+export type DecisionActionResult =
+  | { status: "accepted"; refresh: "ready" | "failed" }
+  | { status: "failed" | "uncertain"; message: string };
+
+export type DecisionInspectorTarget = { source: "current" | "other" | "maintenance" | "history"; id: string };
+export interface DecisionInspectorEntry {
+  target: DecisionInspectorTarget;
+  context: DecisionContext;
+  projectId: string | null;
+  conversationId: string | null;
+  readOnly: boolean;
+}
+export interface DecisionInspectorSurface {
+  entries: DecisionInspectorEntry[];
+  history: DecisionInspectorEntry[];
+  selected: DecisionInspectorEntry | null;
+  confirming: string | null;
+  feedbackActionId: string | null;
+  feedback: string;
+  busy: boolean;
+  locked: boolean;
+  issue: { kind: "failed" | "uncertain" | "accepted"; message: string } | null;
+  loading: boolean;
+  loadFailure: string | null;
+}
+export interface DecisionInspectorControls {
+  view: DecisionInspectorSurface;
+  select: (target: DecisionInspectorTarget) => void;
+  confirm: (actionId: string | null) => void;
+  beginFeedback: (actionId: string) => void;
+  setFeedback: (text: string) => void;
+  cancelFeedback: () => void;
+  execute: (action: DecisionAction) => Promise<void>;
+  submitFeedback: () => Promise<void>;
+  refresh: () => Promise<void>;
+  openConversation: () => Promise<void>;
+}
 export type ProjectGitReviewOptions = {
   isGitRepository: boolean;
   branch: string | null;

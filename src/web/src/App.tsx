@@ -50,8 +50,6 @@ import type {
   ProductMode,
   ParentAgentTranscript,
   Workpad,
-  DecisionAction,
-  DecisionContext,
   WorkbenchLiveEvent,
   TopicAttachment,
   TopicFileReference,
@@ -71,6 +69,7 @@ import { useWorkspaceResourceController } from "./controllers/useWorkspaceResour
 import { workspaceResourceModeHandoff } from "./controllers/workspaceResourceModeHandoff.js";
 import { useProviderConfigurationController } from "./controllers/useProviderConfigurationController.js";
 import { useConversationActionController } from "./controllers/useConversationActionController.js";
+import { useDecisionInspectorController } from "./controllers/useDecisionInspectorController.js";
 import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
 import { useProductModeActivityController } from "./controllers/useProductModeActivityController.js";
 import { useProjectNavigationOverlayController } from "./controllers/useProjectNavigationOverlayController.js";
@@ -171,8 +170,6 @@ export function App(): ReactElement {
     setManagementRefreshVersions((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   };
   const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timeline = useCanonicalTimelineController(setError);
   const operationGate = useGlobalOperationGate();
@@ -454,10 +451,6 @@ export function App(): ReactElement {
     await session.chooseRun(runId);
   }
 
-  async function executeDecisionAction(action: DecisionAction, context: DecisionContext): Promise<void> {
-    await conversationActions.executeDecisionAction(action, context);
-  }
-
   function openSettings(section: SettingsSection = "basic"): void {
     setMobileSidebarOpen(false);
     navigationOverlay.close();
@@ -466,10 +459,6 @@ export function App(): ReactElement {
 
   function changeSettingsSection(section: SettingsSection): void {
     void appNavigation.visit({ surface: "settings", settingsSection: section });
-  }
-
-  async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
-    await conversationActions.requestDecisionFeedback(context, action, feedback);
   }
 
   async function toggleComposerSkill(skillId: string): Promise<void> {
@@ -808,18 +797,7 @@ export function App(): ReactElement {
     }
   }, [session.selectedProjectId, session.selectedTopic, session.productMode, session.snapshot,
     appMode.productMode, settingsOpen, appNavigation.location, workspaceResources.openResource]);
-  const activeDecisionInspector = useMemo(() => {
-    const inspector = activeModeSnapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
-    if (!selectedDecisionContextId) return inspector;
-    const selected = [inspector.primary, ...inspector.related, ...inspector.history].find((item): item is DecisionContext => Boolean(item && item.id === selectedDecisionContextId));
-    if (!selected) return inspector;
-    return {
-      primary: selected,
-      related: [inspector.primary, ...inspector.related].filter((item): item is DecisionContext => Boolean(item && item.id !== selected.id)),
-      history: inspector.history.filter((item) => item.id !== selected.id),
-      selectedContextId: selected.id,
-    };
-  }, [activeModeSnapshot.right.decisionInspector, selectedDecisionContextId]);
+  const activeDecisionInspector = activeModeSnapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
   const activeConfirmationQueue = activeModeSnapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
   const agentSurfaces = useAgentSurfaceController({
     projectId: selectedProjectId,
@@ -966,7 +944,6 @@ export function App(): ReactElement {
       cacheProjectSnapshot: session.cacheProjectSnapshot,
       setComposerText,
       setError,
-      clearConfirmation: () => setConfirming(null),
       chooseRun,
       openOrchestration: () => {
         void appNavigation.visit({ surface: "orchestration", resource: null });
@@ -975,6 +952,24 @@ export function App(): ReactElement {
         if (!selectedProjectId) return;
         await chooseConversation(selectedProjectId, conversationId);
       },
+    },
+  });
+  const decisionSnapshotReady = !selectedProjectId || snapshotMatchesSelection(activeModeSnapshot, selectedProjectId, appMode.productMode, selectedTopicForMode);
+  const decisionInspector = useDecisionInspectorController({
+    projectId: selectedProjectId,
+    productMode: appMode.productMode,
+    conversationId: selectedTopicForMode,
+    inspector: decisionSnapshotReady ? activeDecisionInspector : { primary: null, related: [], history: [] },
+    queue: decisionSnapshotReady ? activeConfirmationQueue : { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
+    busy: actionRunning !== null,
+    loading: !decisionSnapshotReady && !session.snapshotError,
+    loadFailure: session.snapshotError,
+    decisions: decisionSnapshotReady ? activeModeSnapshot.right.decisions : [],
+    actions: {
+      executeDecisionAction: conversationActions.executeDecisionAction,
+      requestDecisionFeedback: conversationActions.requestDecisionFeedback,
+      refresh: () => refresh(),
+      openConversation: chooseConversation,
     },
   });
   const activeConversationInteraction = activeModeSnapshot.center.conversationInteractions?.items[0] ?? null;
@@ -1365,6 +1360,7 @@ export function App(): ReactElement {
         inert={mobileSidebarModalOpen ? true : undefined}
       >
         <div className="workspace-main" data-testid="workspace-main">
+        {error ? <div className="application-operation-notice" role="alert"><span>{sanitizeTechnicalDetail(error)}</span><button className="outline-button" aria-label="关闭操作提示" onClick={() => setError(null)}>关闭</button></div> : null}
         {settingsOpen ? (
           <SettingsSurface
             section={settingsSection}
@@ -1620,17 +1616,7 @@ export function App(): ReactElement {
           />
         }
         confirmPanel={
-          <DecisionInspectorPane
-            inspector={activeDecisionInspector}
-            confirmationQueue={activeConfirmationQueue}
-            confirming={confirming}
-            busy={actionRunning !== null}
-            failureMessage={error}
-            onConfirmingChange={setConfirming}
-            onExecuteAction={executeDecisionAction}
-            onFeedback={requestDecisionFeedback}
-            onSelectContext={setSelectedDecisionContextId}
-          />
+          <DecisionInspectorPane controller={decisionInspector} />
         }
         filesPanel={
           <ProjectFilesPanel

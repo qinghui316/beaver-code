@@ -107,7 +107,7 @@ export interface ProjectConversationSessionApi {
   createDemandConversation(
     input: CreateDemandConversationInput,
     onEvent: (event: WorkbenchLiveEvent) => void,
-    options?: import("../api.js").LiveStreamOptions,
+    options?: import("../api.js").LiveStreamOptions<WorkbenchLiveEvent>,
   ): Promise<void>;
 }
 
@@ -890,6 +890,9 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
           }
         }, {
           firstConfirmationTimeoutMs: 30_000,
+          isFirstConfirmation: (event) => event.event === "topic.created" && topicCreatedMatchesRequest(event, request)
+            && Boolean(event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId)
+            && (!boundConversationId || (event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId) === boundConversationId),
           onFirstConfirmationTimeout: () => {
             if (!canApplyToCurrentSelection()) return;
             const pending = pendingDemandRef.current;
@@ -1680,7 +1683,9 @@ function topicCreatedMatchesRequest(
 ): boolean {
   if (event.event !== "topic.created") return false;
   const data = event.data as Record<string, unknown>;
+  const conversationId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId;
   return data.projectId === expected.projectId
     && data.productMode === expected.productMode
-    && data.clientRequestId === expected.clientRequestId;
+    && data.clientRequestId === expected.clientRequestId
+    && (!data.conversationId || data.conversationId === conversationId);
 }

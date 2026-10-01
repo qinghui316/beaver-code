@@ -7,12 +7,57 @@ import {
   type ConversationActionPorts,
   type ConversationActionSession,
 } from "../../src/web/src/controllers/useConversationActionController.js";
-import type { ConversationInteractionDraft } from "../../src/web/src/panels/workbench/ConversationInteractionDock.js";
+import type { ConversationInteractionDraft } from "../../src/web/src/types.js";
 import type { DecisionAction, DecisionContext, Snapshot, WorkbenchLiveEvent } from "../../src/web/src/types.js";
 
 afterEach(() => cleanup());
 
 describe("Conversation action controller", () => {
+  it("preserves Composer and unrelated errors for workflow decisions and feedback", async () => {
+    const harness = controllerHarness({ composerText: "next draft" });
+    harness.ports.consumeLiveStream = vi.fn(async (_url, _body, onEvent) => {
+      // The workflow endpoint's request-bound terminal event carries only status.
+      onEvent({ event: "done", data: { status: "completed" } });
+    });
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+    const action = { ...decisionAction("workflow", "workflow-action"), actionType: "workflow.execute" as const };
+    await act(async () => { expect(await result.current.executeDecisionAction(action, decisionContext())).toEqual({ status: "accepted", refresh: "ready" }); });
+    await act(async () => { await result.current.requestDecisionFeedback(decisionContext(), { ...action, kind: "feedback" }, "revise"); });
+    for (const call of vi.mocked(harness.ports.consumeLiveStream!).mock.calls) expect(call[1]).not.toHaveProperty("prompt");
+    expect(harness.ports.setComposerText).not.toHaveBeenCalled();
+    expect(harness.ports.setError).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicitly mismatched workflow receipt", async () => {
+    const harness = controllerHarness();
+    harness.ports.consumeLiveStream = vi.fn(async (_url, _body, onEvent) => {
+      onEvent({ event: "done", data: { projectId: "another-project", status: "completed" } });
+    });
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+    await act(async () => {
+      expect(await result.current.executeDecisionAction({ ...decisionAction("workflow", "workflow-action"), actionType: "workflow.execute" }, decisionContext())).toMatchObject({ status: "uncertain" });
+    });
+  });
+
+  it("distinguishes an accepted operation from its subsequent refresh failure", async () => {
+    const harness = controllerHarness();
+    harness.ports.refreshSession = vi.fn().mockRejectedValue(new Error("refresh offline"));
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+    await act(async () => {
+      expect(await result.current.executeDecisionAction({ ...decisionAction("approve", "approval"), action: approvalAction("apply") }, decisionContext())).toEqual({ status: "accepted", refresh: "failed" });
+    });
+    expect(harness.ports.postJson).toHaveBeenCalledTimes(1);
+    expect(harness.ports.setError).not.toHaveBeenCalled();
+  });
+
+  it("does not claim workflow success when a stream ends with an error", async () => {
+    const harness = controllerHarness();
+    harness.ports.consumeLiveStream = vi.fn(async (_url, _body, onEvent) => onEvent({ event: "error", data: { message: "failed upstream" } } as WorkbenchLiveEvent));
+    const { result } = renderHook(() => useConversationActionController(harness.options));
+    await act(async () => { expect(await result.current.executeDecisionAction({ ...decisionAction("workflow", "workflow-action"), actionType: "workflow.execute" }, decisionContext())).toMatchObject({ status: "uncertain" }); });
+    expect(harness.ports.setError).not.toHaveBeenCalled();
+    expect(harness.ports.routeProjectionEvent).not.toHaveBeenCalled();
+  });
   it("routes approvals, abandon, evidence, and feedback through their existing owners", async () => {
     const harness = controllerHarness();
     const { result } = renderHook(() => useConversationActionController(harness.options));
@@ -27,7 +72,6 @@ describe("Conversation action controller", () => {
       confirm: true,
       options: { commit: true },
     });
-    expect(harness.ports.clearConfirmation).toHaveBeenCalledTimes(1);
 
     await act(async () => result.current.executeDecisionAction(
       decisionAction("abandon", "abandon"),
@@ -530,7 +574,6 @@ function controllerHarness(overrides: Partial<ConversationActionSession> = {}) {
     cacheProjectSnapshot: vi.fn(),
     setComposerText: vi.fn(),
     setError: vi.fn(),
-    clearConfirmation: vi.fn(),
     chooseRun: vi.fn(async () => undefined),
     openOrchestration: vi.fn(),
     navigateConversation: vi.fn(async () => undefined),

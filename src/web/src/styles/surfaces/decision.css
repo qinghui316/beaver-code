@@ -19,8 +19,7 @@
 }
 
 .approval-card,
-.decision-item,
-.approval-empty {
+.decision-item {
   border-bottom: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-panel);
@@ -32,10 +31,27 @@
 }
 
 .approval-empty {
-  padding: 16px;
-  border-style: dashed;
+  margin: 0;
+  padding: 12px 0;
   color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
+
+.decision-inspector { min-width: 0; }
+.decision-inspector .approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.decision-inspector button { min-height: 44px; }
+.decision-primary { overflow-wrap: anywhere; }
+.decision-explainer { margin-top: 12px; }
+.decision-explainer strong { font-size: 12px; color: var(--text-muted); }
+.decision-risk { margin-top: 10px !important; color: var(--text-muted); }
+.decision-evidence { padding-left: 18px; font-size: 12px; color: var(--text-muted); }
+.decision-notice { padding: 10px 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.decision-notice p { margin: 0 0 8px; }
+.decision-notice.failed { color: var(--danger); }
+.decision-history > summary { cursor: pointer; color: var(--text-muted); font-size: 13px; min-height: 44px; }
+.application-operation-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; color: var(--text-muted); border-bottom: 1px solid var(--border); font-size: 13px; }
+.application-operation-notice button { min-width: 44px; min-height: 44px; }
 
 .approval-empty h3,
 .approval-card h3,
