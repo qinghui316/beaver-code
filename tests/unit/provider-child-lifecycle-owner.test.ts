@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { bindProviderAttemptThread, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
 import type { AgentCatalog } from "../../src/agent/catalog.js";
 import type { ProviderChildLifecycleEvent } from "../../src/provider-runtime/index.js";
 import type { CanonicalTimelineDelivery } from "../../src/workbench/canonical-timeline-delivery.js";
@@ -67,9 +73,10 @@ describe("ProviderChildLifecycleOwner", () => {
     expect(fixture.owner.registeredForThread("thread-child")?.status).toBe("terminated");
   });
 
-  it("creates a distinct Attempt for each continued activity on the same Child thread", () => {
+  it("creates a distinct Attempt when continuing a terminal Child", () => {
     const fixture = ownerFixture();
     const first = fixture.owner.onLifecycle(started({ roleHint: "planning-agent" }))!;
+    fixture.owner.onResult({ providerId: "codex", activityId: "activity-1", parentThreadId: "thread-main", threadId: "thread-child", status: "completed", finalText: "done", changedFiles: [] });
     const second = fixture.owner.onLifecycle(started({
       kind: "continued",
       activityId: "activity-2",
@@ -79,10 +86,40 @@ describe("ProviderChildLifecycleOwner", () => {
     expect(fixture.owner.registeredForThread("thread-child")?.attemptId).toBe(second.attemptId);
     expect(fixture.createProviderAttempt).toHaveBeenCalledTimes(2);
     expect(fixture.owner.terminalAttempts("failed")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ attemptId: first.attemptId, status: "failed" }),
+      expect.objectContaining({ attemptId: first.attemptId, status: "completed" }),
       expect.objectContaining({ attemptId: second.attemptId, status: "failed" }),
     ]));
     expect(fixture.owner.terminalAttempts("failed")).toHaveLength(2);
+  });
+
+  it("aliases guidance during an active Child with real SQLite ownership enforced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "aho-child-continuation-"));
+    const paths = resolveProjectRuntimePaths("project-1", root);
+    const database = await openProjectRuntimeWorkbenchDatabase(paths);
+    try {
+      const now = new Date().toISOString();
+      database.conversations.createConversation({ projectId: "project-1", conversationId: "conversation-1", productMode: "harness", title: "Child continuation", state: "active", boundChangeId: null, currentGraphScopeId: "scope-1", selectedProviderId: "codex", completedTurnSequence: 0, createdAt: now, updatedAt: now, deletedAt: null });
+      await startProviderAttempt(paths, { attemptId: "attempt-main", providerId: "codex", capabilitySnapshot: {} as never, operationProfile: "main", roleId: "main-agent", handoffHash: "main", conversationId: "conversation-1", graphScopeId: "scope-1" });
+      await bindProviderAttemptThread(paths, { attemptId: "attempt-main", threadId: "thread-main", parentThreadId: null });
+      const { owner } = ownerFixture(database);
+      const first = owner.onLifecycle(started({ roleHint: "planning-agent" }))!;
+      const continued = started({ kind: "continued", activityId: "activity-2", roleHint: undefined });
+      expect(owner.onLifecycle(continued)?.attemptId).toBe(first.attemptId);
+      expect(owner.onLifecycle(continued)?.attemptId).toBe(first.attemptId);
+      expect(database.providerAttempts.listProviderAttempts("project-1", "conversation-1")).toHaveLength(2);
+      expect(() => owner.onLifecycle({ ...continued, activityId: "wrong-parent", parentSession: { providerId: "codex", sessionId: "other-parent" } })).toThrow("lineage");
+      owner.onResult({ providerId: "codex", activityId: "activity-2", parentThreadId: "thread-main", threadId: "thread-child", status: "completed", finalText: "done", changedFiles: [] });
+      const restored = ownerFixture(database).owner;
+      const next = restored.onLifecycle({ ...continued, activityId: "activity-3" })!;
+      expect(next.attemptId).not.toBe(first.attemptId);
+      expect(next.roleId).toBe("planning-agent");
+      expect(database.providerAttempts.listProviderAttempts("project-1", "conversation-1")).toHaveLength(3);
+      owner.onResult({ providerId: "codex", activityId: "activity-1", parentThreadId: "thread-main", threadId: "thread-child", status: "completed", finalText: "late", changedFiles: [] });
+      expect(database.providerAttempts.readProviderAttempt("project-1", next.attemptId)?.status).toBe("running");
+    } finally {
+      database.close();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("projects a native close for a registered Child created in an earlier Main Turn", () => {
@@ -150,7 +187,7 @@ describe("ProviderChildLifecycleOwner", () => {
   });
 });
 
-function ownerFixture() {
+function ownerFixture(realDatabase?: WorkbenchDatabase) {
   const createProviderAttempt = vi.fn();
   const bindProviderAttemptThread = vi.fn();
   const completeProviderAttempt = vi.fn();
@@ -171,7 +208,7 @@ function ownerFixture() {
     },
   } as unknown as WorkbenchDatabase;
   const owner = new ProviderChildLifecycleOwner({
-    database,
+    database: realDatabase ?? database,
     delivery: { upsert: vi.fn(), publishCommittedMany: vi.fn() } as unknown as CanonicalTimelineDelivery,
     catalog: catalog(),
     projectId: "project-1",

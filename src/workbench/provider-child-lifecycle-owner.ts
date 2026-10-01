@@ -61,8 +61,28 @@ export class ProviderChildLifecycleOwner {
       if (event.displayName && !existing.displayName) existing.displayName = event.displayName;
       return existing;
     }
-    const resolved = resolveRegisteredAgentExecutionProfile(this.input.catalog, event.roleHint);
+    const prior = this.latestByThread.get(event.childSession.sessionId)
+      ?? (event.kind === "continued" ? this.readRegisteredChild(event) : null);
+    const resolved = resolveRegisteredAgentExecutionProfile(this.input.catalog, event.roleHint ?? prior?.roleId);
     if (!resolved) return null;
+    if (prior && (prior.parentThreadId !== event.parentSession.sessionId || prior.roleId !== resolved.catalogEntry.roleId)) {
+      throw new Error(`Provider Child ${prior.threadId} continuation changed lineage.`);
+    }
+    const active = prior;
+    if (active?.status === "running") {
+      if (active.parentThreadId !== event.parentSession.sessionId || active.roleId !== resolved.catalogEntry.roleId) {
+        throw new Error(`Provider Child ${active.threadId} continuation changed lineage.`);
+      }
+      this.input.database.providerAttempts.assertCurrentRunningAttemptGraph(
+        this.input.projectId, this.input.conversationId, this.input.parentAttemptId, this.input.graphScopeId,
+      );
+      this.input.database.providerAttempts.assertCurrentRunningAttemptGraph(
+        this.input.projectId, this.input.conversationId, active.attemptId, this.input.graphScopeId,
+      );
+      // Guidance to a running Child extends that execution. A new Attempt needs a terminal predecessor.
+      this.byActivity.set(event.activityId, active);
+      return active;
+    }
     const now = new Date().toISOString();
     const attemptId = providerChildActivityAttemptId(
       this.input.parentAttemptId,
