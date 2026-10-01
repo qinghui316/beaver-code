@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as repository from "../../src/agent-task/repository.js";
+import { withForegroundRoleTaskLease } from "../../src/agent-task/role-dispatcher.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -29,6 +31,63 @@ async function setup() {
 }
 
 describe("durable AgentTask lifecycle", () => {
+  async function foreground() {
+    const memory = await resolveFixtureRuntime();
+    const task = await createAgentTask(memory, {
+      conversationId: "foreground-lease", changeId: "foreground-lease", roleId: "coder-agent",
+      kind: "foreground", summary: "Long foreground execution",
+    });
+    const claimed = await claimAgentTask(memory, task, { owner: "foreground-worker", leaseDurationMs: 4_000 });
+    return { memory, task: await repository.startAgentTask(memory, claimed) };
+  }
+
+  it("renews a foreground writer beyond its original expiry and drains before committing", async () => {
+    const { memory, task } = await foreground();
+    const heartbeat = vi.spyOn(repository, "heartbeatAgentTask");
+    try {
+      const result = await withForegroundRoleTaskLease(memory, task, async (settle) => {
+        await new Promise((resolve) => setTimeout(resolve, 9_000));
+        const current = (await listAgentTasks(memory, task.changeId))[0];
+        expect(current.lease).toMatchObject({ claimToken: task.lease!.claimToken, fencingToken: task.lease!.fencingToken });
+        expect(Date.parse(current.lease!.expiresAt)).toBeGreaterThan(Date.now());
+        return settle({ status: "completed", summary: "Long execution completed" });
+      });
+      expect(result.status).toBe("completed");
+      expect(heartbeat.mock.calls.length).toBeGreaterThan(2);
+      const count = heartbeat.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(heartbeat).toHaveBeenCalledTimes(count);
+      expect((await listAgentTasks(memory, task.changeId))[0]).toMatchObject({ status: "completed", lease: null });
+    } finally { heartbeat.mockRestore(); }
+  }, 20_000);
+
+  it("stops foreground renewal on an unexpected execution error", async () => {
+    const { memory, task } = await foreground();
+    const heartbeat = vi.spyOn(repository, "heartbeatAgentTask");
+    try {
+      await expect(withForegroundRoleTaskLease(memory, task, async () => { throw new Error("execution failed"); }))
+        .rejects.toThrow("execution failed");
+      const count = heartbeat.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(heartbeat).toHaveBeenCalledTimes(count);
+      expect(await readAgentTaskResult(memory, task.id)).toBeNull();
+    } finally { heartbeat.mockRestore(); }
+  });
+
+  it("does not reclaim or publish after the captured foreground writer is fenced", async () => {
+    const { memory, task } = await foreground();
+    let replacement: typeof task | undefined;
+    await expect(withForegroundRoleTaskLease(memory, task, async (settle) => {
+      await recoverExpiredAgentTasks(memory, new Date(Date.now() + 60_000).toISOString());
+      const queued = (await listAgentTasks(memory, task.changeId))[0];
+      replacement = await claimAgentTask(memory, queued, { owner: "replacement-worker", leaseDurationMs: 60_000 });
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      return settle({ status: "completed", summary: "Stale output" });
+    })).rejects.toThrow(/stale writer rejected/);
+    expect((await listAgentTasks(memory, task.changeId))[0]).toMatchObject({ status: "claimed", lease: replacement!.lease });
+    expect(await readAgentTaskResult(memory, task.id)).toBeNull();
+  });
+
   it("deduplicates concurrent creates and excludes concurrent claimers", async () => {
     const { memory, task } = await setup();
     const duplicate = await createAgentTask(memory, {
