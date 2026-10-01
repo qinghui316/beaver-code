@@ -32,6 +32,16 @@ afterEach(() => {
 });
 
 describe("Main Conversation viewport owner", () => {
+  it("restores reading position after settings hide and show the same conversation", () => {
+    const initial = input({ visible: true });
+    const { result, rerender } = renderHook(useMainConversationViewport, { initialProps: initial });
+    const node = viewportNode({ scrollHeight: 1_000, clientHeight: 400, scrollTop: 200 });
+    result.current.scrollContainerRef.current = node;
+    act(() => result.current.onUserScroll({ currentTarget: node } as never));
+    rerender({ ...initial, visible: false }); node.scrollTop = 0;
+    rerender(initial); flushFrames(); expect(node.scrollTop).toBe(200); expect(result.current.showLatest).toBe(true);
+  });
+
   it("derives pinned intent only from user scroll and lets Latest restore it", () => {
     const { result } = renderViewport();
     const node = viewportNode({ scrollHeight: 1_000, clientHeight: 400, scrollTop: 200 });
@@ -168,7 +178,7 @@ describe("Main Conversation viewport owner", () => {
     expect(loadEarlier).toHaveBeenCalledTimes(2);
   });
 
-  it("treats reset as a new pinned intent without forcing geometry writes", () => {
+  it("preserves the saved reading intent across a same-scope reset", () => {
     const initial = input();
     const { result, rerender } = renderHook(useMainConversationViewport, { initialProps: initial });
     const node = viewportNode({ scrollHeight: 1_000, clientHeight: 400, scrollTop: 200 });
@@ -179,7 +189,7 @@ describe("Main Conversation viewport owner", () => {
     flushFrames();
 
     expect(node.scrollTop).toBe(200);
-    expect(result.current.showLatest).toBe(false);
+    expect(result.current.showLatest).toBe(true);
   });
 });
 

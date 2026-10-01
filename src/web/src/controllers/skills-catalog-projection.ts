@@ -41,7 +41,7 @@ export function projectSkillsCatalog(input: SkillsCatalogProjectionInput): Skill
   const cards = uniqueSkills.map((skill) => projectSkillCard(skill, input.conversationId));
   const normalizedQuery = input.query.trim().toLocaleLowerCase();
   const filteredCards = cards.filter((card) => matchesFilter(card, uniqueSkills, input.filter)
-    && (!normalizedQuery || [card.name, card.description, card.sourceLabel].some((value) => value.toLocaleLowerCase().includes(normalizedQuery))));
+    && (!normalizedQuery || [card.name, card.description, card.sourceLabel, uniqueSkills.find((skill) => skill.skillId === card.skillId)?.sourcePath ?? ""].some((value) => value.toLocaleLowerCase().includes(normalizedQuery))));
   const filterViewModels: SkillCatalogFilterViewModel[] = filters.map((filter) => ({
     ...filter,
     count: cards.filter((card) => matchesFilter(card, uniqueSkills, filter.id)).length,
@@ -111,18 +111,16 @@ function deduplicateSkills(skills: readonly SkillListItem[]): readonly SkillList
 }
 
 function projectSkillCard(skill: SkillListItem, conversationId: string | null): SkillCatalogCardViewModel {
-  const enabled = skill.providerEnabled
-    || skill.required
-    || skill.runtimeAssigned
-    || skill.enabledProject
-    || Boolean(conversationId && skill.enabledTopics.includes(conversationId));
-  const lockReason = skill.required
+  void conversationId;
+  const enabled = skill.providerEnabled;
+  const management = skill as SkillListItem & { lockReason?: string | null; canChangeProviderEnabled?: boolean };
+  const lockReason = management.lockReason ?? (skill.required
     ? "这是当前项目需要的技能，不能在这里关闭。"
     : skill.runtimeAssigned
       ? "当前运行流程正在使用此技能，不能在这里关闭。"
       : skill.sourceKind === "project-harness"
         ? "此技能由项目协作配置管理，不能在这里关闭。"
-        : null;
+    : null);
   const bindingStatus = skill.providerBindings[0]?.status;
   return {
     skillId: skill.skillId,
@@ -130,10 +128,10 @@ function projectSkillCard(skill: SkillListItem, conversationId: string | null): 
     description: skill.description.trim() || "暂无说明",
     sourceLabel: sourceKindLabel(skill.sourceKind),
     scopeLabel: scopeLabel(skill.scope),
-    statusLabel: lockReason ? "项目必需" : enabled ? "已启用" : "未启用",
+    statusLabel: skill.required || skill.runtimeAssigned || skill.sourceKind === "project-harness" ? "项目必需" : lockReason ? "不可修改" : enabled ? "已启用" : "未启用",
     statusTone: lockReason ? "locked" : enabled ? "active" : "inactive",
     providerEnabled: skill.providerEnabled,
-    canChangeProviderEnabled: lockReason === null,
+    canChangeProviderEnabled: management.canChangeProviderEnabled ?? lockReason === null,
     lockReason,
     runtimeStatusLabel: bindingStatus === "ready" ? "可用" : bindingStatus === "disabled" ? "已关闭" : "不可用",
   };
@@ -145,7 +143,7 @@ function matchesFilter(
   filter: SkillCatalogFilter,
 ): boolean {
   if (filter === "all") return true;
-  if (filter === "enabled") return card.statusTone !== "inactive";
+  if (filter === "enabled") return card.providerEnabled;
   const skill = skills.find((item) => item.skillId === card.skillId);
   if (!skill) return false;
   if (filter === "project") return skill.sourceKind === "project-harness" || skill.scope === "repo";

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { ProductMode } from "../types.js";
+import { readApplicationLocation } from "./application-navigation-contract.js";
 
 export const PRODUCT_MODE_STORAGE_KEY = "aho.workbench.productMode.v1";
 
@@ -18,7 +19,10 @@ export function useAppModeController(
 ): AppModeController {
   const preferenceRef = useRef(preference);
   preferenceRef.current = preference;
-  const [productMode, setProductMode] = useState<ProductMode>(() => restoreProductMode(preference.read()));
+  const [productMode, setProductMode] = useState<ProductMode>(() => {
+    const fallback = restoreProductMode(preference.read());
+    return typeof window === "undefined" ? fallback : readApplicationLocation(new URL(window.location.href), fallback).productMode;
+  });
 
   const selectMode = useCallback((nextMode: ProductMode): void => {
     if (!isProductMode(nextMode)) throw new Error("productMode must be agent or harness.");

@@ -15,6 +15,32 @@ afterEach(() => {
 });
 
 describe("Workspace resource controller", () => {
+  it("returns the adjacent target when closing the selected tab so navigation can replace its identity", () => {
+    const { result } = renderHook(() => useWorkspaceResourceController({
+      projectId: "repo-1", conversationId: "conversation-1",
+      resolveResource: vi.fn(async () => document("plan-1", "content")),
+    }));
+    const first = planTarget("conversation-1", "plan-1");
+    const second = planTarget("conversation-1", "plan-2");
+    act(() => { result.current.openResource(first); result.current.openResource(second); });
+    let adjacent: WorkspaceResourceTarget | null = null;
+    act(() => { adjacent = result.current.closeResource("plan-2"); });
+    expect(adjacent).toEqual(first);
+    expect(result.current.selectedResourceId).toBe("plan-1");
+    act(() => { adjacent = result.current.closeResource("plan-1"); });
+    expect(adjacent).toBeNull();
+  });
+
+  it("restores child drafts per project, mode and conversation after navigation", () => {
+    const initial = { projectId: "repo-1", conversationId: "conversation-1", productMode: "agent" as const };
+    const { result, rerender } = renderHook(useWorkspaceResourceController, { initialProps: initial as { projectId: string; conversationId: string; productMode: "agent" | "harness" } });
+    act(() => result.current.setAgentDraft("child", "original"));
+    rerender({ ...initial, projectId: "repo-2" }); expect(result.current.agentDrafts).toEqual({});
+    act(() => result.current.setAgentDraft("child", "other-project"));
+    rerender({ ...initial, productMode: "harness" }); expect(result.current.agentDrafts).toEqual({});
+    rerender(initial); expect(Object.values(result.current.agentDrafts)).toEqual(["original"]);
+  });
+
   it("includes the exact selected Agent surface in the fallback live request", async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -130,7 +156,7 @@ describe("Workspace resource controller", () => {
 
     act(() => result.current.cleanupTransition("graph-scope-changed"));
     expect(result.current.tabs.map((tab) => tab.target.kind)).toEqual(["agent", "document", "project-file"]);
-    expect(result.current.agentDrafts).toEqual({});
+    expect(Object.values(result.current.agentDrafts)).toEqual(["draft"]);
     expect(result.current.documents["plan-1"]).toBeTruthy();
 
     act(() => result.current.cleanupTransition("conversation-changed"));
@@ -245,7 +271,7 @@ describe("Workspace resource controller", () => {
     expect(result.current.pendingAgentMessages[key]).toBeUndefined();
   });
 
-  it("drops the closed Agent draft without interrupting or restoring its in-flight send", async () => {
+  it("retains the closed Agent draft and restores its failed in-flight send", async () => {
     let rejectSend!: (reason: Error) => void;
     const inFlight = new Promise<void>((_resolve, reject) => { rejectSend = reject; });
     const sendAgentMessage = vi.fn(() => inFlight);
@@ -268,7 +294,7 @@ describe("Workspace resource controller", () => {
     await act(async () => { rejectSend(new Error("closed request failed")); await submit.catch(() => undefined); });
 
     expect(result.current.tabs).toEqual([]);
-    expect(result.current.agentDrafts).toEqual({});
+    expect(Object.values(result.current.agentDrafts)).toEqual(["feedback"]);
     expect(result.current.pendingAgentMessages).toEqual({});
     expect(sendAgentMessage).toHaveBeenCalledTimes(1);
   });

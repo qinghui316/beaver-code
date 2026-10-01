@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } fr
 import { fetchJson, postJson } from "../api.js";
 import type { AppStatus } from "../types.js";
 import type { DesktopMenuId, DesktopMenuOpenResult } from "../../../types/desktop-shell.js";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 
 const MENU_LABELS: Record<DesktopMenuId, string> = {
   file: "文件",
@@ -17,7 +18,9 @@ const MENU_ACCESS_KEYS: Record<string, DesktopMenuId> = {
   h: "help",
 };
 
-export function DesktopTitleBar({ onError }: { onError: (message: string) => void }): ReactElement | null {
+export function DesktopTitleBar({ onError, navigation }: { onError: (message: string) => void;
+  navigation?: { canGoBack: boolean; canGoForward: boolean; back(): void; forward(): void };
+}): ReactElement | null {
   const [menus, setMenus] = useState<DesktopMenuId[] | null>(null);
   const [openMenu, setOpenMenu] = useState<DesktopMenuId | null>(null);
   const buttonRefs = useRef(new Map<DesktopMenuId, HTMLButtonElement>());
@@ -43,8 +46,8 @@ export function DesktopTitleBar({ onError }: { onError: (message: string) => voi
     return () => window.removeEventListener("keydown", handleAccessKey);
   }, [menus]);
 
-  if (!menus) return null;
-  const availableMenus = menus;
+  if (!menus && !navigation) return null;
+  const availableMenus = menus ?? [];
 
   async function requestOpen(menuId: DesktopMenuId): Promise<void> {
     if (openMenu) return;
@@ -82,7 +85,11 @@ export function DesktopTitleBar({ onError }: { onError: (message: string) => voi
     buttonRefs.current.get(availableMenus[nextIndex]!)?.focus();
   }
 
-  return <header className="desktop-title-bar" data-testid="desktop-title-bar">
+  return <header className={`desktop-title-bar${menus ? "" : " application-web-title-bar"}`} data-testid="desktop-title-bar">
+    {navigation ? <nav className="application-history-controls" aria-label="页面导航">
+      <button type="button" aria-label="返回" title="返回 (Alt+←)" disabled={!navigation.canGoBack} onClick={navigation.back}><ArrowLeft size={18} /></button>
+      <button type="button" aria-label="前进" title="前进 (Alt+→)" disabled={!navigation.canGoForward} onClick={navigation.forward}><ArrowRight size={18} /></button>
+    </nav> : null}
     <nav className="desktop-title-menu" aria-label="应用菜单" role="menubar">
       {availableMenus.map((menuId, index) => <button
         key={menuId}

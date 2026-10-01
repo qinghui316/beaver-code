@@ -29,6 +29,26 @@ afterEach(async () => {
 });
 
 describe("Codex native Skill adapter", () => {
+  it("serializes extra-root changes and reads across concurrent project scans", async () => {
+    const a = await directory("a"); const b = await directory("b");
+    let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+    const calls: string[] = []; let roots: unknown;
+    const requester = { async requestMetadata(method: string, params: Record<string, unknown>) {
+      calls.push(method); if (method === "skills/extraRoots/set") { roots = params.extraRoots; return {}; }
+      const cwd = (params.cwds as string[])[0]!;
+      if (cwd === a) { entered(); await gate; expect(roots).toEqual([join(root, "roots-a")]); }
+      else expect(roots).toEqual([join(root, "roots-b")]);
+      return { data: [{ cwd, skills: [], errors: [] }] };
+    } };
+    const first = listCodexNativeSkills({ projectPath: a, extraRoots: [join(root, "roots-a")] }, { requester });
+    await started;
+    const second = listCodexNativeSkills({ projectPath: b, extraRoots: [join(root, "roots-b")] }, { requester });
+    await Promise.resolve(); expect(calls).toEqual(["skills/extraRoots/set", "skills/list"]);
+    release(); await Promise.all([first, second]);
+    expect(calls).toEqual(["skills/extraRoots/set", "skills/list", "skills/extraRoots/set", "skills/list"]);
+  });
+
   it("maps exact cwd scope, enablement, errors and package content identity", async () => {
     const projectPath = await directory("repo");
     const skillPath = await createSkill(join(root, "skills"), "portable-skill");

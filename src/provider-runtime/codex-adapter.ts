@@ -3,7 +3,7 @@ import { normalizeCodexContextEvent, type CodexAppServerRealtimeEvent, type Code
 import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } from "./codex.js";
 import { CODEX_PROVIDER_ADAPTER, executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
-import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
+import { codexSkillConfigurationKey, listCodexGlobalSkills, listCodexNativeSkills, setCodexGlobalSkillEnabled, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { CodexAppServerJsonRpcError, CodexAppServerRequestTimeoutError, defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
 import type { ActiveProviderTurn, ProviderApprovalRequest, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderContextCompactRequest, ProviderContextEvent, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderReviewRequest, ProviderReviewResult, ProviderReviewTarget, ProviderSessionArchiveRequest, ProviderSessionForkRequest, ProviderSessionForkResult, ProviderSessionForkTransportStage, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
@@ -30,6 +30,9 @@ export const codexProviderDescriptor: ProviderDescriptor = {
   diagnostics: getCodexDiagnostics,
   projectActions: { list: listCodexProjectActions, execute: executeCodexProjectAction },
   skills: {
+    listGlobal: listCodexGlobalSkills,
+    configurationKey: codexSkillConfigurationKey,
+    setGlobalEnabled: setCodexGlobalSkillEnabled,
     list: listCodexNativeSkills,
     setEnabled: setCodexNativeSkillEnabled,
   },

@@ -93,6 +93,18 @@ const retiredSymbols = [
 for (const file of webFiles) {
   const relativePath = normalizePath(relative(root, file));
   const content = await readFile(file, "utf8");
+  if (relativePath !== "src/web/src/controllers/application-history-adapter.ts"
+    && /\bhistory\.(?:pushState|replaceState)\s*\(/.test(content)) {
+    violations.push(`${relativePath}: application History writes belong to application-history-adapter`);
+  }
+  if (/^src\/web\/src\/(?:controllers\/application-|controllers\/useApplicationNavigationController)/.test(relativePath)
+    && /from\s+["'][^"']*(?:shell\/|panels\/|canonicalTimeline)/.test(content)) {
+    violations.push(`${relativePath}: navigation consumes owner ports and contracts, not presentation or timeline owners`);
+  }
+  if (relativePath === "src/web/src/controllers/useSkillsSettingsController.ts"
+    && /from\s+["'][^"']*application-(?:history|navigation)/.test(content)) {
+    violations.push(`${relativePath}: skills management must not depend on navigation`);
+  }
   if (!timelineProtocolOwners.has(relativePath) && content.includes("timeline.patch")) {
     violations.push(`${relativePath}: Timeline SSE interpretation belongs to canonicalTimelineController`);
   }
@@ -177,7 +189,7 @@ const deliverySource = await readFile(resolve(root, "src/workbench/conversation-
 if (/from\s+["'][^"']*conversation-turn-queue\.js/.test(deliverySource)) violations.push("Input delivery must not import the queue Owner");
 const captureSource = await readFile(resolve(root, "src/workbench/live-transcript.ts"), "utf8");
 if (/from\s+["'][^"']*conversation-(?:turn-queue|input-delivery)/.test(captureSource)) violations.push("Transcript capture must not import queue or input delivery");
-for (const path of ["src/workbench/conversation-turn-queue-contract.ts"]) {
+for (const path of ["src/workbench/conversation-turn-queue-contract.ts", "src/types/skill-catalog.ts"]) {
   const content = await readFile(resolve(root, path), "utf8");
   if (/^import(?!\s+type\b)|^export\s+(?:function|class|const)\b/m.test(content)) violations.push(`${path}: contracts must contain only types`);
 }

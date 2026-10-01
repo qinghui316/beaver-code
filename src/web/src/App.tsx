@@ -65,6 +65,8 @@ import type {
 import { ConversationInteractionDock } from "./panels/workbench/ConversationInteractionDock.js";
 import { useGlobalOperationGate } from "./controllers/useGlobalOperationGate.js";
 import { useMainConversationViewport } from "./controllers/useMainConversationViewport.js";
+import { useApplicationNavigationController } from "./controllers/useApplicationNavigationController.js";
+import { browserSessionNavigation } from "./controllers/useProjectConversationSession.js";
 import { useWorkspaceResourceController } from "./controllers/useWorkspaceResourceController.js";
 import { workspaceResourceModeHandoff } from "./controllers/workspaceResourceModeHandoff.js";
 import { useProviderConfigurationController } from "./controllers/useProviderConfigurationController.js";
@@ -145,8 +147,9 @@ function useMediaQuery(query: string): boolean {
 
 export function App(): ReactElement {
   const appMode = useAppModeController();
+  const appNavigation = useApplicationNavigationController(appMode.productMode);
   const presentation = useMemo(() => modePresentationPolicy(appMode.productMode), [appMode.productMode]);
-  const [orchestrationOpen, setOrchestrationOpen] = useState(false);
+  const [orchestrationOpen, setOrchestrationOpen] = useState(appNavigation.location.surface === "orchestration");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const mobileSidebarViewport = useMediaQuery(MOBILE_SIDEBAR_MEDIA_QUERY);
   const mobileSidebarModalOpen = mobileSidebarViewport && mobileSidebarOpen;
@@ -160,8 +163,8 @@ export function App(): ReactElement {
   const setSidebarLocalDialogOpen = useCallback((open: boolean) => {
     sidebarLocalDialogOpenRef.current = open;
   }, []);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
+  const [settingsOpen, setSettingsOpen] = useState(appNavigation.location.surface === "settings");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(appNavigation.location.settingsSection);
   const [managementRefreshVersions, setManagementRefreshVersions] = useState<Record<string, number>>({});
   const invalidateManagement = (projectId: string, productMode: ProductMode) => {
     const key = `${projectId}\0${productMode}`;
@@ -191,7 +194,12 @@ export function App(): ReactElement {
   const selectedConversationIdRef = useRef<string | null>(null);
   const projectionEventRouterRef = useRef<(projectId: string, event: WorkbenchLiveEvent) => void>(() => undefined);
   const session = useProjectConversationSession({
+    autoLoad: false,
     productMode: appMode.productMode,
+    navigation: { ...browserSessionNavigation,
+      syncLocation: (projectId, conversationId) => appNavigation.syncSession(projectId, conversationId, appMode.productMode),
+      conversationCreated: appNavigation.rekey,
+    },
     timeline: {
       cacheEvent: timeline.ingestScopedEvent,
       invalidateProjection: invalidateProjectionCache,
@@ -215,12 +223,13 @@ export function App(): ReactElement {
         composer.cleanupTransition(event.kind);
         setRuntimeActivityLog(null);
         setOrchestrationOpen(false);
+        setRightToolRailState({ mode: "closed" });
         if (event.resetComposerText) setHomeComposerResetToken((value) => value + 1);
       },
       restoreView: (view) => {
-        if (view.orchestrationOpen) setOrchestrationOpen(true);
+        setOrchestrationOpen(view.orchestrationOpen);
         if (view.settingsOpen) {
-          setSettingsSection("basic");
+          setSettingsSection(appNavigation.getLocation().settingsSection);
           setSettingsOpen(true);
         }
       },
@@ -378,7 +387,7 @@ export function App(): ReactElement {
   }
 
   async function loadApp(): Promise<void> {
-    await session.loadApp();
+    await session.loadApp({ restoreSelection: false });
   }
 
   async function loadSkillSummary(projectId = selectedProjectId, topicId = selectedTopic): Promise<void> {
@@ -407,12 +416,12 @@ export function App(): ReactElement {
   }
 
   async function openProject(projectId: string): Promise<void> {
-    await session.openProject(projectId);
+    await appNavigation.visit({ projectId, conversationId: null, surface: "workspace", resource: null });
     setMobileSidebarOpen(false);
   }
 
   async function beginNewConversation(projectId = selectedProjectId ?? undefined): Promise<void> {
-    await session.beginNewConversation(projectId);
+    if (projectId) await appNavigation.visit({ projectId, conversationId: null, surface: "workspace", resource: null });
     setMobileSidebarOpen(false);
   }
 
@@ -422,7 +431,7 @@ export function App(): ReactElement {
 
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
     setMobileSidebarOpen(false);
-    await session.chooseConversation(projectId, conversationId);
+    await appNavigation.visit({ projectId, conversationId, surface: "workspace", resource: null });
   }
 
   async function removeProject(projectId: string): Promise<void> {
@@ -452,22 +461,11 @@ export function App(): ReactElement {
   function openSettings(section: SettingsSection = "basic"): void {
     setMobileSidebarOpen(false);
     navigationOverlay.close();
-    setSettingsSection(section);
-    setSettingsOpen(true);
-    if (section === "skills") {
-      loadSkillSummary().catch((cause: unknown) => setError(userFacingErrorMessage(cause, "load")));
-    }
-  }
-
-  function closeSettings(): void {
-    setSettingsOpen(false);
+    void appNavigation.visit({ surface: "settings", settingsSection: section });
   }
 
   function changeSettingsSection(section: SettingsSection): void {
-    setSettingsSection(section);
-    if (section === "skills") {
-      loadSkillSummary().catch((cause: unknown) => setError(userFacingErrorMessage(cause, "load")));
-    }
+    void appNavigation.visit({ surface: "settings", settingsSection: section });
   }
 
   async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
@@ -521,16 +519,17 @@ export function App(): ReactElement {
   }
 
   function openWorkspaceResource(target: WorkspaceResourceTarget): void {
-    workspaceResources.openResource(target);
-    setRightToolRailState({ mode: "tool", tool: "agent" });
+    void appNavigation.visit({ resource: target });
   }
 
   function selectWorkspaceResource(resourceId: string): void {
-    workspaceResources.selectResource(resourceId);
+    const tab = workspaceResources.tabs.find((item) => item.resourceId === resourceId);
+    if (tab) void appNavigation.visit({ resource: tab.target });
   }
 
   function closeWorkspaceResource(resourceId: string): void {
-    workspaceResources.closeResource(resourceId);
+    const nextTarget = workspaceResources.closeResource(resourceId);
+    if (workspaceResources.selectedResourceId === resourceId) appNavigation.replace({ resource: nextTarget });
   }
 
   function invalidateProjectionCache(): void {
@@ -759,7 +758,56 @@ export function App(): ReactElement {
     hasMoreBefore: Boolean(activeTranscript.paging?.hasMoreBefore),
     loadingEarlier: loadingEarlierTranscript,
     loadEarlier: loadEarlierTranscriptPage,
+    visible: !settingsOpen && !orchestrationOpen,
   });
+  const resourceRestore = useRef<{ location: ReturnType<typeof appNavigation.getLocation>; isCurrent: () => boolean } | null>(null);
+  appNavigation.ports.current = {
+    captureLeaving: () => {
+      mainViewport.captureReadingPosition();
+      void composer.flushDraft().catch((cause: unknown) => setError(userFacingErrorMessage(cause, "conversation")));
+      navigationOverlay.close();
+      setMobileSidebarOpen(false);
+    },
+    restore: async (location, isCurrent) => {
+      appMode.selectMode(location.productMode);
+      setSettingsOpen(location.surface === "settings");
+      setSettingsSection(location.settingsSection);
+      resourceRestore.current = { location, isCurrent };
+      const resolved = await session.restoreSelection(location);
+      if (!isCurrent()) return;
+      if (resolved.projectId !== location.projectId || resolved.conversationId !== location.conversationId) {
+        appNavigation.replace({ ...resolved, resource: null, surface: location.surface === "settings" ? "settings" : "workspace" });
+        resourceRestore.current = null;
+      }
+      setSettingsOpen(location.surface === "settings");
+      setSettingsSection(location.settingsSection);
+      setOrchestrationOpen(location.surface === "orchestration" && Boolean(resolved.conversationId));
+    },
+    onError: (cause) => setError(userFacingErrorMessage(cause, "load")),
+  };
+  useEffect(() => {
+    let active = true;
+    void session.loadApp({ restoreSelection: false }).then(() => { if (active) return appNavigation.initialize(); })
+      .catch((cause: unknown) => { if (active) setError(userFacingErrorMessage(cause, "load")); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    const pending = resourceRestore.current;
+    if (!pending || !pending.isCurrent()) return;
+    const { location } = pending;
+    if (session.selectedProjectId !== location.projectId || session.selectedTopic !== location.conversationId
+      || session.productMode !== location.productMode || appMode.productMode !== location.productMode) return;
+    if (location.conversationId && !location.conversationId.startsWith("pending:")
+      && !snapshotMatchesSelection(session.snapshot, location.projectId, location.productMode, location.conversationId)) return;
+    resourceRestore.current = null;
+    if (location.resource && location.surface !== "settings") {
+      workspaceResources.openResource(location.resource);
+      setRightToolRailState({ mode: "tool", tool: "agent" });
+    } else if (location.surface !== "settings") {
+      setRightToolRailState((current) => current.mode === "tool" && current.tool === "agent" ? { mode: "closed" } : current);
+    }
+  }, [session.selectedProjectId, session.selectedTopic, session.productMode, session.snapshot,
+    appMode.productMode, settingsOpen, appNavigation.location, workspaceResources.openResource]);
   const activeDecisionInspector = useMemo(() => {
     const inspector = activeModeSnapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
     if (!selectedDecisionContextId) return inspector;
@@ -921,8 +969,7 @@ export function App(): ReactElement {
       clearConfirmation: () => setConfirming(null),
       chooseRun,
       openOrchestration: () => {
-        setOrchestrationOpen(true);
-        syncWorkbenchOrchestrationTab(true);
+        void appNavigation.visit({ surface: "orchestration", resource: null });
       },
       navigateConversation: async (conversationId) => {
         if (!selectedProjectId) return;
@@ -1045,8 +1092,7 @@ export function App(): ReactElement {
   }
 
   function closeOrchestrationOverlay(): void {
-    setOrchestrationOpen(false);
-    syncWorkbenchOrchestrationTab(false);
+    void appNavigation.visit({ surface: "workspace" });
   }
 
   function routeProjectionEventForProject(projectId: string, event: WorkbenchLiveEvent): void {
@@ -1066,8 +1112,7 @@ export function App(): ReactElement {
     if (!activeTopic?.id) return;
     if (orchestrationOpen) closeOrchestrationOverlay();
     else {
-      setOrchestrationOpen(true);
-      syncWorkbenchOrchestrationTab(true);
+      void appNavigation.visit({ surface: "orchestration", resource: null });
     }
   }
 
@@ -1075,9 +1120,6 @@ export function App(): ReactElement {
     setRuntimeActivityLog(null);
   }, [activeTopic?.id, isPendingTopic]);
 
-  useEffect(() => {
-    setRightToolRailState({ mode: "closed" });
-  }, [selectedProjectId, activeTopic?.id]);
 
   async function loadEarlierTranscriptPage(): Promise<void> {
     if (!activeTimelineScope || loadingEarlierTranscript) return;
@@ -1262,13 +1304,13 @@ export function App(): ReactElement {
       className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}${mobileSidebarModalOpen ? " mobile-sidebar-open" : ""}`}
       style={appShellStyle}
     >
-      <DesktopTitleBar onError={setError} />
+      <DesktopTitleBar onError={setError} navigation={appNavigation} />
       {!settingsOpen ? (
         <WorkspaceNavigationHeader
           mode={modeToggle}
           onToggleMode={() => {
             setMobileSidebarOpen(false);
-            appMode.selectMode(modeToggle.targetMode);
+            void appNavigation.visit({ productMode: modeToggle.targetMode, conversationId: null, resource: null });
           }}
           navigation={projectNavigation}
           mobileSidebarOpen={mobileSidebarModalOpen}
@@ -1345,7 +1387,6 @@ export function App(): ReactElement {
               });
               invalidateManagement(item.projectId, item.productMode);
             }}
-            onClose={closeSettings}
             onRefresh={() => loadApp().then(() => providerConfiguration.reload()).then(() => loadSkillSummary())}
           />
         ) : !selectedProjectId ? (
@@ -1637,22 +1678,6 @@ export function App(): ReactElement {
 
     </div>
   );
-}
-
-function isOrchestrationTabParam(value: string | null): boolean {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === "orchestration";
-}
-
-function syncWorkbenchOrchestrationTab(open: boolean): void {
-  try {
-    const url = new URL(window.location.href);
-    if (open) url.searchParams.set("tab", "orchestration");
-    else if (isOrchestrationTabParam(url.searchParams.get("tab"))) url.searchParams.delete("tab");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-  } catch {
-    // The center view remains usable when the host does not expose History APIs.
-  }
 }
 
 function isTransientReconnectMessage(message: string): boolean {

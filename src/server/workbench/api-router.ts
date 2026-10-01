@@ -26,6 +26,8 @@ import type { ProviderSkillInput } from "../../project-harness/contracts.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
 import type { ProjectRuntimePaths } from "../../project-runtime/paths.js";
 import { DESKTOP_MENU_IDS, isDesktopMenuOpenRequest } from "../../types/desktop-shell.js";
+import { handleSkillManagementApi, skillManagementCatalog } from "./skill-management-routes.js";
+import type { SkillConfigurationChange } from "../../types/skill-catalog.js";
 
 const AGENT_HIDDEN_SKILL_NAMES = new Set([
   "aho-main-orchestration",
@@ -54,6 +56,8 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     assertLocalWorkbenchRequest(request);
     await assertProjectMutationAvailable(context, url.pathname);
   }
+
+  if (await handleSkillManagementApi(context, request, response, url)) return;
 
   const projectWorkbench = matchProjectWorkbenchRoute(url.pathname);
   if (projectWorkbench) {
@@ -477,7 +481,7 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
   if (request.method === "POST" && providerSkillEnableMatch?.[1] && providerSkillEnableMatch[2]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerSkillEnableMatch[1]));
     assertRegisteredProject(input);
-    const body = await readJsonBody<{ productMode?: ProductMode; conversationId?: string; providerId?: string; enabled?: boolean }>(request);
+    const body = await readJsonBody<SkillConfigurationChange & { productMode?: ProductMode; conversationId?: string; providerId?: string }>(request);
     const skillContext = await resolveSkillApiContext(context, input.project, {
       productMode: requireProductMode(body.productMode),
       conversationId: body.conversationId,
@@ -490,8 +494,13 @@ async function handleApiRequest(context: WorkbenchServerContext, request: Incomi
     if (skill.required || skill.runtimeAssigned || skill.sourceKind === "project-harness") {
       throw new Error(`Skill ${skillId} is assigned by the Runtime and cannot be disabled.`);
     }
-    await skillContext.provider.skills.setEnabled({ projectPath: input.project.path, path: skill.sourcePath, enabled: Boolean(body.enabled) });
-    sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, true)));
+    await skillManagementCatalog(context).setEnabled({ kind: "project", projectId: input.project.id,
+      providerId: skillContext.provider.id }, skillId, { ...body, enabled: Boolean(body.enabled) });
+    try {
+      sendJson(response, 200, { saved: true, ...catalogResponse(await loadNativeSkillCatalog(input.project, skillContext, true)) });
+    } catch {
+      sendJson(response, 200, { saved: true, refreshFailed: true });
+    }
     return;
   }
 

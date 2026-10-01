@@ -1,6 +1,5 @@
 import { useRef, type ReactElement, type RefObject } from "react";
 import {
-  ArrowLeft,
   Check,
   CircleAlert,
   Folder,
@@ -15,7 +14,7 @@ import {
 import type { SkillsSettingsSurface } from "../controllers/skills-settings-contract.js";
 import { DialogSurface } from "../presentation/DialogSurface.js";
 
-export function SkillsSettingsView({ surface, onBack }: { surface: SkillsSettingsSurface; onBack: () => void }): ReactElement {
+export function SkillsSettingsView({ surface }: { surface: SkillsSettingsSurface }): ReactElement {
   const { view, actions } = surface;
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
   const sourceTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -24,21 +23,25 @@ export function SkillsSettingsView({ surface, onBack }: { surface: SkillsSetting
   return (
     <section className="skills-settings-view" aria-label="技能设置">
       <header className="skills-catalog-page-header">
-        <div><h1>技能</h1><p>查看当前项目与 AI 服务可用的本机技能。</p></div>
+        <div><h1>技能</h1><p>浏览通用技能与各项目的本机技能。</p></div>
         <div className="skills-catalog-actions">
-          <button type="button" className="outline-button" disabled={view.busy || !view.hasProject} onClick={() => void actions.refresh()}>
+          <button type="button" className="outline-button" disabled={view.busy} onClick={() => void actions.refresh()}>
             <RefreshCw size={15} className={view.busy ? "spin" : undefined} aria-hidden="true" />
             重新检测
           </button>
-          <button ref={sourceTriggerRef} type="button" className="outline-button" disabled={!view.hasProject} onClick={actions.openSources}>
+          <button ref={sourceTriggerRef} type="button" className="outline-button" onClick={actions.openSources}>
             <Settings2 size={15} aria-hidden="true" />
             管理来源
           </button>
-          <button type="button" className="outline-button settings-back-button" aria-label="返回工作区" onClick={onBack}><ArrowLeft size={16} />返回工作区</button>
         </div>
       </header>
 
-      {!view.hasProject ? <section className="settings-empty-state"><Puzzle size={24} /><h3>选择项目后管理技能</h3><p>选择项目后，可以查看当前 Agent 与项目可用的本机技能。</p></section> : <>
+      {(view.providers?.length ?? 0) > 1 ? <label className="skills-provider-field">AI 服务
+        <select value={view.providerId ?? ""} onChange={(event) => actions.selectProvider?.(event.target.value)}>
+          <option value="" disabled>选择 AI 服务</option>
+          {view.providers?.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+        </select>
+      </label> : null}
 
       <label className="skills-catalog-search">
         <Search size={17} aria-hidden="true" />
@@ -88,7 +91,26 @@ export function SkillsSettingsView({ surface, onBack }: { surface: SkillsSetting
       </div>
 
       <div className="skills-catalog-content" aria-live="polite">
-        {view.state.status === "loading" ? (
+        {view.groups ? view.groups.map((group) => <section className="skills-catalog-group" key={group.id} aria-label={group.label}>
+          <header><h3>{group.label}</h3><span>{group.total}</span></header>
+          {group.state === "loading" ? <p role="status">正在加载技能…</p> : null}
+          {group.state === "error" ? <div className="skills-state-notice" role="alert"><span>{group.failure}</span><button className="outline-button" onClick={() => void actions.refresh()}>重新检测</button></div> : null}
+          {group.state === "loading" && group.cards.length === 0 || group.state === "error" && group.cards.length === 0 ? null
+            : group.cards.length === 0 ? <p className="skills-group-empty">{view.query ? "没有匹配的技能" : "还没有发现技能"}</p>
+            : <div className="skills-catalog-grid" role="list" aria-label={`${group.label}列表`}>
+              {group.cards.map((skill) => <div key={skill.skillId} role="listitem"><button type="button" className="skills-catalog-card"
+                aria-label={`${skill.name}，${skill.sourceLabel}，${skill.statusLabel}`} onClick={(event) => { detailTriggerRef.current = event.currentTarget; actions.openSkill(skill.skillId); }}>
+                <span className="skill-catalog-icon"><Puzzle size={18} aria-hidden="true" /></span>
+                <span className="skill-catalog-copy"><strong>{skill.name}</strong><span className="skill-catalog-description">{skill.description}</span></span>
+                <span className="skill-catalog-meta"><span>{skill.sourceLabel}</span><span className={`skill-catalog-status ${skill.statusTone}`}>{skill.statusLabel}</span></span>
+              </button></div>)}
+            </div>}
+          {group.total > 50 ? <nav className="skills-group-pagination" aria-label={`${group.label}分页`}>
+            <button className="outline-button" disabled={group.page === 0} onClick={() => actions.setGroupPage?.(group.id, group.page - 1)}>上一页</button>
+            <span>{group.page + 1} / {Math.ceil(group.total / 50)}</span>
+            <button className="outline-button" disabled={(group.page + 1) * 50 >= group.total} onClick={() => actions.setGroupPage?.(group.id, group.page + 1)}>下一页</button>
+          </nav> : null}
+        </section>) : view.state.status === "loading" ? (
           <div className="skills-empty-results" role="status"><RefreshCw size={22} className="spin" /><strong>正在加载技能…</strong></div>
         ) : view.state.status === "error" ? (
           <div className="skills-empty-results" role="alert">
@@ -160,7 +182,6 @@ export function SkillsSettingsView({ surface, onBack }: { surface: SkillsSetting
       <SkillDetailDialog surface={surface} returnFocusRef={detailTriggerRef} />
       <SkillSourcesDialog surface={surface} returnFocusRef={sourceTriggerRef} />
       <SkillDiagnosticsDialog surface={surface} returnFocusRef={diagnosticsTriggerRef} />
-      </>}
     </section>
   );
 }
@@ -204,7 +225,7 @@ function SkillDetailDialog({
           <div className="skill-required-note"><ShieldCheck size={17} aria-hidden="true" /><div><strong>{skill.statusLabel}</strong><p>{skill.lockReason}</p></div></div>
         ) : (
           <label className="skill-enable-row">
-            <span><strong>为当前 Agent 启用</strong><small>启用后，可在后续会话中选择使用此技能。</small></span>
+            <span><strong>为此 AI 服务启用</strong><small>修改此 AI 服务的全局配置，可能影响多个项目。</small></span>
             <input
               type="checkbox"
               checked={skill.providerEnabled}
@@ -241,6 +262,12 @@ function SkillSourcesDialog({
         <div><h2>管理技能来源</h2><p>添加受信任的本机目录。</p></div>
         <button type="button" className="icon-button" aria-label="关闭技能来源设置" disabled={view.busy} onClick={actions.closeSources}><X size={17} /></button>
       </header>
+      {view.sourceProjects ? <label className="skill-root-field"><span>来源所属项目</span>
+        <select disabled={view.busy} value={view.sourceProjectId ?? ""} onChange={(event) => actions.selectSourceProject?.(event.target.value)}>
+          <option value="" disabled>选择项目</option>
+          {view.sourceProjects.map((project) => <option key={project.id} value={project.id}>{project.label}</option>)}
+        </select>
+      </label> : null}
       <label className="skill-root-field">
         <span>技能目录</span>
         <input
@@ -254,7 +281,7 @@ function SkillSourcesDialog({
       <button
         type="button"
         className="primary-button skill-source-add"
-        disabled={view.busy || !view.sourcePath.trim()}
+        disabled={view.busy || !view.sourcePath.trim() || Boolean(view.sourceProjects && !view.sourceProjectId)}
         onClick={() => void actions.addSource(view.sourcePath)}
       ><FolderPlus size={16} />添加来源</button>
       {view.actionFailure ? <div className="skill-dialog-error" role="alert"><CircleAlert size={16} /><div><strong>{view.actionFailure.summary}</strong>{view.actionFailure.recoveryAction ? <span>{view.actionFailure.recoveryAction}</span> : null}</div></div> : null}

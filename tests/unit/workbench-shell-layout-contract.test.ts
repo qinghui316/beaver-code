@@ -16,9 +16,9 @@ describe("Workbench shell layout contract", () => {
     expect(desktopMain).toContain("Menu.setApplicationMenu(buildMenu())");
     expect(desktopMain).toContain("menu.popup({");
     expect(desktopMain).not.toMatch(/ipcRenderer|contextBridge|nodeIntegration\s*:\s*true/);
-    expect(app).toContain("<DesktopTitleBar onError={setError} />");
+    expect(app).toContain("<DesktopTitleBar onError={setError} navigation={appNavigation} />");
     expect(app).toContain("<WorkspaceNavigationHeader");
-    expect(app).toContain("appMode.selectMode(modeToggle.targetMode)");
+    expect(app).toContain("appNavigation.visit({ productMode: modeToggle.targetMode");
     expect(modeToggle).toContain('className="product-mode-toggle"');
     expect(modeToggle).toContain('role="switch"');
     expect(modeToggle).toContain('className="product-mode-toggle-thumb"');
@@ -32,7 +32,7 @@ describe("Workbench shell layout contract", () => {
     expect(app).not.toContain("ModeExperienceGuide");
     expect(titleBar).toContain("文件");
     expect(titleBar).toContain("/api/desktop/menu/open");
-    expect(shellCss).toContain("padding-top: env(titlebar-area-height, 0px)");
+    expect(shellCss).toContain("padding-top: var(--app-chrome-height)");
     expect(shellCss).toContain(".desktop-title-bar");
     expect(shellCss).toContain("-webkit-app-region: drag");
     expect(shellCss).toContain("-webkit-app-region: no-drag");

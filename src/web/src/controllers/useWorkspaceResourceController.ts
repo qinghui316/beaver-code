@@ -55,8 +55,9 @@ export function useWorkspaceResourceController({
   const inFlightRequestsRef = useRef(new Map<string, Promise<void>>());
   const submitGenerationsRef = useRef(new Map<string, number>());
   const pendingReleaseTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const scopeRef = useRef({ projectId, conversationId });
-  scopeRef.current = { projectId, conversationId };
+  const scopeRef = useRef({ projectId, conversationId, productMode });
+  scopeRef.current = { projectId, conversationId, productMode };
+  const inputScope = `${projectId ?? ""}\0${productMode}\0`;
   useEffect(() => () => {
     for (const timer of pendingReleaseTimersRef.current.values()) globalThis.clearTimeout(timer);
     pendingReleaseTimersRef.current.clear();
@@ -90,6 +91,7 @@ export function useWorkspaceResourceController({
       const currentScope = scopeRef.current;
       return requestGenerationsRef.current.get(resourceId) === generation
         && currentScope.projectId === requestProjectId
+        && currentScope.productMode === productMode
         && workspaceResourceRequestScope(requestProjectId, currentScope.conversationId ?? "", target) === requestScope;
     };
     const request = resolveResource(requestProjectId, target).then((resource) => {
@@ -109,7 +111,7 @@ export function useWorkspaceResourceController({
     });
     inFlightRequestsRef.current.set(resourceId, request);
     return request;
-  }, [conversationId, projectId, resolveResource]);
+  }, [conversationId, productMode, projectId, resolveResource]);
 
   const openResource = useCallback((target: WorkspaceResourceTarget): string => {
     const resourceId = workspaceResourceId(target);
@@ -133,28 +135,27 @@ export function useWorkspaceResourceController({
     invalidateResource(resourceId);
     loadedResourceIdsRef.current.delete(resourceId);
     inFlightRequestsRef.current.delete(resourceId);
-    const closed = tabs.find((tab) => tab.resourceId === resourceId);
     const index = tabs.findIndex((tab) => tab.resourceId === resourceId);
     const next = tabs.filter((tab) => tab.resourceId !== resourceId);
     setTabs(next);
     setSelectedResourceId((selected) => selected === resourceId
       ? next[Math.min(index, next.length - 1)]?.resourceId ?? null
       : selected);
-    if (closed?.target.kind === "agent") clearAgentInput(closed.target.conversationId, closed.target.agentSurfaceId);
     setDocuments((current) => withoutKey(current, resourceId));
     setLoadingResourceIds((current) => current.filter((id) => id !== resourceId));
     setResourceErrors((current) => withoutKey(current, resourceId));
+    return next[Math.min(index, next.length - 1)]?.target ?? null;
   }, [invalidateResource, tabs]);
 
   const setAgentDraft = useCallback((agentSurfaceId: string, value: string) => {
     if (!conversationId) return;
-    const key = agentDraftKey(conversationId, agentSurfaceId);
+    const key = inputScope + agentDraftKey(conversationId, agentSurfaceId);
     setAgentDrafts((current) => value ? { ...current, [key]: value } : withoutKey(current, key));
-  }, [conversationId]);
+  }, [conversationId, inputScope]);
 
   const submitAgentMessage = useCallback(async (agent: AgentSurfaceProjectionItem): Promise<void> => {
     if (!conversationId || agent.readOnly || agent.status === "terminated") return;
-    const key = agentDraftKey(conversationId, agent.agentSurfaceId);
+    const key = inputScope + agentDraftKey(conversationId, agent.agentSurfaceId);
     const message = agentDrafts[key]?.trim() ?? "";
     if (!message || pendingAgentMessages[key]) return;
     const generation = (submitGenerationsRef.current.get(key) ?? 0) + 1;
@@ -203,7 +204,7 @@ export function useWorkspaceResourceController({
         setPendingAgentMessages((current) => current[key] === pendingId ? withoutKey(current, key) : current);
       }
     }
-  }, [agentDrafts, calibrateAgentTranscript, conversationId, operation, pendingAgentMessages, productMode, projectId, routeProjectionEvent, sendAgentMessage]);
+  }, [agentDrafts, calibrateAgentTranscript, conversationId, inputScope, operation, pendingAgentMessages, productMode, projectId, routeProjectionEvent, sendAgentMessage]);
 
   const cleanupTransition = useCallback((transition: WorkspaceResourceCleanupTransition) => {
     const keepTab = (tab: WorkspaceResourceTab): boolean => {
@@ -226,7 +227,6 @@ export function useWorkspaceResourceController({
     setDocuments((currentDocuments) => retainKeys(currentDocuments, retainedIds));
     setLoadingResourceIds((currentLoading) => currentLoading.filter((id) => retainedIds.has(id)));
     setResourceErrors((currentErrors) => retainKeys(currentErrors, retainedIds));
-    clearAllAgentInputs();
   }, [invalidateResource, tabs]);
 
   function clearPendingTimer(key: string): void {
@@ -235,32 +235,14 @@ export function useWorkspaceResourceController({
     pendingReleaseTimersRef.current.delete(key);
   }
 
-  function clearAgentInput(targetConversationId: string, agentSurfaceId: string): void {
-    const key = agentDraftKey(targetConversationId, agentSurfaceId);
-    submitGenerationsRef.current.set(key, (submitGenerationsRef.current.get(key) ?? 0) + 1);
-    clearPendingTimer(key);
-    setAgentDrafts((current) => withoutKey(current, key));
-    setPendingAgentMessages((current) => withoutKey(current, key));
-  }
-
-  function clearAllAgentInputs(): void {
-    for (const timer of pendingReleaseTimersRef.current.values()) globalThis.clearTimeout(timer);
-    pendingReleaseTimersRef.current.clear();
-    for (const key of submitGenerationsRef.current.keys()) {
-      submitGenerationsRef.current.set(key, (submitGenerationsRef.current.get(key) ?? 0) + 1);
-    }
-    setAgentDrafts({});
-    setPendingAgentMessages({});
-  }
-
   return {
     tabs,
     selectedResourceId,
     documents,
     loadingResourceIds,
     resourceErrors,
-    agentDrafts,
-    pendingAgentMessages,
+    agentDrafts: scopedInputs(agentDrafts, inputScope),
+    pendingAgentMessages: scopedInputs(pendingAgentMessages, inputScope),
     openResource,
     selectResource,
     closeResource,
@@ -287,6 +269,11 @@ export function workspaceResourceRequestScope(projectId: string, conversationId:
 
 export function agentDraftKey(conversationId: string, agentSurfaceId: string): string {
   return `${conversationId}\u0000${agentSurfaceId}`;
+}
+
+function scopedInputs(values: Record<string, string>, prefix: string): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).filter(([key]) => key.startsWith(prefix))
+    .map(([key, value]) => [key.slice(prefix.length), value]));
 }
 
 async function resolveWorkspaceResource(

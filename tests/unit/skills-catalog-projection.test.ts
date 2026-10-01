@@ -24,7 +24,7 @@ describe("projectSkillsCatalog", () => {
     expect(view.totalCount).toBe(3);
     expect(view.filters).toEqual([
       { id: "all", label: "全部", count: 3 },
-      { id: "enabled", label: "已启用", count: 2 },
+      { id: "enabled", label: "已启用", count: 1 },
       { id: "project", label: "项目技能", count: 1 },
       { id: "provider", label: "Agent 技能", count: 1 },
       { id: "custom", label: "自定义", count: 1 },

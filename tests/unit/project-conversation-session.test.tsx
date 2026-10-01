@@ -18,6 +18,32 @@ afterEach(() => {
 });
 
 describe("Project conversation session owner", () => {
+  it("restores the explicit historical mode and conversation without choosing the latest", async () => {
+    const fixture = ownerFixture();
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    await act(async () => { await result.current.restoreSelection({ projectId: "repo-1", conversationId: "historical", productMode: "agent" }); });
+    expect(result.current.productMode).toBe("agent"); expect(result.current.selectedTopic).toBe("historical");
+    expect(result.current.snapshot.center.selectedTopic?.id).toBe("historical");
+    fixture.api.loadSnapshot.mockClear();
+    await act(async () => { await result.current.restoreSelection({ projectId: "repo-1", conversationId: "historical", productMode: "agent" }); });
+    expect(fixture.api.loadSnapshot).not.toHaveBeenCalled();
+    expect(fixture.navigation.syncLocation).not.toHaveBeenCalledWith("repo-1", "repo-1-conversation");
+  });
+
+  it("does not let a slow historical restore overwrite a newer explicit selection", async () => {
+    const fixture = ownerFixture(); const delayed = deferred<Snapshot>();
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+    fixture.api.loadSnapshot.mockImplementation((projectId, mode, conversationId) => conversationId === "slow" ? delayed.promise : Promise.resolve(snapshot(projectId, conversationId, undefined, mode)));
+    let first!: Promise<unknown>;
+    act(() => { first = result.current.restoreSelection({ projectId: "repo-1", conversationId: "slow", productMode: "harness" }); });
+    await act(async () => { await result.current.restoreSelection({ projectId: "repo-1", conversationId: "newer", productMode: "agent" }); });
+    await act(async () => { delayed.resolve(snapshot("repo-1", "slow")); await first; });
+    expect(result.current.selectedTopic).toBe("newer"); expect(result.current.snapshot.productMode).toBe("agent");
+    expect(result.current.snapshot.center.selectedTopic?.id).toBe("newer");
+  });
+
   it("initializes an Agent empty Snapshot before auto-load runs", () => {
     const fixture = ownerFixture();
     const { result } = renderHook(() => useProjectConversationSession({
@@ -1259,3 +1285,5 @@ function stream(runId: string): StreamPacket {
     diagnostics: [],
   };
 }
+
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((res) => { resolve = res; }); return { promise, resolve }; }

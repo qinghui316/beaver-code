@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { ArrowLeft, Bot, CircleAlert, MessagesSquare, RefreshCw, Sparkles, X } from "lucide-react";
+import { Bot, CircleAlert, MessagesSquare, RefreshCw, Sparkles, X } from "lucide-react";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
 import { DialogSurface } from "../presentation/DialogSurface.js";
 import { providerHealthViewModel } from "../presentation/provider-health.js";
@@ -19,7 +19,7 @@ const sections: Array<{ id: VisibleSettingsSection; label: string; icon: typeof 
   { id: "conversations", label: "会话管理", icon: MessagesSquare },
 ];
 
-export function SettingsSurface({ section, onSectionChange, project, projects, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, managementRefreshVersions, onManagementChanged, onClose, onRefresh }: {
+export function SettingsSurface({ section, onSectionChange, project, projects, productMode, conversationId, selectedProviderId, diagnostics, modelSettings, providerCapabilities, modelSettingsBusy, managementRefreshVersions, onManagementChanged, onRefresh }: {
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
   project: ProjectStatus | null;
@@ -33,7 +33,6 @@ export function SettingsSurface({ section, onSectionChange, project, projects, p
   modelSettingsBusy?: boolean;
   managementRefreshVersions?: Record<string, number>;
   onManagementChanged?: (item: ManagementConversation, action: "archive" | "restore" | "delete") => void;
-  onClose: () => void;
   onRefresh: () => Promise<void>;
 }): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
@@ -48,6 +47,8 @@ export function SettingsSurface({ section, onSectionChange, project, projects, p
     productMode,
     conversationId,
     providerId: selectedProviderId,
+    projects,
+    providers: providerCapabilities?.map((provider) => ({ id: provider.providerId, label: provider.displayName })),
     onRefresh,
   });
 
@@ -71,7 +72,6 @@ export function SettingsSurface({ section, onSectionChange, project, projects, p
       <div className="settings-surface-content">
         {visibleSection === "provider" ? <><header className="settings-surface-header">
           <div><h1>{visibleSection === "provider" ? "AI 服务" : "技能"}</h1><p>{settingsDescription(visibleSection)}</p></div>
-          <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
         </header>
 
         {(
@@ -92,9 +92,9 @@ export function SettingsSurface({ section, onSectionChange, project, projects, p
               {diagnosticsAvailable ? <button className="outline-button" onClick={() => setDiagnosticsOpen(true)}><CircleAlert size={14} />查看诊断</button> : null}
             </div>
           </section>
-        )}</> : visibleSection === "skills" ? <SkillsSettingsView surface={skillsSurface} onBack={onClose} />
+        )}</> : visibleSection === "skills" ? <SkillsSettingsView surface={skillsSurface} />
           : <ConversationManagementView active currentProjectId={selectedProjectId} projects={projects ?? []}
-              refreshVersions={managementRefreshVersions ?? {}} onChanged={onManagementChanged ?? (() => undefined)} onBack={onClose} />}
+              refreshVersions={managementRefreshVersions ?? {}} onChanged={onManagementChanged ?? (() => undefined)} />}
         {message ? <p className="diagnostic-errors" role="alert">{message}</p> : null}
       </div>
 

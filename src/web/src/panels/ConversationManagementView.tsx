@@ -11,13 +11,11 @@ export function ConversationManagementView(input: {
   projects: ProjectStatus[];
   refreshVersions: Record<string, number>;
   onChanged: (item: ManagementConversation, action: "archive" | "restore" | "delete") => void;
-  onBack: () => void;
 }): ReactElement {
   const management = useConversationManagement(input);
   const { filters, page, loading, error, preview, previewLoading, busyKey } = management;
   return <section className="conversation-management" aria-label="会话管理">
-    <header className="settings-surface-header"><div><h1>会话管理</h1><p>查看和管理项目会话。归档历史在这里只读预览。</p></div>
-      <button type="button" className="outline-button settings-back-button" onClick={input.onBack}>返回工作区</button></header>
+    <header className="settings-surface-header"><div><h1>会话管理</h1><p>查看和管理项目会话。归档历史在这里只读预览。</p></div></header>
     <div className="conversation-management-filters">
       <label>范围<select aria-label="会话范围" value={filters.scope} onChange={(event) => management.changeFilters({ scope: event.target.value as "project" | "all" })}>
         <option value="project">项目</option><option value="all">全部项目</option></select></label>

@@ -268,12 +268,13 @@
 }
 
 .app-shell {
+  --app-chrome-height: max(48px, env(titlebar-area-height, 0px));
   display: grid;
   grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   box-sizing: border-box;
-  padding-top: env(titlebar-area-height, 0px);
+  padding-top: var(--app-chrome-height);
   overflow: hidden;
   background: var(--bg-app);
 }
@@ -346,6 +347,33 @@
   flex: 1 1 auto;
 }
 
+.application-history-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding-inline: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.application-history-controls button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.application-history-controls button:enabled:hover {
+  color: var(--text-strong);
+  background: var(--bg-hover);
+}
+
+.application-history-controls button:disabled { opacity: 0.4; }
+.application-history-controls button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
 .app-shell.right-rail-open {
   grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr) var(--right-rail-width, 320px);
 }
@@ -391,7 +419,7 @@
 .workspace-navigation-header-spacer {
   position: absolute;
   z-index: 30;
-  top: env(titlebar-area-height, 0px);
+  top: var(--app-chrome-height);
   left: 0;
   display: flex;
   align-items: center;

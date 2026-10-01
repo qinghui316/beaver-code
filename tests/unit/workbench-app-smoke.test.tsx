@@ -199,7 +199,7 @@ describe("Workbench App owner composition", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
-    fireEvent.click(screen.getByRole("button", { name: "会话管理" }));
+    fireEvent.click(await screen.findByRole("button", { name: "会话管理" }));
     await screen.findByText("Owner convergence");
     fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
 
@@ -223,8 +223,8 @@ describe("Workbench App owner composition", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "打开会话栏" }));
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
-    expect(await screen.findByRole("button", { name: "返回工作区" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "返回工作区" }));
+    expect(screen.queryByRole("button", { name: "返回工作区" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "返回", exact: true }));
 
     expect(await screen.findByRole("button", { name: "打开会话栏" })).toBeTruthy();
     expect(view.container.querySelector(".app-shell")?.classList.contains("mobile-sidebar-open")).toBe(false);
@@ -388,6 +388,8 @@ describe("Workbench App owner composition", () => {
 
     resolveHarnessSnapshot(snapshotWithConversationId(createSnapshot(undefined, "harness"), "harness-conversation"));
     await waitFor(() => expect(screen.getAllByText("harness-conversation").length).toBeGreaterThan(0));
+    expect(requestUrls("/workbench/conversations/harness-conversation/turn-queue")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "harness-conversation" }));
     await waitFor(() => expect(requestUrls("/workbench/conversations/harness-conversation/turn-queue").some((url) => (
       url.includes("productMode=harness")
     ))).toBe(true));

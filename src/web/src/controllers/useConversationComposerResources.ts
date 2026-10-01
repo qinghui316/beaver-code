@@ -16,6 +16,7 @@ import {
   defaultComposerSkillApi,
   readComposerFileAsDataUrl,
 } from "./conversation-composer-http-adapters.js";
+import { subscribeSkillCatalogChanges } from "./skills-settings-http-adapter.js";
 
 interface ComposerResourceDraftPort {
   draftSkillOverrides: Record<string, boolean>;
@@ -84,6 +85,11 @@ export function useConversationComposerResources(
     return () => { skillRequestGenerationRef.current += 1; };
   }, [reloadSkills, scope.projectRegistered, scope.productMode, scope.projectId, scope.conversation?.id,
     scope.conversation?.productMode, scope.conversation?.selectedProviderId, scope.selectedProviderId]);
+
+  useEffect(() => subscribeSkillCatalogChanges((providerId) => {
+    const identity = skillRequestIdentity(scopeRef.current);
+    if (!providerId || !identity.providerId || identity.providerId === providerId) void reloadSkills();
+  }), [reloadSkills]);
 
   useEffect(() => {
     if (!draft.draftLoadedScopeKey || scope.conversation || !skillsLoadedIdentity

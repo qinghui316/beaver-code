@@ -120,6 +120,7 @@ export interface ProjectConversationSessionPorts {
     persistProjectId(projectId: string): void;
     clearPersistedProjectId(): void;
     syncLocation(projectId: string | null, conversationId: string | null): void;
+    conversationCreated?(projectId: string, productMode: ProductMode, pendingId: string, conversationId: string): void;
   };
   timeline?: {
     cacheEvent?(projectId: string, productMode: ProductMode, conversationId: string, event: WorkbenchLiveEvent): void;
@@ -174,8 +175,11 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   // Only navigation changes invalidate a submission's selection identity.
   const selectionEpochRef = useRef(0);
   const productModeRef = useRef<ProductMode>(requestedProductMode);
+  const lastRequestedMode = useRef(requestedProductMode);
   const streamEffectGenerationRef = useRef(0);
   const pendingDemandRef = useRef<PendingDemandConversation | null>(null);
+  const pendingDemandCache = useRef(new Map<string, PendingDemandConversation>());
+  const restoredCreationEpochs = useRef(new Map<string, number>());
   const stateRef = useRef({ projects, productMode, selectedProjectId, snapshot, selectedTopic, selectedRun, pendingDemandConversation });
   stateRef.current = { projects, productMode, selectedProjectId, snapshot, selectedTopic, selectedRun, pendingDemandConversation };
   const projectSnapshots = useMemo(
@@ -354,7 +358,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     return refreshAtGeneration(projectId, conversationId, generation, productModeRef.current);
   }, [refreshAtGeneration]);
 
-  const loadApp = useCallback(async (): Promise<void> => {
+  const loadApp = useCallback(async (options: { restoreSelection?: boolean } = {}): Promise<void> => {
     ++selectionEpochRef.current;
     const generation = ++requestGenerationRef.current;
     const requestProductMode = productModeRef.current;
@@ -366,6 +370,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       || projectRead.generation !== projectRequestGenerationRef.current) return;
     const list = projectRead.list;
     setProjects(list);
+    stateRef.current.projects = list;
+    if (options.restoreSelection === false) return;
     const urlProjectStatus = findProject(list, restore.projectId);
     if (restore.projectId && !urlProjectStatus) {
       setSelectedProjectId(null);
@@ -495,6 +501,60 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
         && stateRef.current.selectedTopic === conversationId) setSnapshotError(userFacingErrorMessage(cause, "conversation"));
     }
   }, [beginTransition, commitProjectSelection, refreshAtGeneration]);
+
+  /** History replay selects an exact scope; it never performs latest-conversation fallback. */
+  const restoreSelection = useCallback(async (target: {
+    projectId: string | null; conversationId: string | null; productMode: ProductMode;
+  }): Promise<{ projectId: string | null; conversationId: string | null }> => {
+    const status = findProject(stateRef.current.projects, target.projectId);
+    const projectId = status?.project?.id ?? null;
+    const conversationId = projectId ? target.conversationId : null;
+    if (projectId === stateRef.current.selectedProjectId && conversationId === stateRef.current.selectedTopic
+      && target.productMode === productModeRef.current) return { projectId, conversationId };
+    const kind = projectId !== stateRef.current.selectedProjectId ? "project-changed" : "conversation-changed";
+    const generation = beginTransition(kind, projectId ?? "", conversationId, target.productMode);
+    productModeRef.current = target.productMode;
+    setProductMode(target.productMode);
+    stateRef.current = { ...stateRef.current, productMode: target.productMode, selectedProjectId: projectId,
+      selectedTopic: conversationId, pendingDemandConversation: null };
+    setSelectedProjectId(projectId); setSelectedTopic(conversationId); setSelectedRun(null); setStream(null); setSnapshotError(null);
+    setPendingDemandConversation(null); pendingDemandRef.current = null;
+    if (!projectId) {
+      setSnapshot(emptySnapshotForMode(target.productMode));
+      return { projectId: null, conversationId: null };
+    }
+    navigation(portsRef.current).persistProjectId(projectId);
+    setExpandedProjects((current) => new Set([...current, projectId]));
+    setSnapshot({ ...emptySnapshotForMode(target.productMode), project: status?.project ?? null });
+    if (conversationId?.startsWith("pending:")) {
+      const pending = pendingDemandCache.current.get(`${projectId}\0${target.productMode}\0${conversationId}`);
+      if (pending) {
+        restoredCreationEpochs.current.set(pending.clientRequestId, selectionEpochRef.current);
+        setPendingDemandConversation(pending); pendingDemandRef.current = pending;
+        stateRef.current.pendingDemandConversation = pending;
+        return { projectId, conversationId };
+      }
+      setSelectedTopic(null); stateRef.current.selectedTopic = null;
+      return { projectId, conversationId: null };
+    }
+    try {
+      if (conversationId) await refreshAtGeneration(projectId, conversationId, generation, target.productMode, false);
+      else {
+        const base = canLoadWorkbenchSnapshot(status, target.productMode)
+          ? await sessionApi(portsRef.current).loadSnapshot(projectId, target.productMode, null)
+          : snapshotForProject(status, target.productMode);
+        if (isCurrentSelection(generation, target.productMode, requestGenerationRef, productModeRef)) {
+          setSnapshot(status ? newConversationSnapshot(base, status) : base);
+          void loadNavigation(projectId, target.productMode).catch(reportError);
+        }
+      }
+    } catch (cause) {
+      if (isCurrentSelection(generation, target.productMode, requestGenerationRef, productModeRef)) {
+        setSnapshotError(userFacingErrorMessage(cause, "conversation"));
+      }
+    }
+    return { projectId, conversationId };
+  }, [beginTransition, loadNavigation, refreshAtGeneration, reportError]);
 
   const removeProject = useCallback(async (projectId: string): Promise<void> => {
     const status = findProject(stateRef.current.projects, projectId);
@@ -667,6 +727,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     setStream(null);
     setPendingDemandConversation(pending);
     pendingDemandRef.current = pending;
+    pendingDemandCache.current.set(`${input.projectId}\0${pending.productMode}\0${pending.id}`, pending);
     stateRef.current = { ...stateRef.current, selectedProjectId: input.projectId, selectedTopic: pending.id, pendingDemandConversation: pending };
     navigation(portsRef.current).persistProjectId(input.projectId);
     navigation(portsRef.current).syncLocation(input.projectId, pending.id);
@@ -771,7 +832,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       });
       selectionEpoch = selectionEpochRef.current;
     } else if (requestOwnsCurrentSelection) ++requestGenerationRef.current;
-    const canApplyToCurrentSelection = (): boolean => selectionEpochRef.current === selectionEpoch
+    const canApplyToCurrentSelection = (): boolean => (selectionEpochRef.current === selectionEpoch
+      || restoredCreationEpochs.current.get(request.clientRequestId) === selectionEpochRef.current)
       && productModeRef.current === request.productMode
       && stateRef.current.selectedProjectId === request.projectId
       && (stateRef.current.selectedTopic === (boundConversationId ?? `pending:${request.clientRequestId}`)
@@ -787,6 +849,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
             if (!eventConversationId
               || (boundConversationId && boundConversationId !== eventConversationId)) return;
             if (!boundConversationId) {
+              portsRef.current.navigation?.conversationCreated?.(request.projectId, request.productMode,
+                `pending:${request.clientRequestId}`, eventConversationId);
               invalidateNavigation(request.projectId, request.productMode);
               if (canApplyToCurrentSelection()) {
                 const rekeyResult = rekeyPendingDemand({
@@ -1106,6 +1170,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   }, [expandedProjects, loadNavigation, projectModeSnapshots, refreshAtGeneration, reportError]);
 
   useEffect(() => {
+    if (lastRequestedMode.current === requestedProductMode) return;
+    lastRequestedMode.current = requestedProductMode;
     if (requestedProductMode === productModeRef.current) return;
     let active = true;
     switchProductMode(requestedProductMode).catch((cause: unknown) => {
@@ -1181,6 +1247,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     pendingDemandConversation,
     loadApp,
     refresh,
+    restoreSelection,
     openProject,
     beginNewConversation,
     toggleProjectFolder,
@@ -1284,10 +1351,10 @@ function sessionApi(ports: ProjectConversationSessionPorts): ProjectConversation
 }
 
 function navigation(ports: ProjectConversationSessionPorts) {
-  return ports.navigation ?? defaultNavigation;
+  return ports.navigation ?? browserSessionNavigation;
 }
 
-const defaultNavigation = {
+export const browserSessionNavigation = {
   readRestoreParams: readWorkbenchRestoreParams,
   readPersistedProjectId(): string | null {
     try {
@@ -1303,18 +1370,7 @@ const defaultNavigation = {
   clearPersistedProjectId(): void {
     try { window.localStorage.removeItem(SELECTED_PROJECT_STORAGE_KEY); } catch { /* preference only */ }
   },
-  syncLocation(projectId: string | null, conversationId: string | null): void {
-    try {
-      const url = new URL(window.location.href);
-      if (projectId) url.searchParams.set("project", projectId);
-      else url.searchParams.delete("project");
-      if (projectId && conversationId && !conversationId.startsWith("pending:")) url.searchParams.set("topic", conversationId);
-      else url.searchParams.delete("topic");
-      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    } catch {
-      // Session state remains usable without host History APIs.
-    }
-  },
+  syncLocation(): void { /* Application navigation owns Browser History. */ },
 };
 
 function readWorkbenchRestoreParams(): WorkbenchRestoreParams {

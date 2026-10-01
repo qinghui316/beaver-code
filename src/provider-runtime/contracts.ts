@@ -574,6 +574,9 @@ export interface ProviderSkillCatalogSnapshot {
 }
 
 export interface ProviderSkillCatalogPort {
+  listGlobal?(input: { forceReload?: boolean }): Promise<ProviderSkillCatalogSnapshot>;
+  configurationKey?(): string;
+  setGlobalEnabled?(input: { path: string; enabled: boolean }): Promise<{ effectiveEnabled: boolean }>;
   list(input: {
     projectPath: string;
     extraRoots?: readonly string[];

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject, type UIEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject, type UIEvent } from "react";
 import type { CanonicalTimelineMutation } from "../canonicalTimelineStore.js";
 
 const BOTTOM_PIN_THRESHOLD = 140;
@@ -16,6 +16,7 @@ export interface MainConversationViewportInput {
   hasMoreBefore: boolean;
   loadingEarlier: boolean;
   loadEarlier: () => Promise<void>;
+  visible?: boolean;
 }
 
 export interface MainConversationViewportController {
@@ -23,6 +24,7 @@ export interface MainConversationViewportController {
   showLatest: boolean;
   onUserScroll: (event: UIEvent<HTMLDivElement>) => void;
   scrollToLatest: () => void;
+  captureReadingPosition: () => void;
 }
 
 export function useMainConversationViewport({
@@ -31,6 +33,7 @@ export function useMainConversationViewport({
   hasMoreBefore,
   loadingEarlier,
   loadEarlier,
+  visible = true,
 }: MainConversationViewportInput): MainConversationViewportController {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
@@ -41,6 +44,17 @@ export function useMainConversationViewport({
   const generationRef = useRef(0);
   const scheduledFramesRef = useRef(new Set<number>());
   const [showLatest, setShowLatest] = useState(false);
+  const positions = useRef(new Map<string, { scrollTop: number; pinned: boolean; cellId: string | null; offset: number }>());
+
+  const captureReadingPosition = useCallback((): void => {
+    const node = scrollContainerRef.current;
+    if (!scopeKey || !node) return;
+    const top = node.getBoundingClientRect().top;
+    const cell = [...node.querySelectorAll<HTMLElement>("[data-transcript-cell-id]")]
+      .find((item) => item.getBoundingClientRect().bottom > top);
+    positions.current.set(scopeKey, { scrollTop: node.scrollTop, pinned: pinnedRef.current,
+      cellId: cell?.dataset.transcriptCellId ?? null, offset: cell ? cell.getBoundingClientRect().top - top : 0 });
+  }, [scopeKey]);
 
   loadEarlierRef.current = loadEarlier;
 
@@ -89,8 +103,33 @@ export function useMainConversationViewport({
     const pinned = node.scrollHeight - node.scrollTop - node.clientHeight <= BOTTOM_PIN_THRESHOLD;
     pinnedRef.current = pinned;
     setShowLatest(!pinned);
+    captureReadingPosition();
     if (node.scrollTop <= LOAD_EARLIER_THRESHOLD) requestEarlier(node);
-  }, [requestEarlier]);
+  }, [captureReadingPosition, requestEarlier]);
+
+  const restoreReadingPosition = useCallback((): void => {
+    const saved = scopeKey ? positions.current.get(scopeKey) : undefined;
+    if (!saved || !visible) return;
+    pinnedRef.current = saved.pinned;
+    const generation = generationRef.current;
+    scheduleFrame(() => {
+      if (generation !== generationRef.current) return;
+      const node = scrollContainerRef.current;
+      if (!node) return;
+      node.scrollTop = saved.pinned ? node.scrollHeight : saved.scrollTop;
+      if (!saved.pinned) scheduleFrame(() => {
+        if (generation !== generationRef.current || !scrollContainerRef.current) return;
+        const cell = [...node.querySelectorAll<HTMLElement>("[data-transcript-cell-id]")]
+          .find((item) => item.dataset.transcriptCellId === saved.cellId);
+        if (cell) node.scrollTop += cell.getBoundingClientRect().top - node.getBoundingClientRect().top - saved.offset;
+      });
+      setShowLatest(!saved.pinned);
+    });
+  }, [scheduleFrame, scopeKey, visible]);
+
+  useLayoutEffect(() => {
+    restoreReadingPosition();
+  }, [restoreReadingPosition]);
 
   const scrollToLatest = useCallback((): void => {
     pinnedRef.current = true;
@@ -106,7 +145,8 @@ export function useMainConversationViewport({
     loadTokenRef.current += 1;
     loadInFlightRef.current = false;
     setShowLatest(false);
-  }, [scopeKey]);
+    restoreReadingPosition();
+  }, [scopeKey, restoreReadingPosition]);
 
   useEffect(() => {
     if (!mutation || mutation.scopeKey !== scopeKey) return;
@@ -120,6 +160,7 @@ export function useMainConversationViewport({
       loadTokenRef.current += 1;
       loadInFlightRef.current = false;
       setShowLatest(false);
+      restoreReadingPosition();
       return;
     }
 
@@ -132,7 +173,7 @@ export function useMainConversationViewport({
       node.scrollTop = node.scrollHeight;
       setShowLatest(false);
     });
-  }, [mutation, scheduleFrame, scopeKey]);
+  }, [mutation, restoreReadingPosition, scheduleFrame, scopeKey]);
 
   useEffect(() => () => {
     for (const frame of scheduledFramesRef.current) cancelAnimationFrame(frame);
@@ -144,5 +185,6 @@ export function useMainConversationViewport({
     showLatest,
     onUserScroll,
     scrollToLatest,
+    captureReadingPosition,
   };
 }

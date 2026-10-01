@@ -16,7 +16,7 @@ export interface SkillCatalogCardViewModel {
   readonly description: string;
   readonly sourceLabel: string;
   readonly scopeLabel: string;
-  readonly statusLabel: "已启用" | "未启用" | "项目必需";
+  readonly statusLabel: "已启用" | "未启用" | "项目必需" | "不可修改";
   readonly statusTone: "active" | "inactive" | "locked";
   readonly providerEnabled: boolean;
   readonly canChangeProviderEnabled: boolean;
@@ -30,6 +30,11 @@ export interface SkillCatalogDiagnosticViewModel {
 }
 
 export interface SkillsCatalogViewModel {
+  readonly groups?: readonly SkillCatalogGroupViewModel[];
+  readonly providers?: readonly { id: string; label: string }[];
+  readonly providerId?: string | null;
+  readonly sourceProjects?: readonly { id: string; label: string }[];
+  readonly sourceProjectId?: string | null;
   readonly hasProject: boolean;
   readonly query: string;
   readonly filter: SkillCatalogFilter;
@@ -46,9 +51,22 @@ export interface SkillsCatalogViewModel {
   readonly actionFailure: UserFacingFailure | null;
 }
 
+export interface SkillCatalogGroupViewModel {
+  readonly id: string;
+  readonly label: string;
+  readonly state: "loading" | "ready" | "error";
+  readonly failure?: string;
+  readonly cards: readonly SkillCatalogCardViewModel[];
+  readonly total: number;
+  readonly page: number;
+}
+
 export interface SkillsSettingsSurface {
   readonly view: SkillsCatalogViewModel;
   readonly actions: {
+    selectProvider?(providerId: string): void;
+    selectSourceProject?(projectId: string): void;
+    setGroupPage?(groupId: string, page: number): void;
     refresh(): Promise<void>;
     setQuery(query: string): void;
     setFilter(filter: SkillCatalogFilter): void;

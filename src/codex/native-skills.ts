@@ -1,4 +1,5 @@
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
 import type {
@@ -7,13 +8,50 @@ import type {
   ProviderSkillCatalogSnapshot,
 } from "../provider-runtime/contracts.js";
 import { defaultCodexAppServerHostRegistry } from "./app-server-host.js";
+import { getAhoHome } from "../fs/path.js";
+import { resolveCodexHome } from "./home.js";
 
 interface CodexSkillMetadataRequester {
-  requestMetadata(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>;
+  requestMetadata(method: string, params: Record<string, unknown>, options?: { timeoutMs: number }): Promise<Record<string, unknown>>;
 }
 
 export interface CodexNativeSkillClientOptions {
   requester?: CodexSkillMetadataRequester;
+}
+
+const catalogTransactions = new Map<string, Promise<unknown>>();
+
+export function codexSkillConfigurationKey(): string {
+  return normalizePath(resolveCodexHome());
+}
+
+/** Catalog reads use a threadless Host, never a project execution Host. */
+async function catalogRequester(): Promise<CodexSkillMetadataRequester> {
+  const cwd = join(getAhoHome(), "metadata", "skills");
+  await mkdir(cwd, { recursive: true });
+  return defaultCodexAppServerHostRegistry.hostFor(cwd);
+}
+
+function catalogTransaction<T>(operation: () => Promise<T>): Promise<T> {
+  const key = codexSkillConfigurationKey();
+  const previous = catalogTransactions.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  catalogTransactions.set(key, next);
+  void next.finally(() => {
+    if (catalogTransactions.get(key) === next) catalogTransactions.delete(key);
+  }).catch(() => undefined);
+  return next;
+}
+
+export async function listCodexGlobalSkills(input: { forceReload?: boolean } = {}): Promise<ProviderSkillCatalogSnapshot> {
+  const projectPath = join(getAhoHome(), "metadata", "skills");
+  await mkdir(projectPath, { recursive: true });
+  const snapshot = await listCodexNativeSkills({ projectPath, forceReload: input.forceReload });
+  return { ...snapshot, skills: snapshot.skills.filter((skill) => skill.scope !== "repo") };
+}
+
+export function setCodexGlobalSkillEnabled(input: { path: string; enabled: boolean }): Promise<{ effectiveEnabled: boolean }> {
+  return setCodexNativeSkillEnabled({ ...input, projectPath: join(getAhoHome(), "metadata", "skills") });
 }
 
 const codexSkillSchema = z.object({
@@ -50,14 +88,21 @@ export async function listCodexNativeSkills(
   input: { projectPath: string; extraRoots?: readonly string[]; forceReload?: boolean },
   options: CodexNativeSkillClientOptions = {},
 ): Promise<ProviderSkillCatalogSnapshot> {
+  return catalogTransaction(() => readCodexNativeSkills(input, options));
+}
+
+async function readCodexNativeSkills(
+  input: { projectPath: string; extraRoots?: readonly string[]; forceReload?: boolean },
+  options: CodexNativeSkillClientOptions,
+): Promise<ProviderSkillCatalogSnapshot> {
   const projectPath = resolve(input.projectPath);
-  const requester = options.requester ?? defaultCodexAppServerHostRegistry.hostFor(projectPath);
+  const requester = options.requester ?? await catalogRequester();
   const extraRoots = uniquePaths(input.extraRoots ?? []);
-  await requester.requestMetadata("skills/extraRoots/set", { extraRoots });
+  await requester.requestMetadata("skills/extraRoots/set", { extraRoots }, { timeoutMs: 10_000 });
   const response = codexSkillsListResponseSchema.parse(await requester.requestMetadata("skills/list", {
     cwds: [projectPath],
     forceReload: input.forceReload ?? false,
-  }));
+  }, { timeoutMs: 10_000 }));
   const entries = response.data.filter((entry) => samePath(entry.cwd, projectPath));
   if (entries.length !== 1) {
     throw new Error(entries.length === 0
@@ -109,12 +154,11 @@ export async function setCodexNativeSkillEnabled(
   input: { projectPath: string; path: string; enabled: boolean },
   options: CodexNativeSkillClientOptions = {},
 ): Promise<{ effectiveEnabled: boolean }> {
-  const projectPath = resolve(input.projectPath);
-  const requester = options.requester ?? defaultCodexAppServerHostRegistry.hostFor(projectPath);
+  const requester = options.requester ?? await catalogRequester();
   return codexSkillsConfigWriteResponseSchema.parse(await requester.requestMetadata("skills/config/write", {
     path: input.path,
     enabled: input.enabled,
-  }));
+  }, { timeoutMs: 10_000 }));
 }
 
 function uniquePaths(paths: readonly string[]): string[] {

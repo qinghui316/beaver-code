@@ -1131,7 +1131,7 @@ describe("workbench server", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: false, productMode: "harness", providerId: "codex" }),
     });
-    expect(disabled.ok).toBe(true);
+    expect(JSON.stringify({ status: disabled.status, body: await disabled.json() })).toContain('"status":200');
     const refreshed = await getJson<{ skills: Array<{ skillId: string; providerEnabled: boolean }> }>(`${handle!.url}/api/projects/repo/skills?productMode=harness&providerId=codex`);
     expect(refreshed.skills.find((skill) => skill.skillId === "pricing-helper")?.providerEnabled).toBe(false);
 
