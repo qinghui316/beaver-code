@@ -119,6 +119,16 @@ describe("Codex collaboration normalizer", () => {
     })]);
   });
 
+  it("preserves terminal activity without minting a new child lifecycle identity", () => {
+    const params = { threadId: "thread-main", turnId: "turn-main-1", item: {
+      type: "subAgentActivity", id: "activity-completed", kind: "completed",
+      agentThreadId: "thread-planning", agentPath: "/root/planning_agent",
+    } };
+    const result = new CodexCollaborationNormalizer().normalize("item/completed", params);
+    expect(result.subAgentActivity).toMatchObject({ kind: "completed", threadId: "thread-planning" });
+    expect(result.lifecycleEvents).toEqual([]);
+  });
+
   it("keeps interrupted sub-agent activity diagnostic-only", () => {
     const params = {
       item: {

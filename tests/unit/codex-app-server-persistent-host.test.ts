@@ -351,6 +351,17 @@ describe("Codex persistent app-server Host", () => {
     });
   });
 
+  it("collects native completed activity without a child turn notification, including exact cross-turn continuation", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4081, false, undefined, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const first = await runCodexAppServerTurn(await turnOptions(cwd, "activity-main-run", null));
+    expect(first.childThreads).toEqual([expect.objectContaining({ threadId: "thread-hume", finalText: "Initial Hume response." })]);
+    const second = await runCodexAppServerTurn(await turnOptions(cwd, "activity-continued-run", "thread-main"));
+    expect(second.childThreads).toEqual([expect.objectContaining({ threadId: "thread-hume", finalText: "Follow-up complete." })]);
+    expect(server.methods.filter((method) => method === "initialize")).toHaveLength(1);
+  });
+
   it("initializes one process and continues the exact native Child on the same generation", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4101, true);
@@ -1060,6 +1071,7 @@ class PersistentCollaborationServer extends EventEmitter {
     pid: number,
     private readonly holdFirstParent = false,
     private readonly managedPathLeak?: string,
+    private readonly activityCompletionOnly = false,
   ) {
     super();
     this.pid = pid;
@@ -1268,7 +1280,14 @@ class PersistentCollaborationServer extends EventEmitter {
             item: { id: `interacted-${this.turnCount}`, type: "subAgentActivity", kind: "interacted", agentThreadId: "thread-hume", agentPath: "/root/hume" },
           });
         }
-        this.notify("turn/completed", { threadId: "thread-hume", turn: { id: `turn-hume-${this.turnCount}`, status: "completed" } });
+        if (this.activityCompletionOnly) {
+          const activity = { threadId: "thread-main", turnId, item: { id: `child-completed-${this.turnCount}`, type: "subAgentActivity", kind: "completed", agentThreadId: "thread-hume", agentPath: "/root/hume" } };
+          this.notify("item/started", activity);
+          this.notify("item/completed", activity);
+          this.notify("item/completed", { threadId: "thread-main", turnId, item: { id: "unknown-completed", type: "subAgentActivity", kind: "completed", agentThreadId: "thread-unknown", agentPath: "/root/unknown" } });
+        } else {
+          this.notify("turn/completed", { threadId: "thread-hume", turn: { id: `turn-hume-${this.turnCount}`, status: "completed" } });
+        }
         if (!this.holdFirstParent || this.turnCount > 1) {
           this.notify("turn/completed", { threadId: "thread-main", turn: { id: turnId, status: "completed" } });
         }

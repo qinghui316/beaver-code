@@ -1140,14 +1140,19 @@ async function runCodexAppServerOperation(
         childThreadParents.set(subAgent.threadId, childTarget.parentThreadId);
         childThreadRoleHints.set(subAgent.threadId, options.roleId);
       }
-      if (subAgent.kind === "started") {
+      if ((subAgent.kind === "started" || subAgent.kind === "interacted") && isParentNotification) {
         subAgentThreadItems.set(subAgent.threadId, subAgent.itemId);
         const parentThreadId = notificationThreadId ?? threadId ?? "";
         childThreadParents.set(subAgent.threadId, parentThreadId);
-        if (parentThreadId) hostLease?.bindChild(parentThreadId, subAgent.threadId);
+        if (subAgent.kind === "started" && parentThreadId) hostLease?.bindChild(parentThreadId, subAgent.threadId);
         const roleHint = collaborationNormalizer.roleHintForChild(subAgent.threadId);
         if (roleHint) childThreadRoleHints.set(subAgent.threadId, roleHint);
         queueChildInitialThreadRead({ itemId: subAgent.itemId }, subAgent.threadId);
+      }
+      // Native activity can be the only terminal evidence delivered to the parent.
+      // Read only a Child observed by this Turn; the existing reader suppresses duplicates.
+      if (subAgent.kind === "completed" && isParentNotification && subAgentThreadItems.has(subAgent.threadId)) {
+        queueChildThreadRead({ itemId: subAgentThreadItems.get(subAgent.threadId), status: "completed" }, subAgent.threadId);
       }
     }
     const completedExactFollowup = childTarget?.action === "followup"

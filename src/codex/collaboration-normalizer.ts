@@ -15,7 +15,7 @@ export interface CodexCollaborationToolCall {
 
 export interface CodexSubAgentActivity {
   itemId: string;
-  kind: "started" | "interacted" | "interrupted";
+  kind: "started" | "interacted" | "interrupted" | "completed";
   threadId: string;
   agentPath: string;
 }
@@ -142,7 +142,7 @@ export function extractCodexSubAgentActivity(
   const item = record(params.item);
   if (!item || item.type !== "subAgentActivity") return null;
   const itemId = stringValue(item.id);
-  const kind = item.kind === "started" || item.kind === "interacted" || item.kind === "interrupted" ? item.kind : null;
+  const kind = item.kind === "started" || item.kind === "interacted" || item.kind === "interrupted" || item.kind === "completed" ? item.kind : null;
   const threadId = stringValue(item.agentThreadId);
   const agentPath = stringValue(item.agentPath);
   return itemId && kind && threadId && agentPath ? { itemId, kind, threadId, agentPath } : null;
