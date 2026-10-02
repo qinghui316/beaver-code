@@ -1,10 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { load } from "js-yaml";
 
 const packaging = await read("scripts/package-desktop-win.mjs");
 const smoke = await read("scripts/desktop-native-smoke.cjs");
+const main = await read("src/desktop/main.ts");
+const builder = load(await read("electron-builder.yml")) as { extraResources: { from: string; to: string }[] };
+const verifier = await read("scripts/verify-desktop-package.mjs");
 
 describe("desktop packaged native smoke boundary", () => {
+  it("ships physical system Skills and binds the packaged Utility root in Main", () => {
+    expect(builder.extraResources).toContainEqual({ from: "dist/templates/system-skills", to: "system-skills" });
+    expect(main).toContain('...(app.isPackaged ? { AHO_SYSTEM_SKILLS_DIR: join(process.resourcesPath, "system-skills") } : {})');
+    expect(main).toContain("...process.env");
+    expect(verifier).toContain('verifyDesktopSystemSkills(join(dirname(asar), "system-skills")');
+    expect(smoke).toContain('join(resolve(packagedRoot), "resources", "system-skills")');
+  });
 
   it("tests the packaged executable instead of a development Electron install", () => {
     expect(packaging).toContain('resolve(packagedRoot, variant.config.win.executableName + ".exe")');
