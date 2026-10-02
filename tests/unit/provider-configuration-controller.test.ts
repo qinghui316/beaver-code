@@ -103,6 +103,32 @@ describe("provider configuration controller", () => {
     expect(result.current.selectedProviderId).toBe("codex");
   });
 
+  it.each(["project", "mode"] as const)("does not restore a previous choice after a different %s read fails then recovers", async (changedScope) => {
+    let failCapabilities = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (failCapabilities && url.includes("capabilities")) throw new TypeError("Failed to fetch");
+      return readyConfiguration(url);
+    }));
+    const { result, rerender } = renderHook(({ projectId, productMode }) => useProviderConfigurationController({
+      projectId, productMode, projectDefaultProviderId: "codex", conversationProviderId: null,
+    }), { initialProps: { projectId: "repo", productMode: "agent" as ProductMode } });
+    await waitFor(() => expect(result.current.capabilitiesLoading).toBe(false));
+    await act(async () => { await result.current.selectProvider("claude"); });
+    failCapabilities = true;
+    rerender({ projectId: changedScope === "project" ? "target" : "repo", productMode: changedScope === "mode" ? "harness" : "agent" });
+    await waitFor(() => expect(result.current.failureNotice).not.toBeNull());
+    expect(result.current.selectedProviderId).toBeNull();
+    expect(result.current.diagnostics).toBeNull();
+    expect(result.current.modelSettings).toBeNull();
+    expect(result.current.modelCatalogs).toEqual([]);
+    failCapabilities = false;
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.selectedProviderId).toBe("codex");
+    expect(result.current.diagnostics?.providerId).toBe("codex");
+    expect(result.current.failureNotice).toBeNull();
+  });
+
   it("keeps a dismissed failure as admission evidence and shows a new failure again", async () => {
     let unavailable = true;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {

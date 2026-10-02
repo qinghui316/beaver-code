@@ -232,6 +232,11 @@ export function useProviderConfigurationController(
       // not replace newer capability evidence or escape into App's action error.
       if (generation !== requestGenerationRef.current) return;
       setCapabilities([]);
+      setSelectedProviderId(selectedProviderRef.current?.scopeIdentity === scopeIdentity
+        ? selectedProviderRef.current.providerId : null);
+      setDiagnostics(null);
+      setModelSettings(null);
+      setModelCatalogs([]);
       setCapabilitiesFailure({ scopeIdentity, generation, message: userFacingErrorMessage(cause, "settings") });
       setResolvedScopeIdentity(scopeIdentity);
       throw cause;
