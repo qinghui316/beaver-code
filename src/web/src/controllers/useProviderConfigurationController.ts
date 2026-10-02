@@ -52,7 +52,10 @@ export function useProviderConfigurationController(
     string | null
   >(null);
   const requestGenerationRef = useRef(0);
-  const selectedProviderIdRef = useRef<string | null>(null);
+  const selectedProviderRef = useRef<{
+    scopeIdentity: string;
+    providerId: string | null;
+  } | null>(null);
   const draftProviderIdRef = useRef<string | null>(null);
   const draftProviderScopeRef = useRef<string | null>(null);
   const scopeResolved = resolvedScopeIdentity === scopeIdentity;
@@ -62,9 +65,15 @@ export function useProviderConfigurationController(
   const scopedFailure = capabilitiesFailure?.scopeIdentity === scopeIdentity ? capabilitiesFailure : null;
   const visibleCapabilitiesError = scopeResolved ? scopedFailure?.message ?? null : null;
   const failureNotice = scopedFailure?.generation === dismissedFailureGeneration ? null : scopedFailure;
-  const visibleSelectedProviderId = scopeResolved ? selectedProviderId : null;
+  // A background reread hides capability evidence, not the user's scoped choice.
+  // Keeping that choice stable also prevents draft sync from saving a transient null.
+  const visibleSelectedProviderId = scopeResolved
+    ? selectedProviderId
+    : selectedProviderRef.current?.scopeIdentity === scopeIdentity
+      ? selectedProviderRef.current.providerId
+      : null;
   const visibleModelCatalogs = scopeResolved ? modelCatalogs : [];
-  selectedProviderIdRef.current = visibleSelectedProviderId;
+  if (scopeResolved) selectedProviderRef.current = { scopeIdentity, providerId: selectedProviderId };
 
   const providerPath = useCallback(
     (providerId: string, leaf: "diagnostics" | "models") =>
@@ -179,7 +188,8 @@ export function useProviderConfigurationController(
         selectEffectiveProviderId({
           conversationProviderId: input.conversationProviderId,
           projectDefaultProviderId: input.projectDefaultProviderId,
-          selectedProviderId: selectedProviderIdRef.current,
+          selectedProviderId: selectedProviderRef.current?.scopeIdentity === scopeIdentity
+            ? selectedProviderRef.current.providerId : null,
           capabilities: nextCapabilities,
         });
       setSelectedProviderId(providerId);
@@ -256,7 +266,7 @@ export function useProviderConfigurationController(
       selectedProviderId: visibleSelectedProviderId,
       capabilities: visibleCapabilities,
     });
-    if (scopeResolved && providerId !== visibleSelectedProviderId)
+    if (scopeResolved && !visibleCapabilitiesError && providerId !== visibleSelectedProviderId)
       setSelectedProviderId(providerId);
   }, [
     input.conversationProviderId,
@@ -264,6 +274,7 @@ export function useProviderConfigurationController(
     scopeIdentity,
     scopeResolved,
     visibleCapabilities,
+    visibleCapabilitiesError,
     visibleSelectedProviderId,
   ]);
 
@@ -273,6 +284,7 @@ export function useProviderConfigurationController(
       const generation = ++requestGenerationRef.current;
       draftProviderIdRef.current = null;
       draftProviderScopeRef.current = null;
+      selectedProviderRef.current = { scopeIdentity, providerId };
       setSelectedProviderId(providerId);
       setDiagnostics(null);
       setModelSettings(null);

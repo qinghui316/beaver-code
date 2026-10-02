@@ -28,6 +28,81 @@ afterEach(() => {
 });
 
 describe("provider configuration controller", () => {
+  it.each(["agent", "harness"] as const)("preserves %s provider selection throughout a deferred reconnect read", async (productMode) => {
+    let deferCapabilities = false;
+    let resolveReconnect!: (response: Response) => void;
+    const reconnectResponse = new Promise<Response>((resolve) => { resolveReconnect = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (deferCapabilities && url.includes("capabilities")) return reconnectResponse;
+      return readyConfiguration(url);
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode, projectDefaultProviderId: "codex", conversationProviderId: null,
+    }));
+    await waitFor(() => expect(result.current.capabilitiesLoading).toBe(false));
+    await act(async () => { await result.current.selectProvider("claude"); });
+    deferCapabilities = true;
+    let reconnect!: Promise<void>;
+    act(() => { reconnect = result.current.reload(); });
+    expect(result.current.capabilitiesLoading).toBe(true);
+    expect(result.current.selectedProviderId).toBe("claude");
+    await act(async () => {
+      resolveReconnect(json({ providers: [provider("codex", productMode), provider("claude", productMode)] }));
+      await reconnect;
+    });
+    expect(result.current.selectedProviderId).toBe("claude");
+    expect(result.current.modelSettings?.providerId).toBe("claude");
+  });
+
+  it("retains the scoped choice through a failed reread and recovery without clearing admission errors early", async () => {
+    let failCapabilities = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (failCapabilities && url.includes("capabilities")) throw new TypeError("Failed to fetch");
+      return readyConfiguration(url);
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode: "agent", projectDefaultProviderId: "codex", conversationProviderId: null,
+    }));
+    await waitFor(() => expect(result.current.capabilitiesLoading).toBe(false));
+    await act(async () => { await result.current.selectProvider("claude"); });
+    failCapabilities = true;
+    await act(async () => { await expect(result.current.reload()).rejects.toThrow("Failed to fetch"); });
+    expect(result.current.selectedProviderId).toBe("claude");
+    expect(result.current.capabilities).toEqual([]);
+    expect(result.current.capabilitiesError).toBeTruthy();
+    failCapabilities = false;
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.selectedProviderId).toBe("claude");
+    expect(result.current.capabilitiesError).toBeNull();
+  });
+
+  it.each(["project", "mode"] as const)("does not expose the previous choice during a different %s read", async (changedScope) => {
+    let deferCapabilities = false;
+    let resolveTarget!: (response: Response) => void;
+    const targetResponse = new Promise<Response>((resolve) => { resolveTarget = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (deferCapabilities && url.includes("capabilities")) return targetResponse;
+      return readyConfiguration(url);
+    }));
+    const { result, rerender } = renderHook(({ projectId, productMode }) => useProviderConfigurationController({
+      projectId, productMode, projectDefaultProviderId: "codex", conversationProviderId: null,
+    }), { initialProps: { projectId: "repo", productMode: "agent" as ProductMode } });
+    await waitFor(() => expect(result.current.capabilitiesLoading).toBe(false));
+    await act(async () => { await result.current.selectProvider("claude"); });
+    deferCapabilities = true;
+    const productMode = changedScope === "mode" ? "harness" : "agent";
+    rerender({ projectId: changedScope === "project" ? "target" : "repo", productMode });
+    expect(result.current.capabilitiesLoading).toBe(true);
+    expect(result.current.selectedProviderId).toBeNull();
+    await act(async () => {
+      resolveTarget(json({ providers: [provider("codex", productMode), provider("claude", productMode)] }));
+    });
+    expect(result.current.selectedProviderId).toBe("codex");
+  });
+
   it("keeps a dismissed failure as admission evidence and shows a new failure again", async () => {
     let unavailable = true;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -352,4 +427,13 @@ function models(providerId: string) {
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function readyConfiguration(url: string): Response {
+  const productMode = url.endsWith("productMode=harness") ? "harness" : "agent";
+  if (url.includes("capabilities")) return json({ providers: [provider("codex", productMode), provider("claude", productMode)] });
+  const providerId = url.includes("/claude/") ? "claude" : "codex";
+  if (url.endsWith("/diagnostics")) return json(diagnostics(providerId));
+  if (url.endsWith("/models")) return json(models(providerId));
+  return json({});
 }
