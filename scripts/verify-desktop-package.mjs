@@ -1,7 +1,7 @@
 import console from "node:console";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { extractFile, listPackage } from "@electron/asar";
@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { load } from "js-yaml";
 import { desktopBuildVariant } from "./desktop-build-variant.mjs";
 import { readBuildReleaseNotes } from "./release-notes.mjs";
+import { verifyDesktopSystemSkills } from "./desktop-system-skills.mjs";
 
 const root = process.cwd();
 const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
@@ -41,6 +42,11 @@ for (const binary of nativeBinaries) {
 }
 if (installer && (await stat(installer)).size < 1_000_000) failures.push("Installer is unexpectedly small.");
 if (asar) {
+  try {
+    await verifyDesktopSystemSkills(join(dirname(asar), "system-skills"), resolve(root, "dist", "templates", "system-skills"));
+  } catch (cause) {
+    failures.push(`Physical system Skill verification failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
   const entries = listPackage(asar, { isPack: false });
   if (entries.some((entry) => entry.endsWith(".map"))) failures.push("Package contains source maps.");
   if (entries.some((entry) => /\.(?:pfx|p12)$/i.test(entry))) failures.push("Package contains signing certificate material.");

@@ -9,6 +9,14 @@ const Database = load("better-sqlite3");
 const pty = load("node-pty");
 
 async function main() {
+  if (packagedRoot) {
+    const { verifyDesktopSystemSkills } = await import("./desktop-system-skills.mjs");
+    const skills = await verifyDesktopSystemSkills(
+      join(resolve(packagedRoot), "resources", "system-skills"),
+      resolve("dist", "templates", "system-skills"),
+    );
+    console.log(`Physical system Skills verified: ${skills.fileCount} files.`);
+  }
   const database = new Database(":memory:");
   database.exec("CREATE TABLE smoke (value TEXT NOT NULL)");
   database.prepare("INSERT INTO smoke (value) VALUES (?)").run("sqlite-ok");

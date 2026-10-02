@@ -24,6 +24,9 @@ files:
 asarUnpack:
   - '**/*.node'
   - 'node_modules/node-pty/prebuilds/win32-x64/**/*'
+extraResources:
+  - from: dist/templates/system-skills
+    to: system-skills
 win:
   executableName: BeaverCode
   icon: build/BeaverCode.ico

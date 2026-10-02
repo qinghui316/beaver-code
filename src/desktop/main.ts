@@ -198,7 +198,14 @@ function spawnWorkbench(): void {
   ready = false;
   workbenchOrigin = null;
   recovery.begin(nextGeneration);
-  const child = utilityProcess.fork(utilityEntry, [], { serviceName: "Beaver Code Workbench", stdio: "pipe" });
+  const child = utilityProcess.fork(utilityEntry, [], {
+    serviceName: "Beaver Code Workbench",
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      ...(app.isPackaged ? { AHO_SYSTEM_SKILLS_DIR: join(process.resourcesPath, "system-skills") } : {}),
+    },
+  });
   utility = child;
   child.on("message", (message) => void receiveUtilityMessage(child, message));
   child.on("exit", (code) => void handleUtilityExit(child, code));
