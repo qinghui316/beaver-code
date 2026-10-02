@@ -1,0 +1,29 @@
+{
+  "version": "0.1.18",
+  "zhCN": {
+    "summary": "改进会话发送、技能管理和导航，修复确认事项及自动更新重启提示。",
+    "changes": [
+      "修正用户消息与回复的显示顺序，执行中的补充需求可在输入框上方排队并进行引导。",
+      "修复上下文面板的关闭交互，并简化会话侧栏展示。",
+      "未选择项目也能查看通用技能，项目技能按所属项目分组展示。",
+      "统一页面返回与前进导航，保留会话及输入草稿。",
+      "优化确认事项与历史详情，保护反馈草稿并隔离操作错误。",
+      "修复计划交接、子 Agent 恢复与长任务租约维护问题。",
+      "修复更新重启阶段因连接关闭而出现的错误失败提示。",
+      "本版本会升级项目数据，旧版不能直接读取升级后的数据。"
+    ]
+  },
+  "enUS": {
+    "summary": "Improved conversation input, skill management and navigation, with fixes for confirmations and update restart notices.",
+    "changes": [
+      "Corrected message ordering, with queued follow-up requests and guidance above the composer during active tasks.",
+      "Fixed context panel dismissal and simplified the conversation sidebar.",
+      "Global skills are available without selecting a project, with project skills grouped by project.",
+      "Unified Back and Forward navigation while preserving conversations and drafts.",
+      "Improved confirmation details and history, with protected feedback drafts and scoped action errors.",
+      "Fixed planning handoffs, child Agent recovery and lease renewal for long-running tasks.",
+      "Fixed false update failure notices caused by connection closure during restart.",
+      "This version upgrades project data; older builds cannot directly open the upgraded data."
+    ]
+  }
+}
