@@ -606,7 +606,6 @@ export function App(): ReactElement {
     productMode: appMode.productMode,
     projectDefaultProviderId: selectedProjectDefaultProviderId,
     conversationProviderId: activeTopic?.selectedProviderId ?? null,
-    onError: setError,
   });
   const providerDiagnostics = providerConfiguration.diagnostics;
   const providerModelSettings = providerConfiguration.modelSettings;
@@ -914,6 +913,8 @@ export function App(): ReactElement {
     },
   }, {
     onConnected: (projectId) => {
+      if (selectedProjectIdRef.current !== projectId) return;
+      void providerConfiguration.reload().catch(() => undefined);
       void modeActivity.refresh(projectId);
       const conversationId = readyConversationId;
       if (!conversationId) return;
@@ -1361,6 +1362,7 @@ export function App(): ReactElement {
       >
         <div className="workspace-main" data-testid="workspace-main">
         {error ? <div className="application-operation-notice" role="alert"><span>{sanitizeTechnicalDetail(error)}</span><button className="outline-button" aria-label="关闭操作提示" onClick={() => setError(null)}>关闭</button></div> : null}
+        {providerConfiguration.failureNotice ? <div className="application-operation-notice" data-testid="provider-configuration-notice" role="alert"><span>{sanitizeTechnicalDetail(providerConfiguration.failureNotice.message)}</span><button className="outline-button" aria-label="关闭服务提示" onClick={providerConfiguration.dismissFailureNotice}>关闭</button></div> : null}
         {settingsOpen ? (
           <SettingsSurface
             section={settingsSection}

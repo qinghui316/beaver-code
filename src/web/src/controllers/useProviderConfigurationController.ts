@@ -14,7 +14,12 @@ export interface ProviderConfigurationInput {
   productMode?: ProductMode;
   projectDefaultProviderId: string | null;
   conversationProviderId: string | null;
-  onError(message: string): void;
+}
+
+interface ProviderConfigurationFailure {
+  scopeIdentity: string;
+  generation: number;
+  message: string;
 }
 
 export function useProviderConfigurationController(
@@ -33,9 +38,10 @@ export function useProviderConfigurationController(
   const [capabilities, setCapabilities] = useState<
     ProviderCapabilitySnapshot[]
   >([]);
-  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(
+  const [capabilitiesFailure, setCapabilitiesFailure] = useState<ProviderConfigurationFailure | null>(
     null,
   );
+  const [dismissedFailureGeneration, setDismissedFailureGeneration] = useState<number | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
     null,
   );
@@ -46,7 +52,6 @@ export function useProviderConfigurationController(
     string | null
   >(null);
   const requestGenerationRef = useRef(0);
-  const onErrorRef = useRef(input.onError);
   const selectedProviderIdRef = useRef<string | null>(null);
   const draftProviderIdRef = useRef<string | null>(null);
   const draftProviderScopeRef = useRef<string | null>(null);
@@ -54,11 +59,12 @@ export function useProviderConfigurationController(
   const visibleDiagnostics = scopeResolved ? diagnostics : null;
   const visibleModelSettings = scopeResolved ? modelSettings : null;
   const visibleCapabilities = scopeResolved ? capabilities : [];
-  const visibleCapabilitiesError = scopeResolved ? capabilitiesError : null;
+  const scopedFailure = capabilitiesFailure?.scopeIdentity === scopeIdentity ? capabilitiesFailure : null;
+  const visibleCapabilitiesError = scopeResolved ? scopedFailure?.message ?? null : null;
+  const failureNotice = scopedFailure?.generation === dismissedFailureGeneration ? null : scopedFailure;
   const visibleSelectedProviderId = scopeResolved ? selectedProviderId : null;
   const visibleModelCatalogs = scopeResolved ? modelCatalogs : [];
   selectedProviderIdRef.current = visibleSelectedProviderId;
-  onErrorRef.current = input.onError;
 
   const providerPath = useCallback(
     (providerId: string, leaf: "diagnostics" | "models") =>
@@ -152,64 +158,74 @@ export function useProviderConfigurationController(
   const reload = useCallback(async (): Promise<void> => {
     const generation = ++requestGenerationRef.current;
     setResolvedScopeIdentity(null);
-    const path = providerCapabilitiesPath(input.projectId, productMode);
-    const payload = await fetchJson<{ providers?: unknown[] }>(path);
-    if (generation !== requestGenerationRef.current) return;
-    const nextCapabilities = Array.isArray(payload.providers)
-      ? payload.providers.filter((value): value is ProviderCapabilitySnapshot =>
-          isProviderCapabilitySnapshot(value, productMode),
-        )
-      : [];
-    setCapabilities(nextCapabilities);
-    setCapabilitiesError(null);
-    const restoredProviderId =
-      !input.conversationProviderId &&
-      draftProviderScopeRef.current === scopeIdentity
-        ? draftProviderIdRef.current
-        : null;
-    const providerId =
-      restoredProviderId ??
-      selectEffectiveProviderId({
-        conversationProviderId: input.conversationProviderId,
-        projectDefaultProviderId: input.projectDefaultProviderId,
-        selectedProviderId: selectedProviderIdRef.current,
-        capabilities: nextCapabilities,
-      });
-    setSelectedProviderId(providerId);
-    const catalogPromise = loadModelCatalogs(nextCapabilities, generation);
-    if (!providerId) {
-      setDiagnostics(null);
-      setModelSettings(null);
-      await catalogPromise;
+    try {
+      const path = providerCapabilitiesPath(input.projectId, productMode);
+      const payload = await fetchJson<{ providers?: unknown[] }>(path);
       if (generation !== requestGenerationRef.current) return;
-      setResolvedScopeIdentity(scopeIdentity);
-      return;
-    }
-    if (
-      !nextCapabilities.some((candidate) => candidate.providerId === providerId)
-    ) {
-      setDiagnostics(null);
-      setModelSettings(null);
-      await catalogPromise;
+      const nextCapabilities = Array.isArray(payload.providers)
+        ? payload.providers.filter((value): value is ProviderCapabilitySnapshot =>
+            isProviderCapabilitySnapshot(value, productMode),
+          )
+        : [];
+      setCapabilities(nextCapabilities);
+      setCapabilitiesFailure(null);
+      const restoredProviderId =
+        !input.conversationProviderId &&
+        draftProviderScopeRef.current === scopeIdentity
+          ? draftProviderIdRef.current
+          : null;
+      const providerId =
+        restoredProviderId ??
+        selectEffectiveProviderId({
+          conversationProviderId: input.conversationProviderId,
+          projectDefaultProviderId: input.projectDefaultProviderId,
+          selectedProviderId: selectedProviderIdRef.current,
+          capabilities: nextCapabilities,
+        });
+      setSelectedProviderId(providerId);
+      const catalogPromise = loadModelCatalogs(nextCapabilities, generation);
+      if (!providerId) {
+        setDiagnostics(null);
+        setModelSettings(null);
+        await catalogPromise;
+        if (generation !== requestGenerationRef.current) return;
+        setResolvedScopeIdentity(scopeIdentity);
+        return;
+      }
+      if (
+        !nextCapabilities.some((candidate) => candidate.providerId === providerId)
+      ) {
+        setDiagnostics(null);
+        setModelSettings(null);
+        await catalogPromise;
+        if (generation !== requestGenerationRef.current) return;
+        setResolvedScopeIdentity(scopeIdentity);
+        return;
+      }
+      const diagnosticsPromise = fetchJson<unknown>(
+        providerPath(providerId, "diagnostics"),
+      ).catch(() => null);
+      const [groups, rawDiagnostics] = await Promise.all([
+        catalogPromise,
+        diagnosticsPromise,
+      ]);
       if (generation !== requestGenerationRef.current) return;
+      setDiagnostics(
+        isProviderDiagnostics(rawDiagnostics) ? rawDiagnostics : null,
+      );
+      setModelSettings(
+        groups.find((group) => group.providerId === providerId)?.snapshot ?? null,
+      );
       setResolvedScopeIdentity(scopeIdentity);
-      return;
+    } catch (cause) {
+      // Both outcomes belong to this exact read. An older rejected request must
+      // not replace newer capability evidence or escape into App's action error.
+      if (generation !== requestGenerationRef.current) return;
+      setCapabilities([]);
+      setCapabilitiesFailure({ scopeIdentity, generation, message: userFacingErrorMessage(cause, "settings") });
+      setResolvedScopeIdentity(scopeIdentity);
+      throw cause;
     }
-    const diagnosticsPromise = fetchJson<unknown>(
-      providerPath(providerId, "diagnostics"),
-    ).catch(() => null);
-    const [groups, rawDiagnostics] = await Promise.all([
-      catalogPromise,
-      diagnosticsPromise,
-    ]);
-    if (generation !== requestGenerationRef.current) return;
-    setDiagnostics(
-      isProviderDiagnostics(rawDiagnostics) ? rawDiagnostics : null,
-    );
-    setModelSettings(
-      groups.find((group) => group.providerId === providerId)?.snapshot ?? null,
-    );
-    setResolvedScopeIdentity(scopeIdentity);
   }, [
     input.conversationProviderId,
     input.projectDefaultProviderId,
@@ -221,18 +237,8 @@ export function useProviderConfigurationController(
   ]);
 
   useEffect(() => {
-    let active = true;
-    reload().catch((cause: unknown) => {
-      if (active) {
-        const message = userFacingErrorMessage(cause, "settings");
-        setCapabilities([]);
-        setCapabilitiesError(message);
-        setResolvedScopeIdentity(scopeIdentity);
-        onErrorRef.current(message);
-      }
-    });
+    void reload().catch(() => undefined);
     return () => {
-      active = false;
       requestGenerationRef.current += 1;
     };
   }, [reload]);
@@ -274,6 +280,7 @@ export function useProviderConfigurationController(
       try {
         const details = await loadProviderDetails(providerId, generation);
         if (generation === requestGenerationRef.current) {
+          setCapabilitiesFailure(null);
           setModelCatalogs((current) =>
             current.map((group) =>
               group.providerId === providerId
@@ -290,7 +297,7 @@ export function useProviderConfigurationController(
         }
       } catch (cause) {
         if (generation === requestGenerationRef.current) {
-          setCapabilitiesError(userFacingErrorMessage(cause, "settings"));
+          setCapabilitiesFailure({ scopeIdentity, generation, message: userFacingErrorMessage(cause, "settings") });
           setResolvedScopeIdentity(scopeIdentity);
         }
       }
@@ -306,15 +313,7 @@ export function useProviderConfigurationController(
       // Draft restoration can race the initial capability request. Restart the
       // complete projection, so invalidating that request cannot strand an empty
       // catalog while only provider details are marked resolved.
-      const pendingReload = reload();
-      const generation = requestGenerationRef.current;
-      void pendingReload.catch((cause: unknown) => {
-        if (generation === requestGenerationRef.current) {
-          setCapabilities([]);
-          setCapabilitiesError(userFacingErrorMessage(cause, "settings"));
-          setResolvedScopeIdentity(scopeIdentity);
-        }
-      });
+      void reload().catch(() => undefined);
     },
     [input.conversationProviderId, reload, scopeIdentity],
   );
@@ -325,6 +324,8 @@ export function useProviderConfigurationController(
     capabilities: visibleCapabilities,
     capabilitiesLoading: !scopeResolved,
     capabilitiesError: visibleCapabilitiesError,
+    failureNotice,
+    dismissFailureNotice: () => setDismissedFailureGeneration(failureNotice?.generation ?? null),
     selectedProviderId: visibleSelectedProviderId,
     modelCatalogs: visibleModelCatalogs,
     modelCatalogsBusy:

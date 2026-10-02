@@ -28,6 +28,129 @@ afterEach(() => {
 });
 
 describe("provider configuration controller", () => {
+  it("keeps a dismissed failure as admission evidence and shows a new failure again", async () => {
+    let unavailable = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("capabilities")) {
+        if (unavailable) throw new TypeError("Failed to fetch");
+        return json({ providers: [provider("codex", "agent")] });
+      }
+      if (url.endsWith("/diagnostics")) return json(diagnostics("codex"));
+      if (url.endsWith("/models")) return json(models("codex"));
+      return json({});
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode: "agent", projectDefaultProviderId: null, conversationProviderId: null,
+    }));
+    await waitFor(() => expect(result.current.failureNotice?.message).toContain("暂时无法连接到本地服务"));
+    const firstFailure = result.current.failureNotice;
+    act(() => result.current.dismissFailureNotice());
+    expect(result.current.failureNotice).toBeNull();
+    expect(result.current.capabilitiesError).toBe(firstFailure?.message);
+    await act(async () => { await expect(result.current.reload()).rejects.toThrow("Failed to fetch"); });
+    expect(result.current.failureNotice?.generation).not.toBe(firstFailure?.generation);
+    unavailable = false;
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.failureNotice).toBeNull();
+    expect(result.current.capabilitiesError).toBeNull();
+    expect(result.current.selectedProviderId).toBe("codex");
+  });
+
+  it("keeps the existing notice until a pending reread has successful evidence", async () => {
+    let resolveRetry!: (response: Response) => void;
+    const retryResponse = new Promise<Response>((resolve) => { resolveRetry = resolve; });
+    let capabilityRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("capabilities")) {
+        if (++capabilityRequests === 1) throw new TypeError("Failed to fetch");
+        return retryResponse;
+      }
+      return json({});
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode: "agent", projectDefaultProviderId: null, conversationProviderId: null,
+    }));
+    await waitFor(() => expect(result.current.failureNotice).not.toBeNull());
+    const initialFailure = result.current.failureNotice;
+    let reload!: Promise<void>;
+    act(() => { reload = result.current.reload(); });
+    expect(result.current.capabilitiesLoading).toBe(true);
+    expect(result.current.failureNotice).toEqual(initialFailure);
+    await act(async () => { resolveRetry(json({ providers: [] })); await reload; });
+    expect(result.current.capabilitiesLoading).toBe(false);
+    expect(result.current.failureNotice).toBeNull();
+  });
+
+  it("does not show a failed project's notice while another scope is loading", async () => {
+    let resolveTarget!: (response: Response) => void;
+    const targetResponse = new Promise<Response>((resolve) => { resolveTarget = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/repo/")) throw new TypeError("Failed to fetch");
+      return targetResponse;
+    }));
+    const { result, rerender } = renderHook(({ projectId }) => useProviderConfigurationController({
+      projectId, productMode: "agent", projectDefaultProviderId: null, conversationProviderId: null,
+    }), { initialProps: { projectId: "repo" } });
+    await waitFor(() => expect(result.current.failureNotice).not.toBeNull());
+    rerender({ projectId: "target" });
+    expect(result.current.failureNotice).toBeNull();
+    expect(result.current.capabilitiesError).toBeNull();
+    await act(async () => { resolveTarget(json({ providers: [] })); });
+    expect(result.current.capabilitiesLoading).toBe(false);
+  });
+
+  it("ignores an older failure after a newer reload succeeds in the same scope", async () => {
+    let rejectInitial!: (cause: Error) => void;
+    const initialResponse = new Promise<Response>((_resolve, reject) => { rejectInitial = reject; });
+    let capabilityRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("capabilities")) return ++capabilityRequests === 1
+        ? initialResponse : json({ providers: [provider("codex", "agent")] });
+      if (url.endsWith("/diagnostics")) return json(diagnostics("codex"));
+      if (url.endsWith("/models")) return json(models("codex"));
+      return json({});
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode: "agent", projectDefaultProviderId: null,
+      conversationProviderId: null,
+    }));
+    await act(async () => { await result.current.reload(); });
+    await act(async () => { rejectInitial(new TypeError("Failed to fetch")); });
+    expect(result.current.capabilities.map((item) => item.providerId)).toEqual(["codex"]);
+    expect(result.current.capabilitiesError).toBeNull();
+    expect(result.current.failureNotice).toBeNull();
+  });
+
+  it("does not forward a superseded retry rejection into the caller's error surface", async () => {
+    let rejectRetry!: (cause: Error) => void;
+    const retryResponse = new Promise<Response>((_resolve, reject) => { rejectRetry = reject; });
+    let capabilityRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("capabilities")) return ++capabilityRequests === 2
+        ? retryResponse : json({ providers: [provider("codex", "agent")] });
+      if (url.endsWith("/diagnostics")) return json(diagnostics("codex"));
+      if (url.endsWith("/models")) return json(models("codex"));
+      return json({});
+    }));
+    const { result } = renderHook(() => useProviderConfigurationController({
+      projectId: "repo", productMode: "agent", projectDefaultProviderId: null, conversationProviderId: null,
+    }));
+    await waitFor(() => expect(result.current.capabilitiesLoading).toBe(false));
+    let supersededRetry!: Promise<void>;
+    act(() => { supersededRetry = result.current.reload(); });
+    await act(async () => { await result.current.reload(); });
+    await act(async () => {
+      rejectRetry(new TypeError("Failed to fetch"));
+      await expect(supersededRetry).resolves.toBeUndefined();
+    });
+    expect(result.current.capabilitiesError).toBeNull();
+    expect(result.current.failureNotice).toBeNull();
+    expect(result.current.selectedProviderId).toBe("codex");
+  });
+
   it.each([null, "codex"])("restores draft provider %s while capabilities are loading without losing the catalog", async (savedProvider) => {
     let resolveInitial!: (response: Response) => void;
     const initialResponse = new Promise<Response>((resolve) => { resolveInitial = resolve; });
@@ -42,7 +165,7 @@ describe("provider configuration controller", () => {
     }));
     const { result } = renderHook(() => useProviderConfigurationController({
       projectId: "repo", productMode: "agent", projectDefaultProviderId: null,
-      conversationProviderId: null, onError: vi.fn(),
+      conversationProviderId: null,
     }));
     act(() => result.current.restoreDraftProvider(savedProvider));
     await waitFor(() => expect(result.current.capabilities.map((item) => item.providerId)).toEqual(["codex"]));
@@ -98,14 +221,12 @@ describe("provider configuration controller", () => {
       });
       return json({});
     }));
-    const onError = vi.fn();
     const { result, rerender } = renderHook(
       ({ productMode }: { productMode: ProductMode }) => useProviderConfigurationController({
         projectId: "repo",
         productMode,
         projectDefaultProviderId: null,
         conversationProviderId: null,
-        onError,
       }),
       { initialProps: { productMode: "agent" as ProductMode } },
     );
@@ -116,7 +237,8 @@ describe("provider configuration controller", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(result.current.capabilities.map((item) => item.providerId)).toEqual(["harness-provider"]);
-    expect(onError).not.toHaveBeenCalled();
+    expect(result.current.capabilitiesError).toBeNull();
+    expect(result.current.failureNotice).toBeNull();
   });
 
   it("does not surface a late capability failure from the previous mode", async () => {
@@ -128,14 +250,12 @@ describe("provider configuration controller", () => {
       if (url.includes("capabilities?productMode=harness")) return json({ providers: [] });
       return json({});
     }));
-    const onError = vi.fn();
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ productMode }: { productMode: ProductMode }) => useProviderConfigurationController({
         projectId: "repo",
         productMode,
         projectDefaultProviderId: null,
         conversationProviderId: null,
-        onError,
       }),
       { initialProps: { productMode: "agent" as ProductMode } },
     );
@@ -147,7 +267,8 @@ describe("provider configuration controller", () => {
     rejectAgent(new Error("stale agent failure"));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(onError).not.toHaveBeenCalled();
+    expect(result.current.capabilitiesError).toBeNull();
+    expect(result.current.failureNotice).toBeNull();
   });
 
   it("hides the previous scope configuration while the target scope is unresolved", async () => {
@@ -169,7 +290,6 @@ describe("provider configuration controller", () => {
         productMode,
         projectDefaultProviderId: null,
         conversationProviderId: null,
-        onError: vi.fn(),
       }),
       { initialProps: { productMode: "agent" as ProductMode } },
     );
@@ -203,7 +323,6 @@ describe("provider configuration controller", () => {
       productMode: "agent",
       projectDefaultProviderId: null,
       conversationProviderId: null,
-      onError: vi.fn(),
     }));
 
     await waitFor(() => expect(result.current.modelCatalogs).toHaveLength(2));

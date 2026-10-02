@@ -92,6 +92,48 @@ describe("Workbench App owner composition", () => {
     expect(screen.queryByRole("button", { name: "关闭操作提示" })).toBeNull();
   });
 
+  it("settles the startup capability notice when the project reconnects and the read recovers", async () => {
+    installApiFixture(createSnapshot());
+    const healthyFetch = globalThis.fetch;
+    let unavailable = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/projects/repo/providers/capabilities?") && unavailable) {
+        throw new TypeError("Failed to fetch");
+      }
+      return healthyFetch(input, init);
+    }));
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+    await screen.findByRole("button", { name: "关闭服务提示" });
+    unavailable = false;
+    act(() => MockEventSource.instances[0]?.onopen?.(new Event("open")));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "关闭服务提示" })).toBeNull());
+    expect(screen.getByText("Canonical Main reply")).toBeTruthy();
+  });
+
+  it("preserves an unrelated operation notice when the capability reread recovers", async () => {
+    installApiFixture(createSnapshot());
+    const healthyFetch = globalThis.fetch;
+    let unavailable = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/projects/repo/providers/capabilities?") && unavailable) {
+        throw new TypeError("Failed to fetch");
+      }
+      return healthyFetch(input, init);
+    }));
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+    await screen.findByTestId("provider-configuration-notice");
+    act(() => MockEventSource.instances[0]?.onmessage?.(new MessageEvent("message", { data: JSON.stringify({
+      event: "error", data: { projectId: "repo", productMode: "harness", conversationId: "conv-1", message: "general stream failure" },
+    }) })));
+    await screen.findByRole("button", { name: "关闭操作提示" });
+    unavailable = false;
+    act(() => MockEventSource.instances[0]?.onopen?.(new Event("open")));
+    await waitFor(() => expect(screen.queryByTestId("provider-configuration-notice")).toBeNull());
+    expect(screen.getByRole("button", { name: "关闭操作提示" })).toBeTruthy();
+  });
+
   it("shows one direct mode toggle with a bounded inactive-mode status", async () => {
     installApiFixture(createSnapshot());
     const view = render(<App />);
