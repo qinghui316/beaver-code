@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useDecisionInspectorController } from "../../src/web/src/controllers/useDecisionInspectorController.js";
-import type { ConfirmationQueue, ConfirmationQueueItem, Decision, DecisionActionResult } from "../../src/web/src/types.js";
+import type { ConfirmationQueue, ConfirmationQueueItem, Decision, DecisionActionResult, DecisionContext } from "../../src/web/src/types.js";
 afterEach(cleanup);
 
 function options(conversationId = "conv-1") {
@@ -15,6 +15,38 @@ function options(conversationId = "conv-1") {
 }
 
 describe("Scoped decision owner", () => {
+  function auditOptions() {
+    const input = options();
+    const item = input.queue.current[0];
+    item.kind = "request-changes"; item.changeId = "change-1"; item.runId = "run-1";
+    item.actions = [{ id: "queue-accept", label: "接受审查", kind: "approval", approvalId: "audit-1", enabled: true, requiresConfirmation: true,
+      action: { actionId: "audit.accept", args: ["run-1"] } }];
+    const detail: DecisionContext = { id: "detail-audit-1", kind: "audit-approved", title: "审查详情", summary: "证据摘要", severity: "info", changeId: "change-1", runId: "run-1",
+      actions: [{ ...item.actions[0], id: "detail-accept" }, { id: "audit-feedback", label: "要求复审", kind: "feedback", approvalId: "audit-1", enabled: true, requiresConfirmation: false, action: item.actions[0].action }],
+      rework: { mode: "inline-feedback", label: "要求复审", placeholder: "复审意见" } };
+    return { ...input, inspector: { primary: null, related: [detail], history: [] } };
+  }
+  it("enriches the same queue item with exact supported review feedback without duplicate approval", () => {
+    const input = auditOptions();
+    const hook = renderHook(() => useDecisionInspectorController(input));
+    expect(hook.result.current.view.entries).toHaveLength(1);
+    expect(hook.result.current.view.selected?.target.id).toBe("item-1");
+    expect(hook.result.current.view.selected?.context.id).toBe("detail-audit-1");
+    expect(hook.result.current.view.selected?.context.kind).toBe("audit-approved");
+    expect(hook.result.current.view.selected?.context.actions.map((action) => action.id)).toEqual(["queue-accept", "audit-feedback"]);
+    act(() => { hook.result.current.beginFeedback("audit-feedback"); hook.result.current.setFeedback("请复核当前候选"); });
+    expect(hook.result.current.view.feedbackActionId).toBe("audit-feedback");
+  });
+  it.each(["change", "run", "approval", "ambiguous"])("does not borrow feedback from a %s mismatch", (mismatch) => {
+    const input = auditOptions();
+    const detail = input.inspector.related[0];
+    if (mismatch === "change") detail.changeId = "other-change";
+    if (mismatch === "run") detail.runId = "other-run";
+    if (mismatch === "approval") detail.actions.forEach((action) => { action.approvalId = "other-approval"; });
+    if (mismatch === "ambiguous") input.inspector.related.push({ ...detail, id: "other-detail" });
+    const hook = renderHook(() => useDecisionInspectorController(input));
+    expect(hook.result.current.view.selected?.context.actions.map((action) => action.id)).toEqual(["queue-accept"]);
+  });
   it("restores per-item feedback after scope changes", () => {
     const first = options(), second = options("conv-2");
     const hook = renderHook((input) => useDecisionInspectorController(input), { initialProps: first });

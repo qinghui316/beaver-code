@@ -183,15 +183,32 @@ function projectHistory(options: Options): DecisionInspectorEntry[] {
 function queueEntry(item: ConfirmationQueueItem, source: DecisionInspectorTarget["source"], options: Options): DecisionInspectorEntry {
   const projectId = item.projectId ?? options.projectId;
   const conversationId = item.conversationId ?? null;
+  const approvalIds = [...new Set(item.actions.flatMap((action) => action.approvalId ? [action.approvalId] : []))];
+  const details = source !== "history" && projectId === options.projectId && conversationId === options.conversationId
+    && item.changeId && item.runId && approvalIds.length > 0
+    ? [options.inspector.primary, ...options.inspector.related].filter((context): context is DecisionContext => {
+      if (!context || context.changeId !== item.changeId || context.runId !== item.runId) return false;
+      const ids = [...new Set(context.actions.flatMap((action) => action.approvalId ? [action.approvalId] : []))];
+      return ids.length === approvalIds.length && ids.every((id) => approvalIds.includes(id));
+    }) : [];
+  const detail = details.length === 1 ? details[0] : undefined;
+  const actions = [...item.actions];
+  for (const action of detail?.actions ?? []) {
+    const duplicate = actions.some((existing) => existing.id === action.id || (existing.kind === action.kind
+      && existing.action && action.action && existing.action.actionId === action.action.actionId
+      && JSON.stringify(existing.action.args) === JSON.stringify(action.action.args)));
+    if (!duplicate) actions.push(action);
+  }
   return {
     target: { source, id: item.id }, projectId, conversationId,
     readOnly: source === "history" || projectId !== options.projectId || Boolean(conversationId && conversationId !== options.conversationId),
     context: {
-      id: item.id, kind: item.kind, title: item.whyNeedsConfirmation, summary: item.summary,
+      ...detail,
+      id: detail?.id ?? item.id, kind: detail?.kind ?? item.kind, title: item.whyNeedsConfirmation, summary: item.summary,
       resultSummary: item.summary, recommendation: item.confirmEffect, explanation: item.riskSummary,
-      severity: item.status === "failed" ? "blocking" : "info", changeId: item.changeId ?? item.conversationId,
+      severity: item.status === "failed" ? "blocking" : detail?.severity ?? "info", changeId: item.changeId ?? item.conversationId,
       runId: item.runId, targetId: item.worktreeId ?? item.applyCheckId ?? item.resultId,
-      artifact: item.evidenceRefs[0], evidenceRefs: item.evidenceRefs, actions: item.actions,
+      artifact: item.evidenceRefs[0], evidenceRefs: item.evidenceRefs, actions,
       userStatus: source === "history" ? undefined : "waiting-confirmation",
     },
   };
