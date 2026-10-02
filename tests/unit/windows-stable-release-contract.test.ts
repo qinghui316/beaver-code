@@ -50,7 +50,7 @@ describe("Windows stable release contract", () => {
   });
 
   it("documents bootstrap, withdrawal and forward-only repair", () => {
-    expect(packageJson.version).toBe("0.1.18");
+    expect(packageJson.version).toBe("0.1.19");
     expect(releaseGuide).toContain("0.1.3");
     expect(releaseGuide).toContain("0.1.6");
     expect(releaseGuide).toContain("withdraw the Release");
