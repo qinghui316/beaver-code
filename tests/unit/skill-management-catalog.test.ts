@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,8 @@ async function fixture() {
   const projects: ManagedProject[] = [];
   const listGlobal = vi.fn(async () => ({ providerId: "test", projectPath: root, skills: skills.map((item) => ({ ...item })), errors: [] }));
   const write = vi.fn(async ({ path, enabled }: { path: string; enabled: boolean }) => {
-    for (const skill of skills) if (skill.path === path) skill.enabled = enabled;
+    const physicalPath = await realpath(path);
+    for (const skill of skills) if (await realpath(skill.path) === physicalPath) skill.enabled = enabled;
     return { effectiveEnabled: enabled };
   });
   const list = vi.fn(async () => ({ providerId: "test", projectPath: root, skills, errors: [] }));
@@ -86,5 +87,18 @@ describe("Skill management protection and configuration owner", () => {
     const results = await Promise.allSettled([f.service.setEnabled(scope, item.skillId, change), f.service.setEnabled(scope, item.skillId, change)]);
     expect(results.map((item) => item.status)).toEqual(["fulfilled", "rejected"]); expect(f.write).toHaveBeenCalledTimes(1);
     await expect(f.service.setEnabled(scope, item.skillId, { ...change, expectedContentHash: "changed" })).rejects.toMatchObject({ name: "Conflict" });
+  });
+
+  it("rejects a stale competing write when the discovered source uses a physical alias", async () => {
+    const f = await fixture(); const path = await f.add("portable");
+    await symlink(join(root, "portable"), join(root, "portable-alias"), "junction");
+    f.skills[0]!.path = join(root, "portable-alias", "SKILL.md");
+    const item = (await f.service.read(scope)).skills[0]!;
+    const change = { enabled: false, expectedEnabled: true, sourceIdentity: item.sourceIdentity, expectedContentHash: item.contentHash };
+    const results = await Promise.allSettled([f.service.setEnabled(scope, item.skillId, change), f.service.setEnabled(scope, item.skillId, change)]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(f.write).toHaveBeenCalledTimes(1);
+    expect(f.write).toHaveBeenCalledWith({ path: await realpath(path), enabled: false });
+    expect((await f.service.read(scope, true)).skills[0]!.providerEnabled).toBe(false);
   });
 });
