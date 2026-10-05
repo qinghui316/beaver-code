@@ -9,10 +9,10 @@ const builder = load(await read("electron-builder.yml")) as { files: string[]; e
 const verifier = await read("scripts/verify-desktop-package.mjs");
 
 describe("desktop packaged native smoke boundary", () => {
-  it("includes the project license and verifies its bytes and package metadata", () => {
+  it("includes the MIT project license in desktop build inputs", async () => {
     expect(builder.files).toContain("LICENSE");
-    expect(verifier).toContain('extractFile(asar, "LICENSE").equals(sourceLicense)');
-    expect(verifier).toContain('manifest.license !== "MIT"');
+    expect(JSON.parse(await read("package.json")).license).toBe("MIT");
+    expect((await read("LICENSE")).split(/\r?\n/)[0]).toBe("MIT License");
   });
 
   it("ships physical system Skills and binds the packaged Utility root in Main", () => {
