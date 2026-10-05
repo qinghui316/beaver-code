@@ -7,6 +7,15 @@ Workbench server and frontend, product Harness templates, and local development 
 
 Current Change state, Lane ownership, and resumable work live in the project Harness Registry and active Change summary. This document lists stable product-development commands rather than task history.
 
+The maintainer's local project Harness and working records are not distributed in public
+clones. Contributors can build, test and submit pull requests using this guide; maintainer
+integration and release approval remain governed by the local Harness.
+
+Source, tests, required fixtures, design inputs, templates and stable documentation belong
+in Git. Local conversations, credentials, logs and acceptance reports do not. Use
+`npm run lint:public-repository` to check the tracked file boundary. Keep local acceptance
+evidence under an ignored `acceptance-evidence/` directory or outside the repository.
+
 ## 2. Prerequisites
 
 - Git.
@@ -59,8 +68,10 @@ The CLI command name is `aho` when installed from the package bin.
 
 ## 4A. Beaver Code desktop development
 
-The Windows desktop foundation targets a current-user x64 NSIS installer. It is
-an unsigned internal acceptance build, not a public 1.0 release.
+The Windows desktop targets a current-user x64 NSIS installer. Local internal
+builds disable network updates. Published stable builds use the protected GitHub
+release workflow described in `docs/DESKTOP-RELEASE.md`. The public product is
+currently in its pre-1.0 release series; Authenticode status is documented in `SECURITY.md`.
 
 ```powershell
 npm run dev:desktop

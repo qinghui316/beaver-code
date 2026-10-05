@@ -52,6 +52,12 @@ if (asar) {
   if (entries.some((entry) => /\.(?:pfx|p12)$/i.test(entry))) failures.push("Package contains signing certificate material.");
   if (entries.some((entry) => /^[A-Za-z]:[\\/]|^\\\\/.test(entry))) failures.push("Package contains a host absolute archive path.");
   try {
+    const sourceLicense = await readFile(resolve(root, "LICENSE"));
+    if (!extractFile(asar, "LICENSE").equals(sourceLicense)) failures.push("Packaged project license differs from the source.");
+  } catch (cause) {
+    failures.push(`Packaged project license is missing or invalid: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  try {
     const buildInfo = JSON.parse(extractFile(asar, join("dist", "desktop", "build-info.json")).toString("utf8"));
     const expectedCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", windowsHide: true }).trim();
     if (buildInfo.version !== variant.version) failures.push("Packaged build version does not match build input.");
@@ -69,6 +75,7 @@ if (asar) {
   }
   try {
     const manifest = JSON.parse(extractFile(asar, "package.json").toString("utf8"));
+    if (manifest.license !== "MIT") failures.push("Packaged project license metadata must be MIT.");
     if (manifest.author) failures.push("Packaged manifest contains an application author identity.");
     if (manifest.repository || manifest.bugs || manifest.homepage) failures.push("Packaged manifest contains repository identity metadata.");
   } catch (cause) {

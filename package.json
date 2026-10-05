@@ -1,7 +1,7 @@
 {
   "name": "agent-harness-orchestrator",
   "version": "0.1.20",
-  "description": "Local-first Spec-Anchored managed-run harness for AI coding.",
+  "description": "Open-source, local-first desktop workspace for AI-assisted development, with Agent and AHO collaboration modes.",
   "type": "module",
   "main": "dist/desktop/main.js",
   "bin": {
@@ -29,7 +29,7 @@
     "build:project-harness-runtime": "node scripts/build-project-harness-runtime.mjs",
     "dev": "tsx src/index.ts",
     "dev:web": "vite --host 127.0.0.1",
-    "lint": "eslint . && npm run lint:dependency-cycles",
+    "lint": "eslint . && npm run lint:dependency-cycles && npm run lint:public-repository",
     "test": "npm run test:fast && npm run test:integration && npm run test:workbench",
     "test:ci": "npm run test:fast -- --maxWorkers=4 --minWorkers=1 --testTimeout=120000 && npm run test:integration -- --maxWorkers=1 --minWorkers=1 --testTimeout=120000 --hookTimeout=120000 && npm run test:workbench:unit -- --maxWorkers=2 --minWorkers=1 --testTimeout=120000 --hookTimeout=120000",
     "test:fast": "vitest run --hookTimeout=30000 --exclude tests/unit/workbench-read-model.test.ts --exclude tests/unit/workbench-task-runtime.test.ts --exclude tests/unit/workbench-scheduler-runtime-surface.test.ts --exclude tests/unit/workbench-feedback-surface.test.ts --exclude tests/unit/workbench-conversation-lifecycle.test.ts --exclude tests/unit/workbench-agent-task-domain.test.ts --exclude tests/unit/workbench-demand-worker.test.ts --exclude tests/slow/** --exclude tests/integration/cli-flow.test.ts",
@@ -47,6 +47,7 @@
     "lint:ui-language": "node scripts/lint-ui-language.mjs",
     "lint:desktop-boundaries": "node scripts/lint-desktop-boundaries.mjs",
     "lint:dependency-cycles": "node scripts/lint-dependency-cycles.mjs",
+    "lint:public-repository": "node scripts/lint-public-repository.mjs",
     "office-assets:cutout": "node scripts/office-assets/office-assets.mjs cutout",
     "office-assets:pack": "node scripts/office-assets/office-assets.mjs pack",
     "office-assets:promote-handoff": "node scripts/office-assets/office-assets.mjs promote-handoff",
@@ -102,7 +103,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/qinghui316/beaver-code/issues"
   },

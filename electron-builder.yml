@@ -14,6 +14,7 @@ directories:
 files:
   - dist/**/*
   - package.json
+  - LICENSE
   - '!**/*.map'
   - '!node_modules/better-sqlite3/prebuilds/darwin-*.node'
   - '!node_modules/better-sqlite3/prebuilds/linux*.node'

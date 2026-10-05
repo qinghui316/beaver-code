@@ -5,10 +5,16 @@ import { load } from "js-yaml";
 const packaging = await read("scripts/package-desktop-win.mjs");
 const smoke = await read("scripts/desktop-native-smoke.cjs");
 const main = await read("src/desktop/main.ts");
-const builder = load(await read("electron-builder.yml")) as { extraResources: { from: string; to: string }[] };
+const builder = load(await read("electron-builder.yml")) as { files: string[]; extraResources: { from: string; to: string }[] };
 const verifier = await read("scripts/verify-desktop-package.mjs");
 
 describe("desktop packaged native smoke boundary", () => {
+  it("includes the project license and verifies its bytes and package metadata", () => {
+    expect(builder.files).toContain("LICENSE");
+    expect(verifier).toContain('extractFile(asar, "LICENSE").equals(sourceLicense)');
+    expect(verifier).toContain('manifest.license !== "MIT"');
+  });
+
   it("ships physical system Skills and binds the packaged Utility root in Main", () => {
     expect(builder.extraResources).toContainEqual({ from: "dist/templates/system-skills", to: "system-skills" });
     expect(main).toContain('...(app.isPackaged ? { AHO_SYSTEM_SKILLS_DIR: join(process.resourcesPath, "system-skills") } : {})');

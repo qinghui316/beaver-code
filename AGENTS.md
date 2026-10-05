@@ -1,4 +1,4 @@
-# Agent Harness Orchestrator Route
+# Beaver Code Contributor Route
 
 Agent Harness Orchestrator (AHO) is a local-first Agent Development OS. The project Harness is the
 self-contained source of AI working knowledge and owns current Change, Lane, Integration, and
@@ -10,10 +10,10 @@ temporary analysis leads, but the project Harness does not depend on them for pr
 
 <!-- ECL-HARNESS-PROJECT-ID: agent-harness-orchestrator-a6ad344cbe4e -->
 
-This repository uses the local `agent-harness-orchestrator-a6ad344cbe4e-harness` Harness Skill. Load that Skill before structured
-development, worktree coordination, Integration, or Harness evolution.
+When the local `agent-harness-orchestrator-a6ad344cbe4e-harness` Harness Skill is available, load it before structured
+development, worktree coordination, Integration, or Harness evolution. Maintainer work continues to follow its Change and I2 gates.
 
-If this is a newly created worktree and the Skill is not discoverable yet, run one available host connector:
+For a maintainer worktree whose primary checkout already contains the shared Skill, run one available host connector if discovery links are missing:
 
 ```text
 PowerShell: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-skill-link.ps1
@@ -31,6 +31,17 @@ Then reload the project Harness; single-Lane Small Changes use targeted verifica
 Do not copy the Harness manual into this file.
 <!-- ECL-HARNESS:END -->
 
+## Public Contributions
+
+Public clones do not include the maintainer's local shared Harness or working records.
+Use `docs/DEVELOPMENT.md` for prerequisites, build commands and validation. You can develop
+and submit a pull request without access to the maintainer's Harness. Repository integration
+and releases remain maintainer-reviewed operations.
+
+Before submitting a contribution, run `npm run typecheck`, `npm run lint` and the tests
+relevant to your change. Keep credentials, local conversation data, logs and acceptance
+reports outside the tracked source tree; `npm run lint:public-repository` checks tracked paths.
+
 Human-facing product documents:
 
 - `docs/PRODUCT.md`
@@ -42,4 +53,4 @@ Human-facing product documents:
 - `docs/CURRENT-DEVELOPMENT-PLAN.md`
 - `docs/DEVELOPMENT.md`
 
-Preserve unrelated user changes. Keep `README.md` untracked unless the user explicitly scopes it.
+Preserve unrelated user changes.

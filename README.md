@@ -6,11 +6,11 @@
 
 **本地优先的 Agent 开发桌面工作台**
 
-*A local-first desktop workspace for agentic software development.*
+*Open-source, local-first desktop workspace for AI-assisted development, with Agent and AHO collaboration modes.*
 
 [![Windows x64](https://img.shields.io/badge/Windows-x64-111111?logo=windows11&logoColor=white)](https://github.com/qinghui316/beaver-code/releases/latest)
 [![Latest release](https://img.shields.io/github/v/release/qinghui316/beaver-code?label=release&color=111111)](https://github.com/qinghui316/beaver-code/releases/latest)
-[![ISC License](https://img.shields.io/badge/license-ISC-111111)](./LICENSE)
+[![MIT License](https://img.shields.io/badge/license-MIT-111111)](./LICENSE)
 
 [下载 Windows 版](https://github.com/qinghui316/beaver-code/releases/latest) · [查看安全说明](./SECURITY.md)
 
@@ -116,4 +116,4 @@ npm run test:fast
 
 ## License
 
-[ISC](./LICENSE)
+[MIT](./LICENSE) · Copyright (c) 2026 Beaver Code contributors.
