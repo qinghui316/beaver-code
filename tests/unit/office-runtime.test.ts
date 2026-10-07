@@ -80,9 +80,10 @@ describe("Office runtime owners", () => {
       { kind: "setActorDepth", actorId: "main", mode: "seated" },
     ]);
     expect(commands).toContainEqual(expect.objectContaining({
-      kind: "playAction",
+      kind: "playRouteStage",
       actorId: "main",
       actionId: "off-chair",
+      points: [mainStation.anchors.seat],
       reverse: true,
       flipX: route.actionMirrors["finish:off-chair"],
     }));
@@ -104,6 +105,69 @@ describe("Office runtime owners", () => {
       routeId: "handoff:salute",
       flipX: route.actionMirrors["interaction:salute"],
     }));
+  });
+
+  it.each(Object.keys(resolver.calibration.handoffs.main!))("uses the canonical Main seat when finishing a handoff to %s", (targetId) => {
+    const compiler = new OfficeActivityCompiler(resolver);
+    const station = resolver.stations().find((candidate) => candidate.stationId === "main")!;
+    const route = station.handoffRoutes[targetId]!;
+    const originalRoute = structuredClone(route);
+    const commands = flattenCommands(compiler.dispatch("main", "child", station.stationId, route));
+    const finish = commands.find((command) => command.kind === "playRouteStage" && command.routeId === "handoff:finish-off-chair");
+
+    expect(route.return.at(-1)!.points.at(-1)).not.toEqual(station.anchors.seat);
+    expect(finish).toMatchObject({
+      kind: "playRouteStage",
+      actorId: "main",
+      actionId: "off-chair",
+      points: [station.anchors.seat],
+      reverse: true,
+      loop: false,
+      flipX: route.actionMirrors["finish:off-chair"],
+      durationMs: resolver.action("off-chair").durationMs,
+    });
+    expect(commands.at(-2)).toEqual(finish);
+    expect(commands.at(-1)).toEqual({ kind: "setActorDepth", actorId: "main", mode: "seated" });
+    const routeIds = new Set([...route.outbound, ...route.return].map((stage) => stage.id));
+    expect(commands.filter((command) => command.kind === "playRouteStage" && routeIds.has(command.routeId)))
+      .toMatchObject([...route.outbound, ...route.return].map((stage) => ({
+        routeId: stage.id, actionId: stage.actionId, points: stage.points, durationMs: stage.durationMs, flipX: stage.flipX,
+      })));
+    expect(route).toEqual(originalRoute);
+  });
+
+  it.each(["origin", "template-anchor", "actor-offset"])("uses the updated Main seat after changing %s", (changedPart) => {
+    const document = structuredClone(resolver.calibration);
+    const main = document.stations.items.find((station) => station.stationId === "main")!;
+    if (changedPart === "origin") {
+      main.origin.x += 42;
+      main.origin.y -= 17;
+    } else if (changedPart === "template-anchor") {
+      document.stationTemplates[main.stationTemplateId]!.actorAnchor.localPosition.x += 13;
+      document.stationTemplates[main.stationTemplateId]!.actorAnchor.localPosition.y += 29;
+    } else {
+      main.actorOffset.x -= 7;
+      main.actorOffset.y += 11;
+    }
+    const changedResolver = new OfficeCalibrationResolver(parseOfficeCalibrationJson(JSON.stringify(document)));
+    const station = changedResolver.stations().find((candidate) => candidate.stationId === "main")!;
+    const commands = flattenCommands(new OfficeActivityCompiler(changedResolver).dispatch("main", "child", "main", station.handoffRoutes.planning!));
+    const finish = commands.find((command) => command.kind === "playRouteStage" && command.routeId === "handoff:finish-off-chair");
+
+    expect(station.anchors.seat).not.toEqual(resolver.station("main").actorAnchor);
+    expect(finish).toMatchObject({ points: [station.anchors.seat] });
+  });
+
+  it.each([false, true])("preserves the independent Main finish mirror %s at its canonical seat", (flipX) => {
+    const document = structuredClone(resolver.calibration);
+    document.handoffs.main!.planning!.actionMirrors["finish:off-chair"] = flipX;
+    const changedResolver = new OfficeCalibrationResolver(parseOfficeCalibrationJson(JSON.stringify(document)));
+    const station = changedResolver.stations().find((candidate) => candidate.stationId === "main")!;
+    const commands = flattenCommands(new OfficeActivityCompiler(changedResolver).dispatch("main", "child", "main", station.handoffRoutes.planning!));
+    expect(commands.at(-2)).toMatchObject({
+      kind: "playRouteStage", points: [station.anchors.seat], flipX, reverse: true,
+      durationMs: changedResolver.action("off-chair").durationMs,
+    });
   });
 
   it("keeps station behavior seated and brackets facility travel with mobile then seated depth", () => {

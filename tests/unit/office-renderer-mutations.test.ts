@@ -193,10 +193,16 @@ describe("Office renderer async mutations", () => {
     expect(reduced.gotoAndPlay).not.toHaveBeenCalled();
   });
 
-  it("keeps route position and overlays unchanged until the next action is ready, then commits them together", async () => {
+  it.each([
+    { routeId: "canonical-seat", actionId: "toilet" as const, reverse: false, reducedMotion: false },
+    { routeId: "handoff:finish-off-chair", actionId: "off-chair" as const, reverse: true, reducedMotion: false },
+    { routeId: "handoff:finish-off-chair", actionId: "off-chair" as const, reverse: true, reducedMotion: true },
+  ])("commits $actionId position and overlays together only when its action is ready (reduced motion: $reducedMotion)", async ({ routeId, actionId, reverse, reducedMotion }) => {
     const deferred = createDeferred<ReturnType<typeof actionHandle>>();
     const previous = actionHandle();
+    const textures = [{ frame: 1 }, { frame: 2 }];
     const next = actionHandle({
+      sheet: { animations: { action: textures } },
       visualAnchor: { x: 274.5, y: 206 },
       firstFrameVisualBounds: {
         sourceSize: { width: 480, height: 480 },
@@ -220,10 +226,11 @@ describe("Office renderer async mutations", () => {
     const command = {
       kind: "playRouteStage" as const,
       actorId: "agent-1",
-      routeId: "canonical-seat",
-      actionId: "toilet" as const,
+      routeId,
+      actionId,
       points: [{ x: -40, y: 511 }],
       durationMs: 0,
+      reverse,
     };
     const pending = applyOfficeParticipantRouteStage(
       { acquireAction: vi.fn(() => deferred.promise) } as never,
@@ -231,14 +238,18 @@ describe("Office renderer async mutations", () => {
       { action: vi.fn(() => ({ scale: 0.965, offset: { x: 260.4, y: 243.6 } })) } as never,
       command,
       new AbortController().signal,
-      false,
+      reducedMotion,
     );
 
     expect({ x: group.x, y: group.y, labelX: label.x, labelY: label.y }).toEqual({ x: 10, y: 20, labelX: 3, labelY: -114 });
+    expect(visual.sprite.textures).toEqual([]);
     deferred.resolve(next);
     await pending;
 
     expect({ x: group.x, y: group.y }).toEqual({ x: -40, y: 511 });
+    expect(visual.sprite.textures).toEqual(reverse ? [...textures].reverse() : textures);
+    if (reducedMotion) expect(visual.sprite.gotoAndStop).toHaveBeenCalledWith(0);
+    else expect(visual.sprite.gotoAndPlay).toHaveBeenCalledWith(0);
     expect(label.x).toBeCloseTo(263.6, 1);
     expect(label.y).toBeCloseTo(91.5, 1);
     expect(status.position.x).toBeCloseTo(label.x + 61.5, 1);
@@ -247,7 +258,10 @@ describe("Office renderer async mutations", () => {
     expect(next.release).not.toHaveBeenCalled();
   });
 
-  it("releases a cancelled route-stage action without moving the actor or its overlays", async () => {
+  it.each([
+    { routeId: "walk-out", actionId: "walk-horizontal" as const, reverse: false },
+    { routeId: "handoff:finish-off-chair", actionId: "off-chair" as const, reverse: true },
+  ])("releases a cancelled $actionId action without moving the actor or its overlays", async ({ routeId, actionId, reverse }) => {
     const deferred = createDeferred<ReturnType<typeof actionHandle>>();
     const next = actionHandle();
     const controller = new AbortController();
@@ -262,7 +276,7 @@ describe("Office renderer async mutations", () => {
       { acquireAction: vi.fn(() => deferred.promise) } as never,
       new Map([["agent-1", visual as never]]),
       {} as never,
-      { kind: "playRouteStage", actorId: "agent-1", routeId: "walk-out", actionId: "walk-horizontal", points: [{ x: 30, y: 40 }], durationMs: 100 },
+      { kind: "playRouteStage", actorId: "agent-1", routeId, actionId, reverse, points: [{ x: 30, y: 40 }], durationMs: 100 },
       controller.signal,
       false,
     );

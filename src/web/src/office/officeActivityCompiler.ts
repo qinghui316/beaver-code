@@ -51,6 +51,7 @@ export class OfficeActivityCompiler {
     mainStationId: string,
     route: OfficeHandoffRoute,
   ): OfficeRuntimeVisualCommand {
+    const mainSeat = this.resolver.station(mainStationId).actorAnchor;
     return {
       kind: "sequence",
       commands: [
@@ -73,7 +74,7 @@ export class OfficeActivityCompiler {
           this.positionedAction(childActorId, "handoff:salute", "salute", route.salute, this.resolver.action("salute").durationMs, { flipX: route.actionMirrors["interaction:salute"] }),
         ] },
         ...route.return.map((stage) => this.routeStage(mainActorId, stage)),
-        { kind: "playAction", actorId: mainActorId, actionId: "off-chair", reverse: true, loop: false, flipX: route.actionMirrors["finish:off-chair"], durationMs: this.resolver.action("off-chair").durationMs },
+        this.positionedAction(mainActorId, "handoff:finish-off-chair", "off-chair", mainSeat, this.resolver.action("off-chair").durationMs, { reverse: true, loop: false, flipX: route.actionMirrors["finish:off-chair"] }),
         this.actorDepth(mainActorId, "seated"),
       ],
     };
